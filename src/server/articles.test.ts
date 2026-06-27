@@ -564,6 +564,28 @@ describe("article service", () => {
     expect(getArticle(article.id, db)?.status).toBe("revision_generated");
   });
 
+  it("regenerates a markdown draft after a revision and keeps previous drafts as history", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    const diagnosis = await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+    await reviseFromDiagnosis(article.id, { diagnosisId: diagnosis.id }, new FakeAIClient(), db);
+
+    const regenerated = await generateDraft(article.id, new FakeAIClient(), db);
+    const drafts = db.select().from(draftVersions).where(eq(draftVersions.articleId, article.id)).all();
+    const reworkEvent = db
+      .select()
+      .from(workflowEvents)
+      .where(eq(workflowEvents.eventType, "generate_draft"))
+      .all()
+      .find((event) => event.fromStatus === "revision_generated" && event.toStatus === "draft_generated");
+
+    expect(regenerated.versionNo).toBe(3);
+    expect(regenerated.draftType).toBe("initial");
+    expect(drafts).toHaveLength(3);
+    expect(getArticle(article.id, db)?.status).toBe("draft_generated");
+    expect(reworkEvent).toBeDefined();
+  });
+
   it("rejects revision when the diagnosis belongs to another article", async () => {
     const { db } = createTestDatabase();
     const { article, draft } = await createArticleWithDraft(db);
