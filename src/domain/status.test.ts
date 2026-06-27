@@ -8,6 +8,19 @@ describe("article status machine", () => {
     expect(canTransition("angles_generated", "angle_selected")).toBe(true);
   });
 
+  it("allows reselecting an angle before publish workflow starts", () => {
+    expect(canTransition("outline_generated", "angle_selected")).toBe(true);
+    expect(canTransition("outline_review", "angle_selected")).toBe(true);
+    expect(canTransition("draft_generated", "angle_selected")).toBe(true);
+    expect(canTransition("dbs_checking", "angle_selected")).toBe(true);
+    expect(canTransition("revision_generated", "angle_selected")).toBe(true);
+  });
+
+  it("keeps publish queue states from jumping back to angle selection", () => {
+    expect(canTransition("ready_to_publish", "angle_selected")).toBe(false);
+    expect(canTransition("published_manually", "angle_selected")).toBe(false);
+  });
+
   it("rejects jumping directly to ready_to_publish", () => {
     expect(() => assertCanTransition("topic_created", "ready_to_publish")).toThrow("Cannot transition");
   });

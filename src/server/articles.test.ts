@@ -10,7 +10,8 @@ import {
   outlineVersions,
   promptRunArtifacts,
   requirementPresets,
-  stagePromptDefaults
+  stagePromptDefaults,
+  workflowEvents
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
@@ -223,6 +224,39 @@ describe("article service", () => {
     expect(selected).toHaveLength(1);
     expect(selected[0].id).toBe(second.id);
     expect(updated?.status).toBe("angle_selected");
+  });
+
+  it("reselects an angle after draft generation and keeps previous versions as history", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const first = createManualAngle(article.id, { angleTitle: "开户不是重点" }, db);
+    const second = createManualAngle(article.id, { angleTitle: "资金路径才是重点" }, db);
+
+    selectAngle(article.id, first.id, db);
+    const outline = await generateOutline(article.id, new FakeAIClient(), db);
+    acceptOutline(article.id, outline.id, db);
+    await generateDraft(article.id, new FakeAIClient(), db);
+
+    const reselected = selectAngle(article.id, second.id, db);
+    const selected = db.select().from(angleCandidates).where(eq(angleCandidates.selected, true)).all();
+    const updated = getArticle(article.id, db);
+    const outlines = db.select().from(outlineVersions).where(eq(outlineVersions.articleId, article.id)).all();
+    const drafts = db.select().from(draftVersions).where(eq(draftVersions.articleId, article.id)).all();
+    const reworkEvent = db
+      .select()
+      .from(workflowEvents)
+      .where(eq(workflowEvents.eventType, "select_angle"))
+      .all()
+      .find((event) => event.fromStatus === "draft_generated" && event.toStatus === "angle_selected");
+
+    expect(reselected.id).toBe(second.id);
+    expect(selected).toHaveLength(1);
+    expect(selected[0].id).toBe(second.id);
+    expect(updated?.selectedAngleId).toBe(second.id);
+    expect(updated?.status).toBe("angle_selected");
+    expect(outlines).toHaveLength(1);
+    expect(drafts).toHaveLength(1);
+    expect(reworkEvent).toBeDefined();
   });
 
   it("generates outline, accepts it, and generates a draft", async () => {
