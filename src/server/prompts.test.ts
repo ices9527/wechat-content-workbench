@@ -13,6 +13,9 @@ describe("prompt templates", () => {
 
     expect(prompt).toContain("跨境支付通");
     expect(prompt).toContain("速度不是重点");
+    expect(prompt).toContain("必须只输出 JSON");
+    expect(prompt).toContain("mainline");
+    expect(prompt).toContain("outlineMarkdown");
   });
 
   it("fails when variables are missing", () => {

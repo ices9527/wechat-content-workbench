@@ -23,7 +23,11 @@ const templates: Record<PromptTask, string> = {
     "主题：{{topic}}",
     "角度：{{angleTitle}}",
     "读者痛点：{{readerPain}}",
-    "文章承诺：{{promise}}"
+    "文章承诺：{{promise}}",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "mainline：一句话主线判断，不要写成标题或资料主题。",
+    "outlineMarkdown：完整 Markdown 提纲，包含文章标题、目标读者、开头场景、核心问题、3-5 个小标题、每节要解决的问题、关键判断句和结尾行动建议。"
   ].join("\n"),
   generate_draft: [
     "你是公众号初稿写作助手。",

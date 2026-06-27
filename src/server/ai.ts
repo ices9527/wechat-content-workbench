@@ -42,6 +42,94 @@ export type AIClient = {
   generateReviewCheck(prompt: string): Promise<GeneratedPromptArtifact>;
 };
 
+function stringifyPromptValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stringifyPromptValue(item))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => {
+        const text = stringifyPromptValue(item);
+        return text ? `## ${key}\n${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return "";
+}
+
+function firstPromptValue(json: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = stringifyPromptValue(json[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function outlineObjectToMarkdown(json: Record<string, unknown>): string {
+  const ignoredKeys = new Set([
+    "mainline",
+    "mainLine",
+    "articleMainline",
+    "文章主线",
+    "主线",
+    "核心主线",
+    "主线判断"
+  ]);
+  return Object.entries(json)
+    .map(([key, value]) => {
+      if (ignoredKeys.has(key)) {
+        return "";
+      }
+      const text = stringifyPromptValue(value);
+      return text ? `## ${key}\n${text}` : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function parseJsonContent(content: string): Record<string, unknown> {
+  const trimmed = content.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return JSON.parse(fenced ? fenced[1] : trimmed) as Record<string, unknown>;
+}
+
+export function normalizeGeneratedOutline(json: Record<string, unknown>): GeneratedOutline {
+  const mainline = firstPromptValue(json, [
+    "mainline",
+    "mainLine",
+    "articleMainline",
+    "文章主线",
+    "主线",
+    "核心主线",
+    "主线判断"
+  ]);
+  const outlineMarkdown =
+    firstPromptValue(json, [
+      "outlineMarkdown",
+      "outline_markdown",
+      "markdownOutline",
+      "outline",
+      "markdown",
+      "Markdown 提纲",
+      "提纲",
+      "文章提纲"
+    ]) || outlineObjectToMarkdown(json);
+
+  return { mainline, outlineMarkdown };
+}
+
 export class FakeAIClient implements AIClient {
   model = "fake-content-model";
   baseUrl = "fake://local";
@@ -246,10 +334,7 @@ export class OpenAICompatibleClient implements AIClient {
 
   async generateOutline(prompt: string): Promise<GeneratedOutline> {
     const json = await this.completeJson(prompt);
-    return {
-      mainline: String(json.mainline || ""),
-      outlineMarkdown: String(json.outlineMarkdown || "")
-    };
+    return normalizeGeneratedOutline(json);
   }
 
   async generateDraft(prompt: string): Promise<GeneratedDraft> {
@@ -316,7 +401,7 @@ export class OpenAICompatibleClient implements AIClient {
     if (!content) {
       throw new Error("AI response missing content.");
     }
-    return JSON.parse(content) as Record<string, unknown>;
+    return parseJsonContent(content);
   }
 }
 
