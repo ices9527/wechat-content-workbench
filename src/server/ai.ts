@@ -26,6 +26,19 @@ export type GeneratedDiagnosis = {
   firstFix: string;
 };
 
+export type TopicDiagnosisVerdict = "pass" | "revise" | "hold" | "drop";
+
+export type GeneratedTopicDiagnosis = {
+  verdict: TopicDiagnosisVerdict;
+  targetReaderCheck: string;
+  readerProblemCheck: string;
+  timelinessCheck: string;
+  actionabilityCheck: string;
+  riskSummary: string;
+  suggestionsMarkdown: string;
+  nextAction: string;
+};
+
 export type GeneratedPromptArtifact = {
   summaryMarkdown: string;
 };
@@ -34,6 +47,7 @@ export type AIClient = {
   model: string;
   baseUrl?: string;
   generateAngles(prompt: string): Promise<GeneratedAngle[]>;
+  diagnoseTopic(prompt: string): Promise<GeneratedTopicDiagnosis>;
   generateOutline(prompt: string): Promise<GeneratedOutline>;
   generateDraft(prompt: string): Promise<GeneratedDraft>;
   diagnoseContent(prompt: string): Promise<GeneratedDiagnosis>;
@@ -113,6 +127,57 @@ function draftObjectToMarkdown(json: Record<string, unknown>): string {
     .join("\n\n");
 }
 
+function topicDiagnosisObjectToMarkdown(json: Record<string, unknown>): string {
+  const ignoredKeys = new Set([
+    "verdict",
+    "decision",
+    "conclusion",
+    "status",
+    "结论",
+    "选题结论",
+    "诊断结论",
+    "targetReaderCheck",
+    "target_reader_check",
+    "targetReader",
+    "目标读者判断",
+    "目标读者",
+    "readerProblemCheck",
+    "reader_problem_check",
+    "realProblemCheck",
+    "读者问题判断",
+    "真实问题",
+    "核心问题判断",
+    "timelinessCheck",
+    "timeliness",
+    "clickReasonCheck",
+    "点击理由判断",
+    "今天点开的理由",
+    "actionabilityCheck",
+    "actionability",
+    "行动建议判断",
+    "行动性判断",
+    "可行动性",
+    "riskSummary",
+    "risks",
+    "主要风险",
+    "风险",
+    "nextAction",
+    "next_action",
+    "推荐下一步",
+    "下一步"
+  ]);
+  return Object.entries(json)
+    .map(([key, value]) => {
+      if (ignoredKeys.has(key)) {
+        return "";
+      }
+      const text = stringifyPromptValue(value);
+      return text ? `## ${key}\n${text}` : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function parseJsonContent(content: string): Record<string, unknown> {
   const trimmed = content.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -173,6 +238,73 @@ export function normalizeGeneratedDraft(json: Record<string, unknown>): Generate
   return { markdown };
 }
 
+function normalizeTopicDiagnosisVerdict(value: string): TopicDiagnosisVerdict {
+  const normalized = value.trim().toLocaleLowerCase();
+  if (normalized.includes("修改后通过") || normalized.includes("revise") || normalized.includes("修改") || normalized.includes("待改")) {
+    return "revise";
+  }
+  if (normalized.includes("暂缓") || normalized.includes("hold") || normalized.includes("暂停") || normalized.includes("观望")) {
+    return "hold";
+  }
+  if (normalized.includes("放弃") || normalized.includes("drop") || normalized.includes("不建议") || normalized.includes("不要做")) {
+    return "drop";
+  }
+  if (normalized.includes("通过") || normalized.includes("pass") || normalized.includes("可以做") || normalized.includes("值得做")) {
+    return "pass";
+  }
+  return "revise";
+}
+
+export function normalizeGeneratedTopicDiagnosis(json: Record<string, unknown>): GeneratedTopicDiagnosis {
+  const verdict = normalizeTopicDiagnosisVerdict(
+    firstPromptValue(json, ["verdict", "decision", "conclusion", "status", "结论", "选题结论", "诊断结论"])
+  );
+  const targetReaderCheck = firstPromptValue(json, [
+    "targetReaderCheck",
+    "target_reader_check",
+    "targetReader",
+    "目标读者判断",
+    "目标读者"
+  ]);
+  const readerProblemCheck = firstPromptValue(json, [
+    "readerProblemCheck",
+    "reader_problem_check",
+    "realProblemCheck",
+    "读者问题判断",
+    "真实问题",
+    "核心问题判断"
+  ]);
+  const timelinessCheck = firstPromptValue(json, [
+    "timelinessCheck",
+    "timeliness",
+    "clickReasonCheck",
+    "点击理由判断",
+    "今天点开的理由"
+  ]);
+  const actionabilityCheck = firstPromptValue(json, [
+    "actionabilityCheck",
+    "actionability",
+    "行动建议判断",
+    "行动性判断",
+    "可行动性"
+  ]);
+  const riskSummary = firstPromptValue(json, ["riskSummary", "risks", "主要风险", "风险"]);
+  const suggestionsMarkdown =
+    firstPromptValue(json, ["suggestionsMarkdown", "suggestions", "修改建议", "建议"]) || topicDiagnosisObjectToMarkdown(json);
+  const nextAction = firstPromptValue(json, ["nextAction", "next_action", "推荐下一步", "下一步"]);
+
+  return {
+    verdict,
+    targetReaderCheck,
+    readerProblemCheck,
+    timelinessCheck,
+    actionabilityCheck,
+    riskSummary,
+    suggestionsMarkdown,
+    nextAction
+  };
+}
+
 export class FakeAIClient implements AIClient {
   model = "fake-content-model";
   baseUrl = "fake://local";
@@ -210,6 +342,24 @@ export class FakeAIClient implements AIClient {
         risk: "不要写成宏大叙事而缺少行动建议"
       }
     ];
+  }
+
+  async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
+    return {
+      verdict: "revise",
+      targetReaderCheck: "目标读者有方向，但需要再具体到正在处理跨境资金安排的家庭。",
+      readerProblemCheck: "真实问题不是能不能开户，而是资金路径、用途边界和家庭现金流安排能否解释清楚。",
+      timelinessCheck: "有今天点开的理由，但标题需要把热点和家庭决策关系压得更明确。",
+      actionabilityCheck: "可以继续进入角度阶段，但角度必须落在生活场景、额度核验和合规边界。",
+      riskSummary: "主要风险是写成资料解释或工具宣传，弱化了读者自己的决策问题。",
+      suggestionsMarkdown: [
+        "## 修改建议",
+        "- 把目标读者收窄到已经有香港账户、留学缴费或跨境生活安排的家庭。",
+        "- 标题不要只问能不能开，要直接指出真正变化在资金路径。",
+        "- 后续角度优先检查生活场景、额度边界和用途边界。"
+      ].join("\n"),
+      nextAction: "先补一句读者场景，再生成角度。"
+    };
   }
 
   async generateOutline(): Promise<GeneratedOutline> {
@@ -375,6 +525,11 @@ export class OpenAICompatibleClient implements AIClient {
     return json.angles as GeneratedAngle[];
   }
 
+  async diagnoseTopic(prompt: string): Promise<GeneratedTopicDiagnosis> {
+    const json = await this.completeJson(prompt);
+    return normalizeGeneratedTopicDiagnosis(json);
+  }
+
   async generateOutline(prompt: string): Promise<GeneratedOutline> {
     const json = await this.completeJson(prompt);
     return normalizeGeneratedOutline(json);
@@ -446,7 +601,7 @@ export class OpenAICompatibleClient implements AIClient {
 
 export function getAIClient(): AIClient {
   const config = readAppConfig();
-  if (process.env.NODE_ENV === "test" || !config.openaiApiKey || !config.openaiModel) {
+  if (process.env.NODE_ENV === "test" || process.env.WORKBENCH_USE_FAKE_AI === "1" || !config.openaiApiKey || !config.openaiModel) {
     return new FakeAIClient();
   }
   return new OpenAICompatibleClient(config);

@@ -81,6 +81,30 @@ const statements = [
     source_invocation_id TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS topic_diagnoses (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    topic_snapshot TEXT NOT NULL,
+    target_reader_snapshot TEXT,
+    core_problem_snapshot TEXT,
+    hot_anchor_snapshot TEXT,
+    custom_instruction_snapshot TEXT,
+    verdict TEXT NOT NULL,
+    target_reader_check TEXT,
+    reader_problem_check TEXT,
+    timeliness_check TEXT,
+    actionability_check TEXT,
+    risk_summary TEXT,
+    suggestions_markdown TEXT,
+    next_action TEXT,
+    source_invocation_id TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS topic_diagnoses_article_created_index
+    ON topic_diagnoses(article_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS topic_diagnoses_source_invocation_index
+    ON topic_diagnoses(source_invocation_id)`,
   `CREATE TABLE IF NOT EXISTS ai_invocations (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL REFERENCES users(id),
@@ -220,7 +244,12 @@ const columnMigrations = [
   { table: "ai_invocations", column: "custom_instruction", definition: "TEXT" },
   { table: "ai_invocations", column: "stage_prompt_label_snapshot", definition: "TEXT" },
   { table: "ai_invocations", column: "stage_prompt_snapshot", definition: "TEXT" },
-  { table: "content_diagnoses", column: "source_invocation_id", definition: "TEXT" }
+  { table: "content_diagnoses", column: "source_invocation_id", definition: "TEXT" },
+  { table: "topic_diagnoses", column: "topic_snapshot", definition: "TEXT NOT NULL DEFAULT ''" },
+  { table: "topic_diagnoses", column: "target_reader_snapshot", definition: "TEXT" },
+  { table: "topic_diagnoses", column: "core_problem_snapshot", definition: "TEXT" },
+  { table: "topic_diagnoses", column: "hot_anchor_snapshot", definition: "TEXT" },
+  { table: "topic_diagnoses", column: "custom_instruction_snapshot", definition: "TEXT" }
 ] as const;
 
 const postColumnStatements = [

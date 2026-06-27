@@ -83,6 +83,27 @@ export const contentDiagnoses = sqliteTable("content_diagnoses", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
 });
 
+export const topicDiagnoses = sqliteTable("topic_diagnoses", {
+  id: text("id").primaryKey(),
+  articleId: text("article_id").notNull().references(() => articleProjects.id),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  topicSnapshot: text("topic_snapshot").notNull(),
+  targetReaderSnapshot: text("target_reader_snapshot"),
+  coreProblemSnapshot: text("core_problem_snapshot"),
+  hotAnchorSnapshot: text("hot_anchor_snapshot"),
+  customInstructionSnapshot: text("custom_instruction_snapshot"),
+  verdict: text("verdict").notNull(),
+  targetReaderCheck: text("target_reader_check"),
+  readerProblemCheck: text("reader_problem_check"),
+  timelinessCheck: text("timeliness_check"),
+  actionabilityCheck: text("actionability_check"),
+  riskSummary: text("risk_summary"),
+  suggestionsMarkdown: text("suggestions_markdown"),
+  nextAction: text("next_action"),
+  sourceInvocationId: text("source_invocation_id"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+});
+
 export const aiInvocations = sqliteTable("ai_invocations", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull().references(() => users.id),
@@ -229,6 +250,7 @@ export type AngleCandidate = typeof angleCandidates.$inferSelect;
 export type OutlineVersion = typeof outlineVersions.$inferSelect;
 export type DraftVersion = typeof draftVersions.$inferSelect;
 export type ContentDiagnosis = typeof contentDiagnoses.$inferSelect;
+export type TopicDiagnosis = typeof topicDiagnoses.$inferSelect;
 export type AIInvocation = typeof aiInvocations.$inferSelect;
 export type StagePromptDefault = typeof stagePromptDefaults.$inferSelect;
 export type RequirementPreset = typeof requirementPresets.$inferSelect;

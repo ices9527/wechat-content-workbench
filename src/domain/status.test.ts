@@ -4,6 +4,8 @@ import { assertCanTransition, canTransition, getNextAction, isPublishQueueStatus
 
 describe("article status machine", () => {
   it("allows the first writing transitions", () => {
+    expect(canTransition("topic_created", "topic_diagnosed")).toBe(true);
+    expect(canTransition("topic_diagnosed", "angles_generated")).toBe(true);
     expect(canTransition("topic_created", "angles_generated")).toBe(true);
     expect(canTransition("angles_generated", "angle_selected")).toBe(true);
   });
@@ -25,6 +27,7 @@ describe("article status machine", () => {
     expect(canTransition("ready_to_publish", "angle_selected")).toBe(false);
     expect(canTransition("published_manually", "angle_selected")).toBe(false);
     expect(canTransition("ready_to_publish", "draft_generated")).toBe(false);
+    expect(canTransition("ready_to_publish", "topic_diagnosed")).toBe(false);
   });
 
   it("rejects jumping directly to ready_to_publish", () => {
@@ -32,6 +35,7 @@ describe("article status machine", () => {
   });
 
   it("maps each status to a next action", () => {
+    expect(getNextAction("topic_diagnosed")).toBe("生成角度或手动创建角度");
     expect(getNextAction("angles_generated")).toBe("选择一个写作角度");
   });
 

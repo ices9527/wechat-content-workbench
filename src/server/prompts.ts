@@ -1,5 +1,6 @@
 export type PromptTask =
   | "generate_angles"
+  | "topic_diagnosis"
   | "generate_outline"
   | "generate_draft"
   | "dbs_content"
@@ -16,6 +17,30 @@ const templates: Record<PromptTask, string> = {
     "核心问题：{{coreProblem}}",
     "热点锚点：{{hotAnchor}}",
     "每个角度必须包含 angleTitle、readerPain、promise、risk。"
+  ].join("\n"),
+  topic_diagnosis: [
+    "你是 dontbesilent 的公众号选题诊断助手。",
+    "请只判断这个选题是否值得进入公众号生产线，不生成角度，不写正文，不写提纲。",
+    "主题：{{topic}}",
+    "目标读者：{{targetReader}}",
+    "核心问题：{{coreProblem}}",
+    "热点锚点：{{hotAnchor}}",
+    "",
+    "诊断顺序：",
+    "1. 目标读者是否具体到能判断自己的场景。",
+    "2. 读者问题是否是真问题，而不是资料主题。",
+    "3. 是否有今天点开的理由。",
+    "4. 是否能落到可行动建议、边界提醒或判断框架。",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "verdict：只能是 pass、revise、hold、drop 之一，分别代表通过、修改后通过、暂缓、放弃。",
+    "targetReaderCheck：目标读者判断。",
+    "readerProblemCheck：读者真实问题判断。",
+    "timelinessCheck：今天点开的理由判断。",
+    "actionabilityCheck：行动性或边界判断。",
+    "riskSummary：主要风险，不要泛泛而谈。",
+    "suggestionsMarkdown：Markdown 修改建议，给出下一步怎么补，不要写正文。",
+    "nextAction：一句话下一步建议。"
   ].join("\n"),
   generate_outline: [
     "你是公众号文章主线编辑。",

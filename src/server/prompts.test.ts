@@ -47,6 +47,21 @@ describe("prompt templates", () => {
     expect(prompt).toContain("AI 痕迹");
   });
 
+  it("renders topic diagnosis as a strict gate prompt", () => {
+    const prompt = renderPrompt("topic_diagnosis", {
+      topic: "香港账户还能不能开",
+      targetReader: "跨境家庭",
+      coreProblem: "资金路径是否可解释",
+      hotAnchor: "开户变难"
+    });
+
+    expect(prompt).toContain("只判断这个选题是否值得进入公众号生产线");
+    expect(prompt).toContain("不生成角度");
+    expect(prompt).toContain("不写正文");
+    expect(prompt).toContain("verdict：只能是 pass、revise、hold、drop");
+    expect(prompt).toContain("今天点开的理由判断");
+  });
+
   it("renders revision prompt with diagnosis source", () => {
     const prompt = renderPrompt("revise_from_diagnosis", {
       topic: "跨境支付通",

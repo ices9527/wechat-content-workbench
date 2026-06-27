@@ -10,7 +10,8 @@ import {
   listOutlines,
   listPromptRunArtifacts,
   listRequirementPresets,
-  listStagePromptDefaults
+  listStagePromptDefaults,
+  listTopicDiagnoses
 } from "@/server/articles";
 import { listArticleAssets, listWechatDraftUploads } from "@/server/publishing";
 import { ArticleWorkflow } from "@/components/article-workflow";
@@ -29,6 +30,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const outlines = listOutlines(article.id);
   const drafts = listDrafts(article.id);
   const diagnoses = listDiagnoses(article.id);
+  const topicDiagnoses = listTopicDiagnoses(article.id);
   const assets = listArticleAssets(article.id);
   const uploads = listWechatDraftUploads(article.id);
   const stagePrompts = listStagePromptDefaults();
@@ -59,6 +61,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         outlines={outlines}
         drafts={drafts}
         diagnoses={diagnoses}
+        topicDiagnoses={topicDiagnoses}
         assets={assets}
         uploads={uploads}
         stagePrompts={stagePrompts}

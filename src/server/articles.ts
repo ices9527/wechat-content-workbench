@@ -19,6 +19,7 @@ import {
   promptRunArtifacts,
   requirementPresets,
   stagePromptDefaults,
+  topicDiagnoses,
   wechatDraftUploads,
   workflowEvents,
   type AngleCandidate,
@@ -30,10 +31,11 @@ import {
   type PromptRunArtifact,
   type RequirementPreset,
   type AIInvocationRequirement,
-  type StagePromptDefault
+  type StagePromptDefault,
+  type TopicDiagnosis
 } from "@/db/schema";
 
-import type { AIClient, GeneratedAngle } from "./ai";
+import type { AIClient, GeneratedAngle, GeneratedTopicDiagnosis } from "./ai";
 import { getAIClient } from "./ai";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 
@@ -86,6 +88,9 @@ const promptControlInputShape = {
 };
 
 export const generateWithPromptInputSchema = z.object(promptControlInputShape);
+export const topicDiagnosisInputSchema = z.object({
+  customInstruction: promptControlInputShape.customInstruction
+});
 
 export const requirementStageSchema = z.enum(["angle", "outline", "draft", "dbs", "pre_publish", "review"]);
 export const stagePromptStageSchema = requirementStageSchema;
@@ -146,6 +151,7 @@ export type UpdateDraftInput = z.infer<typeof updateDraftInputSchema>;
 export type SaveOutlineInput = z.infer<typeof saveOutlineInputSchema>;
 export type UpdateOutlineInput = z.infer<typeof updateOutlineInputSchema>;
 export type GenerateWithPromptInput = z.input<typeof generateWithPromptInputSchema>;
+export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
 export type StagePromptStage = z.infer<typeof stagePromptStageSchema>;
 export type RequirementStage = z.infer<typeof requirementStageSchema>;
 export type CreateRequirementInput = z.infer<typeof createRequirementInputSchema>;
@@ -505,6 +511,15 @@ export function listDiagnoses(articleId: string, db: WorkbenchDatabase = getData
     .from(contentDiagnoses)
     .where(eq(contentDiagnoses.articleId, articleId))
     .orderBy(desc(contentDiagnoses.createdAt))
+    .all();
+}
+
+export function listTopicDiagnoses(articleId: string, db: WorkbenchDatabase = getDatabase().db): TopicDiagnosis[] {
+  return db
+    .select()
+    .from(topicDiagnoses)
+    .where(eq(topicDiagnoses.articleId, articleId))
+    .orderBy(desc(topicDiagnoses.createdAt))
     .all();
 }
 
@@ -898,6 +913,18 @@ function buildRequirementComplianceMarkdown(markdown: string, requirements: AIIn
   return ["\n\n## 要求遵守情况", ...violations].join("\n");
 }
 
+function hasUsefulTopicDiagnosis(generated: GeneratedTopicDiagnosis): boolean {
+  return [
+    generated.targetReaderCheck,
+    generated.readerProblemCheck,
+    generated.timelinessCheck,
+    generated.actionabilityCheck,
+    generated.riskSummary,
+    generated.suggestionsMarkdown,
+    generated.nextAction
+  ].some((value) => value.trim().length > 0);
+}
+
 export function createManualAngle(
   articleId: string,
   input: ManualAngleInput,
@@ -921,6 +948,97 @@ export function createManualAngle(
   };
   db.insert(angleCandidates).values(angle).run();
   return angle;
+}
+
+export async function runTopicDiagnosis(
+  articleId: string,
+  input: TopicDiagnosisInput = {},
+  client: AIClient = getAIClient(),
+  db: WorkbenchDatabase = getDatabase().db
+): Promise<TopicDiagnosis> {
+  const parsed = topicDiagnosisInputSchema.parse(input);
+  const article = requireArticle(articleId, db);
+  const prompt = buildLayeredPrompt(
+    renderPrompt("topic_diagnosis", {
+      topic: article.topic,
+      targetReader: article.targetReader,
+      coreProblem: article.coreProblem,
+      hotAnchor: article.hotAnchor
+    }),
+    {
+      customInstruction: parsed.customInstruction
+    }
+  );
+
+  try {
+    const generated = await client.diagnoseTopic(prompt);
+    if (!hasUsefulTopicDiagnosis(generated)) {
+      throw new Error("AI 返回的选题诊断为空");
+    }
+
+    const now = new Date().toISOString();
+    let diagnosis: TopicDiagnosis = {
+      id: randomUUID(),
+      articleId: article.id,
+      ownerId: article.ownerId,
+      topicSnapshot: article.topic,
+      targetReaderSnapshot: article.targetReader,
+      coreProblemSnapshot: article.coreProblem,
+      hotAnchorSnapshot: article.hotAnchor,
+      customInstructionSnapshot: parsed.customInstruction || null,
+      verdict: generated.verdict,
+      targetReaderCheck: generated.targetReaderCheck || null,
+      readerProblemCheck: generated.readerProblemCheck || null,
+      timelinessCheck: generated.timelinessCheck || null,
+      actionabilityCheck: generated.actionabilityCheck || null,
+      riskSummary: generated.riskSummary || null,
+      suggestionsMarkdown: generated.suggestionsMarkdown || null,
+      nextAction: generated.nextAction || null,
+      sourceInvocationId: null,
+      createdAt: now
+    };
+
+    db.transaction(() => {
+      const invocationId = recordAIInvocation(db, {
+        article,
+        taskType: "topic_diagnosis",
+        client,
+        prompt,
+        response: generated,
+        customInstruction: parsed.customInstruction,
+        status: "success"
+      });
+      diagnosis = { ...diagnosis, sourceInvocationId: invocationId };
+      db.insert(topicDiagnoses).values(diagnosis).run();
+
+      const fromStatus = article.status as ArticleStatus;
+      if (fromStatus === "topic_created") {
+        transitionArticle(db, article, "topic_diagnosed", "run_topic_diagnosis", {
+          topicDiagnosisId: diagnosis.id,
+          verdict: diagnosis.verdict
+        });
+      } else {
+        db.update(articleProjects).set({ updatedAt: now }).where(eq(articleProjects.id, article.id)).run();
+        recordWorkflowEvent(db, article, fromStatus, fromStatus, "run_topic_diagnosis", {
+          topicDiagnosisId: diagnosis.id,
+          verdict: diagnosis.verdict
+        });
+      }
+    });
+
+    return diagnosis;
+  } catch (error) {
+    recordAIInvocation(db, {
+      article,
+      taskType: "topic_diagnosis",
+      client,
+      prompt,
+      customInstruction: parsed.customInstruction,
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : "AI 选题诊断失败"
+    });
+    throw error;
+  }
 }
 
 export async function generateAngles(
@@ -969,7 +1087,7 @@ export async function generateAngles(
 
     db.transaction(() => {
       db.insert(angleCandidates).values(created).run();
-      if (article.status === "topic_created") {
+      if (article.status === "topic_created" || article.status === "topic_diagnosed") {
         transitionArticle(db, article, "angles_generated", "generate_angles", { count: created.length });
       }
       const invocationId = recordAIInvocation(db, {

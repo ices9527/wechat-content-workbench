@@ -417,6 +417,10 @@ h1 {
   gap: 12px;
 }
 
+.detail-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .detail-item {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -454,7 +458,7 @@ h1 {
 
 .workflow-tabs {
   display: grid;
-  grid-template-columns: repeat(8, minmax(112px, 1fr));
+  grid-template-columns: repeat(9, minmax(112px, 1fr));
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -1023,6 +1027,59 @@ h1 {
   padding: 3px 7px;
   font-size: 11px;
   font-weight: 700;
+}
+
+.topic-diagnosis-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.topic-diagnosis-result {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+  padding: 14px;
+}
+
+.topic-diagnosis-result.verdict-pass {
+  border-color: #b8d6c2;
+  background: #f5fbf6;
+}
+
+.topic-diagnosis-result.verdict-revise {
+  border-color: #d8caa9;
+  background: #fffaf0;
+}
+
+.topic-diagnosis-result.verdict-hold,
+.topic-diagnosis-result.verdict-drop {
+  border-color: #e0b8ae;
+  background: #fff7f5;
+}
+
+.topic-verdict-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.topic-verdict-line strong {
+  color: var(--accent);
+  font-size: 17px;
+}
+
+.topic-verdict-line span,
+.topic-risk {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.topic-risk {
+  margin: 0;
 }
 
 .editor-grid {

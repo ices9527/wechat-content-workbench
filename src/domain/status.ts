@@ -1,5 +1,6 @@
 export const ARTICLE_STATUSES = [
   "topic_created",
+  "topic_diagnosed",
   "angles_generated",
   "angle_selected",
   "outline_generated",
@@ -21,6 +22,7 @@ export type ArticleStatus = (typeof ARTICLE_STATUSES)[number];
 
 export const ARTICLE_STATUS_LABELS: Record<ArticleStatus, string> = {
   topic_created: "已建主题",
+  topic_diagnosed: "选题已诊断",
   angles_generated: "待选角度",
   angle_selected: "已选角度",
   outline_generated: "待确认提纲",
@@ -40,6 +42,7 @@ export const ARTICLE_STATUS_LABELS: Record<ArticleStatus, string> = {
 
 export const NEXT_ACTION_LABELS: Record<ArticleStatus, string> = {
   topic_created: "生成角度或手动创建角度",
+  topic_diagnosed: "生成角度或手动创建角度",
   angles_generated: "选择一个写作角度",
   angle_selected: "生成主线和提纲",
   outline_generated: "确认提纲",
@@ -58,7 +61,8 @@ export const NEXT_ACTION_LABELS: Record<ArticleStatus, string> = {
 };
 
 const ALLOWED_TRANSITIONS: Record<ArticleStatus, ArticleStatus[]> = {
-  topic_created: ["angles_generated", "angle_selected"],
+  topic_created: ["topic_diagnosed", "angles_generated", "angle_selected"],
+  topic_diagnosed: ["angles_generated", "angle_selected"],
   angles_generated: ["angle_selected"],
   angle_selected: ["outline_generated"],
   outline_generated: ["outline_review", "angle_selected"],

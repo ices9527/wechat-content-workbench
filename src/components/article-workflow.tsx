@@ -13,6 +13,7 @@ import type {
   PromptRunArtifact,
   RequirementPreset,
   StagePromptDefault,
+  TopicDiagnosis,
   WechatDraftUpload
 } from "@/db/schema";
 import type { ArticleStatus } from "@/domain/status";
@@ -99,10 +100,40 @@ function formatTime(value: string): string {
   return value.replace("T", " ").slice(0, 16);
 }
 
-type WorkflowTabId = "topic" | "angles" | "outline" | "draft" | "diagnosis" | "final" | "publish" | "review";
+const TOPIC_DIAGNOSIS_VERDICT_LABELS: Record<string, string> = {
+  pass: "通过",
+  revise: "修改后通过",
+  hold: "暂缓",
+  drop: "放弃"
+};
+
+const TOPIC_DIAGNOSIS_WARNING_COPY: Record<string, string> = {
+  revise: "选题诊断建议先补强后再生成角度，你仍然可以继续。",
+  hold: "选题诊断建议暂缓。继续生成角度前，建议先确认今天点开的理由和读者真实问题。",
+  drop: "选题诊断建议放弃。你仍可继续，但这篇文章进入生产线的风险较高。"
+};
+
+function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string {
+  if (!verdict) {
+    return "未诊断";
+  }
+  return TOPIC_DIAGNOSIS_VERDICT_LABELS[verdict] || verdict;
+}
+
+type WorkflowTabId =
+  | "topic"
+  | "topic-diagnosis"
+  | "angles"
+  | "outline"
+  | "draft"
+  | "diagnosis"
+  | "final"
+  | "publish"
+  | "review";
 
 const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "topic", label: "主题" },
+  { id: "topic-diagnosis", label: "选题诊断" },
   { id: "angles", label: "角度" },
   { id: "outline", label: "主线提纲" },
   { id: "draft", label: "Markdown 文案" },
@@ -171,7 +202,10 @@ function isWorkflowTabId(value: string | null): value is WorkflowTabId {
 }
 
 function defaultTabForStatus(status: ArticleStatus): WorkflowTabId {
-  if (status === "topic_created" || status === "angles_generated") {
+  if (status === "topic_created" || status === "topic_diagnosed") {
+    return "topic-diagnosis";
+  }
+  if (status === "angles_generated") {
     return "angles";
   }
   if (status === "angle_selected" || status === "outline_generated") {
@@ -707,6 +741,7 @@ export function ArticleWorkflow({
   outlines,
   drafts,
   diagnoses,
+  topicDiagnoses,
   assets,
   uploads,
   stagePrompts,
@@ -718,6 +753,7 @@ export function ArticleWorkflow({
   outlines: OutlineVersion[];
   drafts: DraftVersion[];
   diagnoses: ContentDiagnosis[];
+  topicDiagnoses: TopicDiagnosis[];
   assets: ArticleAsset[];
   uploads: WechatDraftUpload[];
   stagePrompts: StagePromptDefault[];
@@ -737,6 +773,7 @@ export function ArticleWorkflow({
   const acceptedOutline = outlines.find((outline) => outline.accepted) || null;
   const latestDraft = drafts[0] || null;
   const finalDraft = drafts.find((draft) => draft.isFinal) || null;
+  const latestTopicDiagnosis = topicDiagnoses[0] || null;
   const [mainline, setMainline] = useState(latestOutline?.mainline || "");
   const [outlineMarkdown, setOutlineMarkdown] = useState(latestOutline?.outlineMarkdown || "");
   const [selectedOutlineId, setSelectedOutlineId] = useState(latestOutline?.id || "");
@@ -797,6 +834,7 @@ export function ArticleWorkflow({
   const [prePublishDefaultPrompt, setPrePublishDefaultPrompt] = useState(prePublishPrompt?.prompt || "");
   const [reviewDefaultPrompt, setReviewDefaultPrompt] = useState(reviewPrompt?.prompt || "");
   const [angleCustomInstruction, setAngleCustomInstruction] = useState("");
+  const [topicDiagnosisCustomInstruction, setTopicDiagnosisCustomInstruction] = useState("");
   const [outlineCustomInstruction, setOutlineCustomInstruction] = useState("");
   const [draftCustomInstruction, setDraftCustomInstruction] = useState("");
   const [dbsCustomInstruction, setDbsCustomInstruction] = useState("");
@@ -841,10 +879,16 @@ export function ArticleWorkflow({
   const coverAssets = assets.filter((asset) => asset.assetType === "cover");
   const latestUpload = uploads[0] || null;
   const canMarkFinal = drafts.length > 0 && canMarkFinalDraft(articleStatus);
+  const topicDiagnosisWarning = latestTopicDiagnosis
+    ? TOPIC_DIAGNOSIS_WARNING_COPY[latestTopicDiagnosis.verdict] || null
+    : null;
 
   function getTabMeta(tabId: WorkflowTabId): string {
     if (tabId === "topic") {
       return "已建";
+    }
+    if (tabId === "topic-diagnosis") {
+      return latestTopicDiagnosis ? formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict) : "待做";
     }
     if (tabId === "angles") {
       return selectedAngle ? "已选" : angles.length > 0 ? `${angles.length} 个` : "待做";
@@ -1242,6 +1286,106 @@ export function ArticleWorkflow({
           </section>
         ) : null}
 
+        {activeTab === "topic-diagnosis" ? (
+          <section
+            aria-labelledby="workflow-tab-topic-diagnosis"
+            className="panel"
+            id="workflow-panel-topic-diagnosis"
+            role="tabpanel"
+            tabIndex={0}
+          >
+            <div className="panel-head">
+              <h2 className="panel-title">选题诊断</h2>
+              <span className="status">{latestTopicDiagnosis ? formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict) : "待诊断"}</span>
+            </div>
+            <div className="panel-body">
+              <label className="field prompt-field">
+                <span className="label">对当前选题的要求</span>
+                <textarea
+                  className="textarea prompt-textarea"
+                  placeholder="例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户"
+                  value={topicDiagnosisCustomInstruction}
+                  onChange={(event) => setTopicDiagnosisCustomInstruction(event.target.value)}
+                />
+              </label>
+
+              <div className="action-row">
+                <button
+                  className="button"
+                  disabled={pending !== null}
+                  onClick={() =>
+                    runAction("run-topic-diagnosis", async () => {
+                      await postJson<{ diagnosis: TopicDiagnosis }>(`/api/articles/${article.id}/run-topic-diagnosis`, {
+                        customInstruction: topicDiagnosisCustomInstruction
+                      });
+                      setNotice("已完成选题诊断");
+                    })
+                  }
+                  type="button"
+                >
+                  {pending === "run-topic-diagnosis" ? "诊断中" : "运行 DBS 选题诊断"}
+                </button>
+              </div>
+
+              {latestTopicDiagnosis ? (
+                <div className="topic-diagnosis-stack">
+                  <section className={`topic-diagnosis-result verdict-${latestTopicDiagnosis.verdict}`}>
+                    <div className="mini-card-head">
+                      <h3>最新诊断</h3>
+                      <span className="source-pill">{formatTime(latestTopicDiagnosis.createdAt)}</span>
+                    </div>
+                    <div className="topic-verdict-line">
+                      <strong>{formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict)}</strong>
+                      <span>{latestTopicDiagnosis.nextAction || "未记录下一步建议"}</span>
+                    </div>
+                    <dl className="detail-grid compact">
+                      <div className="detail-item">
+                        <dt>目标读者</dt>
+                        <dd>{latestTopicDiagnosis.targetReaderCheck || "未记录"}</dd>
+                      </div>
+                      <div className="detail-item">
+                        <dt>真实问题</dt>
+                        <dd>{latestTopicDiagnosis.readerProblemCheck || "未记录"}</dd>
+                      </div>
+                      <div className="detail-item">
+                        <dt>点开理由</dt>
+                        <dd>{latestTopicDiagnosis.timelinessCheck || "未记录"}</dd>
+                      </div>
+                      <div className="detail-item">
+                        <dt>行动边界</dt>
+                        <dd>{latestTopicDiagnosis.actionabilityCheck || "未记录"}</dd>
+                      </div>
+                    </dl>
+                    {latestTopicDiagnosis.riskSummary ? (
+                      <p className="topic-risk">风险：{latestTopicDiagnosis.riskSummary}</p>
+                    ) : null}
+                    {latestTopicDiagnosis.suggestionsMarkdown ? (
+                      <MarkdownPreview markdown={latestTopicDiagnosis.suggestionsMarkdown} />
+                    ) : null}
+                  </section>
+
+                  {topicDiagnoses.length > 1 ? (
+                    <section className="diagnosis-list">
+                      <h3>历史诊断</h3>
+                      {topicDiagnoses.slice(1, 5).map((diagnosis) => (
+                        <article className="mini-card" key={diagnosis.id}>
+                          <div className="mini-card-head">
+                            <h3>{formatTopicDiagnosisVerdict(diagnosis.verdict)}</h3>
+                            <span className="source-pill">{formatTime(diagnosis.createdAt)}</span>
+                          </div>
+                          <p>{diagnosis.nextAction || diagnosis.riskSummary || "未记录摘要"}</p>
+                        </article>
+                      ))}
+                    </section>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="subtle">还没有选题诊断记录。</p>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {activeTab === "angles" ? (
           <section
             aria-labelledby="workflow-tab-angles"
@@ -1255,6 +1399,10 @@ export function ArticleWorkflow({
           {selectedAngle ? <span className="status">已选择</span> : null}
         </div>
         <div className="panel-body">
+          {topicDiagnosisWarning ? (
+            <p className={latestTopicDiagnosis?.verdict === "drop" ? "error" : "notice"}>{topicDiagnosisWarning}</p>
+          ) : null}
+
           <StagePromptDialog
             title={STAGE_PROMPT_UI.angle.title}
             stage="angle"

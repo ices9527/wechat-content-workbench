@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FakeAIClient, normalizeGeneratedDraft, normalizeGeneratedOutline } from "./ai";
+import { FakeAIClient, normalizeGeneratedDraft, normalizeGeneratedOutline, normalizeGeneratedTopicDiagnosis } from "./ai";
 
 describe("fake AI client", () => {
   it("generates at least five structured angles", async () => {
@@ -13,9 +13,12 @@ describe("fake AI client", () => {
 
   it("generates outline and draft content", async () => {
     const client = new FakeAIClient();
+    const topicDiagnosis = await client.diagnoseTopic();
     const outline = await client.generateOutline();
     const draft = await client.generateDraft();
 
+    expect(topicDiagnosis.verdict).toBe("revise");
+    expect(topicDiagnosis.targetReaderCheck).toContain("目标读者");
     expect(outline.mainline).toContain("这篇文章");
     expect(draft.markdown).toContain("#");
   });
@@ -69,6 +72,24 @@ describe("fake AI client", () => {
     expect(draft.markdown).toContain("## 标题");
     expect(draft.markdown).toContain("香港账户还能不能开");
     expect(draft.markdown).toContain("账户不是终点");
+  });
+
+  it("normalizes topic diagnosis responses with Chinese field names", () => {
+    const diagnosis = normalizeGeneratedTopicDiagnosis({
+      选题结论: "暂缓",
+      目标读者判断: "读者太泛，需要收窄。",
+      真实问题: "还没有落到家庭正在处理的问题。",
+      今天点开的理由: "热点存在，但和读者关系不够强。",
+      可行动性: "需要补充边界和下一步。",
+      风险: "容易写成资料罗列。",
+      建议: ["先收窄读者", "再补场景"],
+      下一步: "改完再生成角度。"
+    });
+
+    expect(diagnosis.verdict).toBe("hold");
+    expect(diagnosis.targetReaderCheck).toContain("收窄");
+    expect(diagnosis.suggestionsMarkdown).toContain("先收窄读者");
+    expect(diagnosis.nextAction).toContain("生成角度");
   });
 
   it("generates structured diagnosis and revised draft content", async () => {

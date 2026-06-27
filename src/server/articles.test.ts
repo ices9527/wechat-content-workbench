@@ -11,6 +11,7 @@ import {
   promptRunArtifacts,
   requirementPresets,
   stagePromptDefaults,
+  topicDiagnoses,
   workflowEvents
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
@@ -32,6 +33,7 @@ import {
   listPromptRunArtifacts,
   listStagePromptDefaults,
   listRequirementPresets,
+  listTopicDiagnoses,
   listArticles,
   listDiagnoses,
   listPublishQueueArticles,
@@ -42,6 +44,7 @@ import {
   runDbsContent,
   runPrePublishCheck,
   runReviewCheck,
+  runTopicDiagnosis,
   saveDraftVersion,
   selectAngle,
   updateDraftVersion,
@@ -58,6 +61,12 @@ async function createArticleWithDraft(db: ReturnType<typeof createTestDatabase>[
   acceptOutline(article.id, outline.id, db);
   const draft = await generateDraft(article.id, new FakeAIClient(), db);
   return { article, draft };
+}
+
+class FailingTopicDiagnosisClient extends FakeAIClient {
+  async diagnoseTopic(): Promise<never> {
+    throw new Error("topic diagnosis unavailable");
+  }
 }
 
 describe("article service", () => {
@@ -166,6 +175,65 @@ describe("article service", () => {
     const articles = listArticles({}, db);
     expect(articles).toHaveLength(1);
     expect(articles[0].nextAction).toBe("生成角度或手动创建角度");
+  });
+
+  it("runs topic diagnosis and records the invocation", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+
+    const diagnosis = await runTopicDiagnosis(
+      article.id,
+      { customInstruction: "重点检查是否有今天点开的理由。" },
+      new FakeAIClient(),
+      db
+    );
+    const invocations = db.select().from(aiInvocations).where(eq(aiInvocations.taskType, "topic_diagnosis")).all();
+    const rows = db.select().from(topicDiagnoses).all();
+    const updated = getArticle(article.id, db);
+
+    expect(diagnosis.verdict).toBe("revise");
+    expect(diagnosis.topicSnapshot).toBe("香港账户还能不能开");
+    expect(diagnosis.targetReaderSnapshot).toBe("跨境家庭");
+    expect(diagnosis.customInstructionSnapshot).toBe("重点检查是否有今天点开的理由。");
+    expect(diagnosis.sourceInvocationId).toBeTruthy();
+    expect(rows).toHaveLength(1);
+    expect(listTopicDiagnoses(article.id, db)).toHaveLength(1);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].prompt).toContain("重点检查是否有今天点开的理由");
+    expect(invocations[0].response || "").toContain("targetReaderCheck");
+    expect(updated?.status).toBe("topic_diagnosed");
+    expect(updated?.nextAction).toBe("生成角度或手动创建角度");
+  });
+
+  it("keeps later workflow status when topic diagnosis is rerun", async () => {
+    const { db } = createTestDatabase();
+    const { article } = await createArticleWithDraft(db);
+
+    const diagnosis = await runTopicDiagnosis(article.id, { customInstruction: "回头检查选题风险。" }, new FakeAIClient(), db);
+    const updated = getArticle(article.id, db);
+    const event = db
+      .select()
+      .from(workflowEvents)
+      .where(eq(workflowEvents.eventType, "run_topic_diagnosis"))
+      .all()
+      .find((item) => item.fromStatus === "draft_generated" && item.toStatus === "draft_generated");
+
+    expect(diagnosis.verdict).toBe("revise");
+    expect(updated?.status).toBe("draft_generated");
+    expect(event).toBeDefined();
+  });
+
+  it("records failed topic diagnosis invocations without creating diagnosis rows", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开" }, db);
+
+    await expect(runTopicDiagnosis(article.id, {}, new FailingTopicDiagnosisClient(), db)).rejects.toThrow("topic diagnosis unavailable");
+    const invocations = db.select().from(aiInvocations).where(eq(aiInvocations.taskType, "topic_diagnosis")).all();
+
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].status).toBe("failed");
+    expect(db.select().from(topicDiagnoses).all()).toHaveLength(0);
+    expect(getArticle(article.id, db)?.status).toBe("topic_created");
   });
 
   it("returns null for missing articles", () => {
