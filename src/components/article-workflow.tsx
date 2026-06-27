@@ -1,0 +1,2306 @@
+"use client";
+
+import { Maximize2, ScrollText, Settings2, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+import type {
+  AngleCandidate,
+  ArticleAsset,
+  ContentDiagnosis,
+  DraftVersion,
+  OutlineVersion,
+  PromptRunArtifact,
+  RequirementPreset,
+  StagePromptDefault,
+  WechatDraftUpload
+} from "@/db/schema";
+import type { ArticleStatus } from "@/domain/status";
+import type { ArticleListItem, PromptRecipe, RequirementStage } from "@/server/articles";
+
+function MarkdownPreview({ markdown }: { markdown: string }) {
+  const blocks = markdown.split("\n").filter((line) => line.trim().length > 0);
+  return (
+    <div className="markdown-preview">
+      {blocks.map((line, index) => {
+        if (line.startsWith("# ")) {
+          return <h1 key={index}>{line.slice(2)}</h1>;
+        }
+        if (line.startsWith("## ")) {
+          return <h2 key={index}>{line.slice(3)}</h2>;
+        }
+        if (line.startsWith("- ")) {
+          return <p key={index}>• {line.slice(2)}</p>;
+        }
+        return <p key={index}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
+async function postJson<T>(url: string, payload?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload === undefined ? undefined : JSON.stringify(payload)
+  });
+  return parseJsonResponse<T>(response, "操作失败");
+}
+
+async function patchJson<T>(url: string, payload: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<T>(response, "操作失败");
+}
+
+async function deleteJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    method: "DELETE"
+  });
+  return parseJsonResponse<T>(response, "操作失败");
+}
+
+async function getJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  return parseJsonResponse<T>(response, "操作失败");
+}
+
+async function postForm<T>(url: string, payload: FormData): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    body: payload
+  });
+  return parseJsonResponse<T>(response, "操作失败");
+}
+
+async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const result = (await response.json()) as T & { error?: string };
+    if (!response.ok) {
+      throw new Error(result.error || fallbackMessage);
+    }
+    return result;
+  }
+
+  const text = await response.text();
+  const title = text.match(/<title>(.*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim();
+  const snippet = (title || text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 160);
+  if (!response.ok) {
+    throw new Error(`${fallbackMessage}（HTTP ${response.status}${snippet ? `：${snippet}` : ""}）`);
+  }
+  throw new Error(`${fallbackMessage}（服务器返回了非 JSON 响应）`);
+}
+
+function formatTime(value: string): string {
+  return value.replace("T", " ").slice(0, 16);
+}
+
+type WorkflowTabId = "topic" | "angles" | "outline" | "draft" | "diagnosis" | "final" | "publish" | "review";
+
+const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
+  { id: "topic", label: "主题" },
+  { id: "angles", label: "角度" },
+  { id: "outline", label: "主线提纲" },
+  { id: "draft", label: "Markdown 文案" },
+  { id: "diagnosis", label: "dbs-content" },
+  { id: "final", label: "人工检查/最终稿" },
+  { id: "publish", label: "发布" },
+  { id: "review", label: "复盘" }
+];
+
+const STAGE_PROMPT_UI: Record<
+  RequirementStage,
+  {
+    eyebrow: string;
+    title: string;
+    defaultPromptLabel: string;
+    customPlaceholder: string;
+    savedNotice: string;
+  }
+> = {
+  angle: {
+    eyebrow: "Angle Prompt",
+    title: "角度提示词设置",
+    defaultPromptLabel: "角度默认提示词",
+    customPlaceholder: "例如：只生成能落到家庭跨境资金安排的角度，不要宏大趋势角度",
+    savedNotice: "已保存角度默认提示词"
+  },
+  outline: {
+    eyebrow: "Outline Prompt",
+    title: "主线提纲提示词设置",
+    defaultPromptLabel: "主线提纲默认提示词",
+    customPlaceholder: "例如：不要强调到账速度，强调家庭现金流安排",
+    savedNotice: "已保存主线提纲默认提示词"
+  },
+  draft: {
+    eyebrow: "Draft Prompt",
+    title: "Markdown 文案提示词设置",
+    defaultPromptLabel: "Markdown 文案默认提示词",
+    customPlaceholder: "例如：开头不要用热点追问，先从家庭生活场景进入",
+    savedNotice: "已保存 Markdown 文案默认提示词"
+  },
+  dbs: {
+    eyebrow: "DBS Prompt",
+    title: "dbs-content 提示词设置",
+    defaultPromptLabel: "dbs-content 默认提示词",
+    customPlaceholder: "例如：这次重点检查标题承诺、首屏判断和 AI 味，不要先改正文",
+    savedNotice: "已保存 dbs-content 默认提示词"
+  },
+  pre_publish: {
+    eyebrow: "Pre-publish Prompt",
+    title: "发布前检查提示词设置",
+    defaultPromptLabel: "发布前默认提示词",
+    customPlaceholder: "例如：重点检查首屏、标题点开理由、转发理由和预期阅读来源",
+    savedNotice: "已保存发布前默认提示词"
+  },
+  review: {
+    eyebrow: "Review Prompt",
+    title: "复盘提示词设置",
+    defaultPromptLabel: "复盘默认提示词",
+    customPlaceholder: "例如：先判断是不是触达问题，再判断标题和正文，不要直接归因文案差",
+    savedNotice: "已保存复盘默认提示词"
+  }
+};
+
+function isWorkflowTabId(value: string | null): value is WorkflowTabId {
+  return WORKFLOW_TABS.some((tab) => tab.id === value);
+}
+
+function defaultTabForStatus(status: ArticleStatus): WorkflowTabId {
+  if (status === "topic_created" || status === "angles_generated") {
+    return "angles";
+  }
+  if (status === "angle_selected" || status === "outline_generated") {
+    return "outline";
+  }
+  if (status === "outline_review" || status === "draft_generated") {
+    return "draft";
+  }
+  if (status === "dbs_checking") {
+    return "diagnosis";
+  }
+  if (status === "revision_generated" || status === "human_review") {
+    return "final";
+  }
+  if (status === "published_manually" || status === "review_pending" || status === "review_recorded") {
+    return "review";
+  }
+  return "publish";
+}
+
+const FINAL_DRAFT_LOCKED_STATUSES = new Set<ArticleStatus>([
+  "ready_to_publish",
+  "publish_package_generated",
+  "cover_generated",
+  "uploaded_to_draft_box",
+  "published_manually",
+  "review_pending",
+  "review_recorded"
+]);
+
+function canMarkFinalDraft(status: ArticleStatus): boolean {
+  return !FINAL_DRAFT_LOCKED_STATUSES.has(status);
+}
+
+function RequirementSelector({
+  title,
+  stage,
+  requirements,
+  selectedIds,
+  onChange,
+  pending,
+  onCreate,
+  onUpdate,
+  onDelete
+}: {
+  title: string;
+  stage: RequirementStage;
+  requirements: RequirementPreset[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  pending: boolean;
+  onCreate: (input: {
+    stage: RequirementStage;
+    category: string;
+    type: string;
+    label: string;
+    description: string;
+    promptFragment: string;
+    defaultEnabled: boolean;
+    priority: number;
+  }) => Promise<void>;
+  onUpdate: (id: string, input: Record<string, unknown>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [selectedOnly, setSelectedOnly] = useState(false);
+  const activeRequirements = useMemo(
+    () => requirements.filter((requirement) => requirement.enabled && !requirement.archivedAt),
+    [requirements]
+  );
+  const categories = useMemo(
+    () => Array.from(new Set(activeRequirements.map((requirement) => requirement.category))).sort((first, second) => first.localeCompare(second)),
+    [activeRequirements]
+  );
+  const types = useMemo(
+    () => Array.from(new Set(activeRequirements.map((requirement) => requirement.type))).sort((first, second) => first.localeCompare(second)),
+    [activeRequirements]
+  );
+  const filteredRequirements = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return activeRequirements.filter((requirement) => {
+      if (categoryFilter !== "all" && requirement.category !== categoryFilter) {
+        return false;
+      }
+      if (typeFilter !== "all" && requirement.type !== typeFilter) {
+        return false;
+      }
+      if (selectedOnly && !selectedIds.includes(requirement.id)) {
+        return false;
+      }
+      if (!normalizedQuery) {
+        return true;
+      }
+      const searchable = [
+        requirement.label,
+        requirement.description,
+        requirement.promptFragment,
+        requirement.category,
+        requirement.type
+      ]
+        .join("\n")
+        .toLocaleLowerCase();
+      return searchable.includes(normalizedQuery);
+    });
+  }, [activeRequirements, categoryFilter, query, selectedIds, selectedOnly, typeFilter]);
+  const grouped = useMemo(() => {
+    const groups = new Map<string, RequirementPreset[]>();
+    for (const requirement of filteredRequirements) {
+      const current = groups.get(requirement.category) || [];
+      current.push(requirement);
+      groups.set(requirement.category, current);
+    }
+    return Array.from(groups.entries());
+  }, [filteredRequirements]);
+
+  function toggleRequirement(requirementId: string, checked: boolean) {
+    if (checked) {
+      onChange(Array.from(new Set([...selectedIds, requirementId])));
+      return;
+    }
+    onChange(selectedIds.filter((id) => id !== requirementId));
+  }
+
+  return (
+    <div className="requirement-selector">
+      <div className="requirement-selector-head">
+        <strong>{title}</strong>
+        <span>
+          {filteredRequirements.length} / {activeRequirements.length} 条可用
+        </span>
+      </div>
+      <div className="requirement-selector-body">
+        <div className="requirement-selector-toolbar">
+          <input
+            aria-label="搜索提示词"
+            className="input"
+            placeholder="搜索提示词"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <select
+            aria-label="按分类筛选提示词"
+            className="input"
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+          >
+            <option value="all">全部分类</option>
+            {categories.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="按类型筛选提示词"
+            className="input"
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value)}
+          >
+            <option value="all">全部类型</option>
+            {types.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+          <label className="check-field requirement-selected-only">
+            <input checked={selectedOnly} onChange={(event) => setSelectedOnly(event.target.checked)} type="checkbox" />
+            <span>只看已选</span>
+          </label>
+        </div>
+
+        {activeRequirements.length === 0 ? (
+          <p className="subtle">暂无可选提示词。</p>
+        ) : filteredRequirements.length > 0 ? (
+          grouped.map(([category, items]) => (
+            <div className="requirement-group" key={category}>
+              <p>{category}</p>
+              <div className="requirement-options">
+                {items.map((requirement) => (
+                  <label className="requirement-option" key={requirement.id}>
+                    <input
+                      checked={selectedIds.includes(requirement.id)}
+                      onChange={(event) => toggleRequirement(requirement.id, event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>
+                      <strong>{requirement.label}</strong>
+                      <small>{requirement.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="subtle">没有匹配的可选提示词。</p>
+        )}
+
+        <details className="requirement-manager-inline">
+          <summary>管理可选提示词</summary>
+          <div className="requirement-manager-body">
+            <form
+              className="requirement-edit-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const formData = new FormData(event.currentTarget);
+                void onCreate({
+                  stage,
+                  category: String(formData.get("category") || "自定义"),
+                  type: String(formData.get("type") || "prefer"),
+                  label: String(formData.get("label") || ""),
+                  description: String(formData.get("description") || ""),
+                  promptFragment: String(formData.get("promptFragment") || ""),
+                  defaultEnabled: formData.get("defaultEnabled") === "on",
+                  priority: Number(formData.get("priority") || 500)
+                });
+                event.currentTarget.reset();
+              }}
+            >
+              <input className="input" name="label" placeholder="标签" required />
+              <input className="input" name="category" placeholder="分类" defaultValue="自定义" required />
+              <select className="input" name="type" defaultValue="prefer" aria-label="可选提示词类型">
+                <option value="must">must</option>
+                <option value="avoid">avoid</option>
+                <option value="prefer">prefer</option>
+                <option value="check">check</option>
+                <option value="compliance">compliance</option>
+              </select>
+              <input className="input" name="priority" type="number" min="0" max="9999" defaultValue="500" aria-label="排序" />
+              <input className="input span-2" name="description" placeholder="说明" />
+              <textarea className="textarea prompt-textarea span-2" name="promptFragment" placeholder="提示词片段" required />
+              <label className="check-field">
+                <input name="defaultEnabled" type="checkbox" />
+                <span>默认勾选</span>
+              </label>
+              <button className="button secondary" disabled={pending} type="submit">
+                新增
+              </button>
+            </form>
+
+            <div className="requirement-manager-list">
+              {requirements.map((requirement) => (
+                <details className="requirement-edit-item" key={requirement.id}>
+                  <summary>
+                    <span>{requirement.label}</span>
+                    <small>{requirement.archivedAt ? "已归档" : requirement.enabled ? "启用" : "停用"}</small>
+                  </summary>
+                  <form
+                    className="requirement-edit-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const formData = new FormData(event.currentTarget);
+                      void onUpdate(requirement.id, {
+                        stage,
+                        category: String(formData.get("category") || requirement.category),
+                        type: String(formData.get("type") || requirement.type),
+                        label: String(formData.get("label") || requirement.label),
+                        description: String(formData.get("description") || requirement.description),
+                        promptFragment: String(formData.get("promptFragment") || requirement.promptFragment),
+                        defaultEnabled: formData.get("defaultEnabled") === "on",
+                        priority: Number(formData.get("priority") || requirement.priority)
+                      });
+                    }}
+                  >
+                    <input className="input" name="label" defaultValue={requirement.label} required />
+                    <input className="input" name="category" defaultValue={requirement.category} required />
+                    <select className="input" name="type" defaultValue={requirement.type} aria-label="可选提示词类型">
+                      <option value="must">must</option>
+                      <option value="avoid">avoid</option>
+                      <option value="prefer">prefer</option>
+                      <option value="check">check</option>
+                      <option value="compliance">compliance</option>
+                    </select>
+                    <input className="input" name="priority" type="number" min="0" max="9999" defaultValue={requirement.priority} aria-label="排序" />
+                    <input className="input span-2" name="description" defaultValue={requirement.description} />
+                    <textarea className="textarea prompt-textarea span-2" name="promptFragment" defaultValue={requirement.promptFragment} required />
+                    <label className="check-field">
+                      <input name="defaultEnabled" type="checkbox" defaultChecked={requirement.defaultEnabled} />
+                      <span>默认勾选</span>
+                    </label>
+                    <div className="action-row compact">
+                      <button className="button secondary" disabled={pending} type="submit">
+                        保存
+                      </button>
+                      <button
+                        className="button secondary"
+                        disabled={pending}
+                        onClick={() => void onUpdate(requirement.id, { enabled: !requirement.enabled, archived: false })}
+                        type="button"
+                      >
+                        {requirement.enabled ? "停用" : "恢复"}
+                      </button>
+                      <button
+                        className="button secondary"
+                        disabled={pending}
+                        onClick={() => void onUpdate(requirement.id, { enabled: false, archived: true })}
+                        type="button"
+                      >
+                        归档
+                      </button>
+                      <button className="button secondary" disabled={pending} onClick={() => void onDelete(requirement.id)} type="button">
+                        删除
+                      </button>
+                    </div>
+                  </form>
+                </details>
+              ))}
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+function StagePromptDialog({
+  title,
+  stage,
+  defaultPromptLabel,
+  defaultPrompt,
+  onDefaultPromptChange,
+  onSaveDefaultPrompt,
+  requirements,
+  selectedIds,
+  onSelectedIdsChange,
+  pending,
+  onCreate,
+  onUpdate,
+  onDelete
+}: {
+  title: string;
+  stage: RequirementStage;
+  defaultPromptLabel: string;
+  defaultPrompt: string;
+  onDefaultPromptChange: (value: string) => void;
+  onSaveDefaultPrompt: () => Promise<void>;
+  requirements: RequirementPreset[];
+  selectedIds: string[];
+  onSelectedIdsChange: (ids: string[]) => void;
+  pending: boolean;
+  onCreate: (input: {
+    stage: RequirementStage;
+    category: string;
+    type: string;
+    label: string;
+    description: string;
+    promptFragment: string;
+    defaultEnabled: boolean;
+    priority: number;
+  }) => Promise<void>;
+  onUpdate: (id: string, input: Record<string, unknown>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const stageUi = STAGE_PROMPT_UI[stage];
+  const activeCount = requirements.filter((requirement) => requirement.enabled && !requirement.archivedAt).length;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        aria-label={`打开${title}`}
+        className="prompt-config-trigger"
+        onClick={() => setOpen(true)}
+        type="button"
+      >
+        <Settings2 aria-hidden="true" size={17} />
+        <span>
+          <strong>提示词设置</strong>
+          <small>
+            已选 {selectedIds.length} / 可用 {activeCount}
+          </small>
+        </span>
+      </button>
+
+      {open ? (
+        <div aria-label={title} aria-modal="true" className="fullscreen-overlay" onClick={() => setOpen(false)} role="dialog">
+          <section className="fullscreen-shell prompt-config-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="fullscreen-head">
+              <div>
+                <p className="eyebrow">{stageUi.eyebrow}</p>
+                <h2>{title}</h2>
+              </div>
+              <button className="icon-action" onClick={() => setOpen(false)} title="关闭" type="button" aria-label="关闭提示词设置">
+                <X aria-hidden="true" size={18} />
+              </button>
+            </div>
+
+            <div className="fullscreen-body prompt-config-body">
+              <section className="prompt-config-section">
+                <div className="prompt-config-section-head">
+                  <h3>默认提示词</h3>
+                  <button className="button secondary" disabled={pending} onClick={onSaveDefaultPrompt} type="button">
+                    保存默认提示词
+                  </button>
+                </div>
+                <label className="field">
+                  <span className="label">{defaultPromptLabel}</span>
+                  <textarea
+                    className="textarea prompt-textarea"
+                    value={defaultPrompt}
+                    onChange={(event) => onDefaultPromptChange(event.target.value)}
+                  />
+                </label>
+              </section>
+
+              <RequirementSelector
+                title="可选提示词"
+                stage={stage}
+                requirements={requirements}
+                selectedIds={selectedIds}
+                onChange={onSelectedIdsChange}
+                pending={pending}
+                onCreate={onCreate}
+                onUpdate={onUpdate}
+                onDelete={onDelete}
+              />
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function PromptRecipeDialog({ recipe, onClose }: { recipe: PromptRecipe; onClose: () => void }) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div aria-label="提示词配方" aria-modal="true" className="fullscreen-overlay" onClick={onClose} role="dialog">
+      <section className="fullscreen-shell prompt-recipe-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="fullscreen-head">
+          <div>
+            <p className="eyebrow">{recipe.taskType || "Prompt Recipe"}</p>
+            <h2>提示词配方</h2>
+          </div>
+          <button aria-label="关闭提示词配方" className="icon-action" onClick={onClose} title="关闭" type="button">
+            <X aria-hidden="true" size={18} />
+          </button>
+        </div>
+
+        <div className="fullscreen-body prompt-recipe-body">
+          {recipe.emptyReason ? <p className="notice">{recipe.emptyReason}</p> : null}
+
+          <div className="prompt-recipe-meta">
+            <span>{recipe.createdAt ? formatTime(recipe.createdAt) : "无生成时间"}</span>
+            <span>{recipe.model || "无模型记录"}</span>
+            <span>{recipe.status || "无状态记录"}</span>
+          </div>
+
+          <section className="prompt-recipe-section">
+            <h3>默认提示词</h3>
+            {recipe.stageDefaultPrompt ? (
+              <div className="prompt-recipe-card">
+                <strong>{recipe.stageDefaultPrompt.label}</strong>
+                <pre>{recipe.stageDefaultPrompt.prompt}</pre>
+              </div>
+            ) : (
+              <p className="subtle">没有默认提示词快照。</p>
+            )}
+          </section>
+
+          <section className="prompt-recipe-section">
+            <h3>可选提示词</h3>
+            {recipe.selectedRequirements.length > 0 ? (
+              <div className="prompt-recipe-list">
+                {recipe.selectedRequirements.map((requirement) => (
+                  <details className="prompt-recipe-card" key={requirement.id}>
+                    <summary>
+                      <strong>{requirement.label}</strong>
+                      <small>{requirement.stableKey}</small>
+                    </summary>
+                    <pre>{requirement.promptFragment}</pre>
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <p className="subtle">没有可选提示词快照。</p>
+            )}
+          </section>
+
+          <section className="prompt-recipe-section">
+            <h3>对当前文章的要求</h3>
+            {recipe.customInstruction ? <pre className="prompt-recipe-card">{recipe.customInstruction}</pre> : <p className="subtle">没有本次要求。</p>}
+          </section>
+
+          <section className="prompt-recipe-section">
+            <details>
+              <summary>最终提示词</summary>
+              {recipe.finalPrompt ? <pre className="prompt-recipe-final">{recipe.finalPrompt}</pre> : <p className="subtle">没有最终提示词记录。</p>}
+            </details>
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function defaultRequirementIdsFromKey(key: string): string[] {
+  return key
+    .split("|")
+    .filter((item) => item.endsWith(":true"))
+    .map((item) => item.slice(0, item.lastIndexOf(":")))
+    .filter(Boolean);
+}
+
+export function ArticleWorkflow({
+  article,
+  angles,
+  outlines,
+  drafts,
+  diagnoses,
+  assets,
+  uploads,
+  stagePrompts,
+  requirementPresets,
+  promptArtifacts
+}: {
+  article: ArticleListItem;
+  angles: AngleCandidate[];
+  outlines: OutlineVersion[];
+  drafts: DraftVersion[];
+  diagnoses: ContentDiagnosis[];
+  assets: ArticleAsset[];
+  uploads: WechatDraftUpload[];
+  stagePrompts: StagePromptDefault[];
+  requirementPresets: RequirementPreset[];
+  promptArtifacts: PromptRunArtifact[];
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const articleStatus = article.status as ArticleStatus;
+  const requestedTab = searchParams.get("tab");
+  const initialTab = isWorkflowTabId(requestedTab) ? requestedTab : defaultTabForStatus(articleStatus);
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkflowTabId>(initialTab);
+  const latestOutline = outlines[0] || null;
+  const acceptedOutline = outlines.find((outline) => outline.accepted) || null;
+  const latestDraft = drafts[0] || null;
+  const finalDraft = drafts.find((draft) => draft.isFinal) || null;
+  const [mainline, setMainline] = useState(latestOutline?.mainline || "");
+  const [outlineMarkdown, setOutlineMarkdown] = useState(latestOutline?.outlineMarkdown || "");
+  const [selectedOutlineId, setSelectedOutlineId] = useState(latestOutline?.id || "");
+  const [draftMarkdown, setDraftMarkdown] = useState(latestDraft?.markdown || "");
+  const [selectedDraftId, setSelectedDraftId] = useState(latestDraft?.id || "");
+  const anglePrompt = stagePrompts.find((prompt) => prompt.stage === "angle") || null;
+  const outlinePrompt = stagePrompts.find((prompt) => prompt.stage === "outline") || null;
+  const draftPrompt = stagePrompts.find((prompt) => prompt.stage === "draft") || null;
+  const dbsPrompt = stagePrompts.find((prompt) => prompt.stage === "dbs") || null;
+  const prePublishPrompt = stagePrompts.find((prompt) => prompt.stage === "pre_publish") || null;
+  const reviewPrompt = stagePrompts.find((prompt) => prompt.stage === "review") || null;
+  const requirementsByStage = useMemo(() => {
+    const grouped: Record<RequirementStage, RequirementPreset[]> = {
+      angle: [],
+      outline: [],
+      draft: [],
+      dbs: [],
+      pre_publish: [],
+      review: []
+    };
+    for (const requirement of requirementPresets) {
+      if (requirement.stage in grouped) {
+        grouped[requirement.stage as RequirementStage].push(requirement);
+      }
+    }
+    return grouped;
+  }, [requirementPresets]);
+  const angleRequirements = requirementsByStage.angle;
+  const outlineRequirements = requirementsByStage.outline;
+  const draftRequirements = requirementsByStage.draft;
+  const dbsRequirements = requirementsByStage.dbs;
+  const prePublishRequirements = requirementsByStage.pre_publish;
+  const reviewRequirements = requirementsByStage.review;
+  const requirementKeys = useMemo(
+    () => ({
+      angle: angleRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
+      outline: outlineRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
+      draft: draftRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
+      dbs: dbsRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
+      pre_publish: prePublishRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
+      review: reviewRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|")
+    }),
+    [angleRequirements, dbsRequirements, draftRequirements, outlineRequirements, prePublishRequirements, reviewRequirements]
+  );
+  const promptArtifactsByStage = useMemo(
+    () => ({
+      pre_publish: promptArtifacts.filter((artifact) => artifact.stage === "pre_publish"),
+      review: promptArtifacts.filter((artifact) => artifact.stage === "review")
+    }),
+    [promptArtifacts]
+  );
+  const latestPrePublishArtifact = promptArtifactsByStage.pre_publish[0] || null;
+  const latestReviewArtifact = promptArtifactsByStage.review[0] || null;
+  const [angleDefaultPrompt, setAngleDefaultPrompt] = useState(anglePrompt?.prompt || "");
+  const [outlineDefaultPrompt, setOutlineDefaultPrompt] = useState(outlinePrompt?.prompt || "");
+  const [draftDefaultPrompt, setDraftDefaultPrompt] = useState(draftPrompt?.prompt || "");
+  const [dbsDefaultPrompt, setDbsDefaultPrompt] = useState(dbsPrompt?.prompt || "");
+  const [prePublishDefaultPrompt, setPrePublishDefaultPrompt] = useState(prePublishPrompt?.prompt || "");
+  const [reviewDefaultPrompt, setReviewDefaultPrompt] = useState(reviewPrompt?.prompt || "");
+  const [angleCustomInstruction, setAngleCustomInstruction] = useState("");
+  const [outlineCustomInstruction, setOutlineCustomInstruction] = useState("");
+  const [draftCustomInstruction, setDraftCustomInstruction] = useState("");
+  const [dbsCustomInstruction, setDbsCustomInstruction] = useState("");
+  const [prePublishCustomInstruction, setPrePublishCustomInstruction] = useState("");
+  const [reviewCustomInstruction, setReviewCustomInstruction] = useState("");
+  const [selectedAngleRequirementIds, setSelectedAngleRequirementIds] = useState<string[]>(() =>
+    angleRequirements.filter((requirement) => requirement.defaultEnabled).map((requirement) => requirement.id)
+  );
+  const [selectedOutlineRequirementIds, setSelectedOutlineRequirementIds] = useState<string[]>(() =>
+    defaultRequirementIdsFromKey(requirementKeys.outline)
+  );
+  const [selectedDraftRequirementIds, setSelectedDraftRequirementIds] = useState<string[]>(() =>
+    defaultRequirementIdsFromKey(requirementKeys.draft)
+  );
+  const [selectedDbsRequirementIds, setSelectedDbsRequirementIds] = useState<string[]>(() =>
+    defaultRequirementIdsFromKey(requirementKeys.dbs)
+  );
+  const [selectedPrePublishRequirementIds, setSelectedPrePublishRequirementIds] = useState<string[]>(() =>
+    defaultRequirementIdsFromKey(requirementKeys.pre_publish)
+  );
+  const [selectedReviewRequirementIds, setSelectedReviewRequirementIds] = useState<string[]>(() =>
+    defaultRequirementIdsFromKey(requirementKeys.review)
+  );
+  const [selectedDiagnosisId, setSelectedDiagnosisId] = useState(diagnoses[0]?.id || "");
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [fullscreenPane, setFullscreenPane] = useState<"editor" | "preview" | null>(null);
+  const [promptRecipe, setPromptRecipe] = useState<PromptRecipe | null>(null);
+  const activeArticleIdRef = useRef(article.id);
+  const draftEditorRef = useRef<HTMLTextAreaElement | null>(null);
+  const fullscreenEditorRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const selectedAngle = useMemo(() => angles.find((angle) => angle.selected), [angles]);
+  const outlineById = useMemo(() => new Map(outlines.map((outline) => [outline.id, outline])), [outlines]);
+  const selectedOutline = selectedOutlineId ? outlineById.get(selectedOutlineId) || null : latestOutline;
+  const draftById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft])), [drafts]);
+  const selectedDiagnosis = useMemo(
+    () => diagnoses.find((diagnosis) => diagnosis.id === selectedDiagnosisId) || diagnoses[0] || null,
+    [diagnoses, selectedDiagnosisId]
+  );
+  const htmlAssets = assets.filter((asset) => asset.assetType === "html");
+  const coverAssets = assets.filter((asset) => asset.assetType === "cover");
+  const latestUpload = uploads[0] || null;
+  const canMarkFinal = drafts.length > 0 && canMarkFinalDraft(articleStatus);
+
+  function getTabMeta(tabId: WorkflowTabId): string {
+    if (tabId === "topic") {
+      return "已建";
+    }
+    if (tabId === "angles") {
+      return selectedAngle ? "已选" : angles.length > 0 ? `${angles.length} 个` : "待做";
+    }
+    if (tabId === "outline") {
+      return acceptedOutline ? "已确认" : latestOutline ? "待确认" : "待做";
+    }
+    if (tabId === "draft") {
+      return latestDraft ? `v${latestDraft.versionNo}` : "待做";
+    }
+    if (tabId === "diagnosis") {
+      return diagnoses.length > 0 ? `${diagnoses.length} 次` : "待做";
+    }
+    if (tabId === "final") {
+      return finalDraft ? `v${finalDraft.versionNo}` : "待做";
+    }
+    if (tabId === "publish") {
+      if (latestUpload?.status === "success") {
+        return "已上传";
+      }
+      if (coverAssets.length > 0) {
+        return "有封面";
+      }
+      if (htmlAssets.length > 0) {
+        return "有 HTML";
+      }
+      return "待做";
+    }
+    if (articleStatus === "review_recorded") {
+      return "已复盘";
+    }
+    if (articleStatus === "review_pending") {
+      return "待复盘";
+    }
+    return "待发布";
+  }
+
+  function switchWorkflowTab(tabId: WorkflowTabId) {
+    setActiveTab(tabId);
+    const params = new URLSearchParams(typeof window === "undefined" ? searchParams.toString() : window.location.search);
+    params.set("tab", tabId);
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+  }
+
+  useEffect(() => {
+    setSelectedOutlineId((current) => {
+      if (current && outlines.some((outline) => outline.id === current)) {
+        return current;
+      }
+      return latestOutline?.id || "";
+    });
+  }, [latestOutline?.id, outlines]);
+
+  useEffect(() => {
+    const outline = selectedOutlineId ? outlineById.get(selectedOutlineId) || latestOutline : latestOutline;
+    setMainline(outline?.mainline || "");
+    setOutlineMarkdown(outline?.outlineMarkdown || "");
+  }, [latestOutline, outlineById, selectedOutlineId]);
+
+  useEffect(() => {
+    setAngleDefaultPrompt(anglePrompt?.prompt || "");
+  }, [anglePrompt?.id, anglePrompt?.prompt]);
+
+  useEffect(() => {
+    setOutlineDefaultPrompt(outlinePrompt?.prompt || "");
+  }, [outlinePrompt?.id, outlinePrompt?.prompt]);
+
+  useEffect(() => {
+    setDraftDefaultPrompt(draftPrompt?.prompt || "");
+  }, [draftPrompt?.id, draftPrompt?.prompt]);
+
+  useEffect(() => {
+    setDbsDefaultPrompt(dbsPrompt?.prompt || "");
+  }, [dbsPrompt?.id, dbsPrompt?.prompt]);
+
+  useEffect(() => {
+    setPrePublishDefaultPrompt(prePublishPrompt?.prompt || "");
+  }, [prePublishPrompt?.id, prePublishPrompt?.prompt]);
+
+  useEffect(() => {
+    setReviewDefaultPrompt(reviewPrompt?.prompt || "");
+  }, [reviewPrompt?.id, reviewPrompt?.prompt]);
+
+  useEffect(() => {
+    setSelectedAngleRequirementIds(defaultRequirementIdsFromKey(requirementKeys.angle));
+  }, [article.id, requirementKeys.angle]);
+
+  useEffect(() => {
+    setSelectedOutlineRequirementIds(defaultRequirementIdsFromKey(requirementKeys.outline));
+  }, [article.id, requirementKeys.outline]);
+
+  useEffect(() => {
+    setSelectedDraftRequirementIds(defaultRequirementIdsFromKey(requirementKeys.draft));
+  }, [article.id, requirementKeys.draft]);
+
+  useEffect(() => {
+    setSelectedDbsRequirementIds(defaultRequirementIdsFromKey(requirementKeys.dbs));
+  }, [article.id, requirementKeys.dbs]);
+
+  useEffect(() => {
+    setSelectedPrePublishRequirementIds(defaultRequirementIdsFromKey(requirementKeys.pre_publish));
+  }, [article.id, requirementKeys.pre_publish]);
+
+  useEffect(() => {
+    setSelectedReviewRequirementIds(defaultRequirementIdsFromKey(requirementKeys.review));
+  }, [article.id, requirementKeys.review]);
+
+  useEffect(() => {
+    const urlTab = searchParams.get("tab");
+    const tabFromUrl = isWorkflowTabId(urlTab) ? urlTab : null;
+    if (activeArticleIdRef.current !== article.id) {
+      activeArticleIdRef.current = article.id;
+      setActiveTab(tabFromUrl || defaultTabForStatus(articleStatus));
+      return;
+    }
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [activeTab, article.id, articleStatus, searchParams]);
+
+  useEffect(() => {
+    setDraftMarkdown(latestDraft?.markdown || "");
+    setSelectedDraftId(latestDraft?.id || "");
+  }, [latestDraft?.id, latestDraft?.markdown]);
+
+  useEffect(() => {
+    setSelectedDiagnosisId((current) => {
+      if (diagnoses.some((diagnosis) => diagnosis.id === current)) {
+        return current;
+      }
+      return diagnoses[0]?.id || "";
+    });
+  }, [diagnoses]);
+
+  useEffect(() => {
+    if (!fullscreenPane) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setFullscreenPane(null);
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [fullscreenPane]);
+
+  useEffect(() => {
+    if (fullscreenPane === "editor") {
+      window.requestAnimationFrame(() => fullscreenEditorRef.current?.focus());
+    }
+  }, [fullscreenPane]);
+
+  useEffect(() => {
+    setPromptRecipe(null);
+  }, [article.id]);
+
+  async function runAction(label: string, action: () => Promise<void>, nextTab?: WorkflowTabId) {
+    setPending(label);
+    setError(null);
+    setNotice(null);
+    try {
+      await action();
+      if (nextTab) {
+        switchWorkflowTab(nextTab);
+      }
+      router.refresh();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "操作失败");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function submitManualAngle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    await runAction("manual-angle", async () => {
+      await postJson(`/api/articles/${article.id}/angles`, {
+        angleTitle: String(formData.get("angleTitle") || ""),
+        readerPain: String(formData.get("readerPain") || ""),
+        promise: String(formData.get("promise") || ""),
+        risk: String(formData.get("risk") || "")
+      });
+      form.reset();
+    });
+  }
+
+  function getDraftLabel(draftVersionId: string): string {
+    const draft = draftById.get(draftVersionId);
+    return draft ? `v${draft.versionNo}` : "未知版本";
+  }
+
+  function handleCoverFile(event: ChangeEvent<HTMLInputElement>) {
+    setCoverFile(event.target.files?.[0] || null);
+  }
+
+  function loadDraftIntoEditor(draft: DraftVersion) {
+    setDraftMarkdown(draft.markdown);
+    setSelectedDraftId(draft.id);
+    setError(null);
+    setNotice(`已载入文案 v${draft.versionNo} 到编辑器`);
+    if (activeTab !== "draft") {
+      switchWorkflowTab("draft");
+    }
+    window.requestAnimationFrame(() => {
+      draftEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      draftEditorRef.current?.focus();
+    });
+  }
+
+  function selectDraftVersion(draftId: string) {
+    const draft = draftById.get(draftId);
+    if (draft) {
+      loadDraftIntoEditor(draft);
+    }
+  }
+
+  function getOutlineOptionLabel(outline: OutlineVersion): string {
+    return outline.accepted ? `v${outline.versionNo} · 已确认` : `v${outline.versionNo}`;
+  }
+
+  function loadOutlineIntoEditor(outline: OutlineVersion) {
+    setMainline(outline.mainline);
+    setOutlineMarkdown(outline.outlineMarkdown);
+    setSelectedOutlineId(outline.id);
+    setError(null);
+    setNotice(`已载入提纲 v${outline.versionNo}`);
+  }
+
+  function selectOutlineVersion(outlineId: string) {
+    const outline = outlineById.get(outlineId);
+    if (outline) {
+      loadOutlineIntoEditor(outline);
+    }
+  }
+
+  async function saveStagePrompt(stage: RequirementStage, prompt: string) {
+    const saved = await patchJson<StagePromptDefault>("/api/stage-prompts", {
+      stage,
+      prompt
+    });
+    if (stage === "outline") {
+      setOutlineDefaultPrompt(saved.prompt);
+    } else if (stage === "draft") {
+      setDraftDefaultPrompt(saved.prompt);
+    } else if (stage === "angle") {
+      setAngleDefaultPrompt(saved.prompt);
+    } else if (stage === "dbs") {
+      setDbsDefaultPrompt(saved.prompt);
+    } else if (stage === "pre_publish") {
+      setPrePublishDefaultPrompt(saved.prompt);
+    } else {
+      setReviewDefaultPrompt(saved.prompt);
+    }
+    setNotice(STAGE_PROMPT_UI[stage].savedNotice);
+  }
+
+  async function createRequirement(input: {
+    stage: RequirementStage;
+    category: string;
+    type: string;
+    label: string;
+    description: string;
+    promptFragment: string;
+    defaultEnabled: boolean;
+    priority: number;
+  }) {
+    await postJson<RequirementPreset>("/api/requirements", input);
+    setNotice("已新增可选提示词");
+  }
+
+  async function updateRequirement(id: string, input: Record<string, unknown>) {
+    await patchJson<RequirementPreset>(`/api/requirements?id=${encodeURIComponent(id)}`, input);
+    setNotice("已更新可选提示词");
+  }
+
+  async function deleteRequirement(id: string) {
+    const result = await deleteJson<{ deleted: boolean; archived: boolean }>(`/api/requirements?id=${encodeURIComponent(id)}`);
+    setNotice(result.deleted ? "已删除可选提示词" : "该提示词已有历史使用记录，已归档");
+  }
+
+  async function saveCustomInstructionAsRequirement(stage: RequirementStage, prompt: string) {
+    const promptFragment = prompt.trim();
+    if (!promptFragment) {
+      throw new Error("对当前文章的要求为空");
+    }
+    const label = window.prompt("可选提示词标签");
+    if (!label?.trim()) {
+      return;
+    }
+    await createRequirement({
+      stage,
+      category: "自定义",
+      type: "prefer",
+      label: label.trim(),
+      description: label.trim(),
+      promptFragment,
+      defaultEnabled: false,
+      priority: 500
+    });
+  }
+
+  async function openPromptRecipe(kind: "outline" | "draft" | "invocation", targetId: string | null) {
+    if (!targetId) {
+      return;
+    }
+    const queryKey = kind === "outline" ? "outlineVersionId" : kind === "draft" ? "draftVersionId" : "invocationId";
+    setPending(`prompt-recipe-${kind}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await getJson<{ recipe: PromptRecipe }>(
+        `/api/articles/${article.id}/prompt-recipe?${queryKey}=${encodeURIComponent(targetId)}`
+      );
+      setPromptRecipe(result.recipe);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "读取提示词配方失败");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  function closeFullscreen() {
+    setFullscreenPane(null);
+  }
+
+  return (
+    <div className="workflow-stack">
+      {error ? <p className="error">{error}</p> : null}
+      {notice ? <p className="notice">{notice}</p> : null}
+
+      <div className="workflow-tabs-card">
+        <div aria-label="公众号生产线节点" className="workflow-tabs" role="tablist">
+          {WORKFLOW_TABS.map((tab) => (
+            <button
+              aria-controls={`workflow-panel-${tab.id}`}
+              aria-selected={activeTab === tab.id}
+              className={activeTab === tab.id ? "workflow-tab active" : "workflow-tab"}
+              id={`workflow-tab-${tab.id}`}
+              key={tab.id}
+              onClick={() => switchWorkflowTab(tab.id)}
+              role="tab"
+              type="button"
+            >
+              <span>{tab.label}</span>
+              <span>{getTabMeta(tab.id)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="workflow-tab-panels">
+        {activeTab === "topic" ? (
+          <section
+            aria-labelledby="workflow-tab-topic"
+            className="panel"
+            id="workflow-panel-topic"
+            role="tabpanel"
+            tabIndex={0}
+          >
+            <div className="panel-head">
+              <h2 className="panel-title">主题</h2>
+              <span className="status">{article.statusLabel}</span>
+            </div>
+            <div className="panel-body">
+              <dl className="detail-grid">
+                <div className="detail-item">
+                  <dt>主题</dt>
+                  <dd>{article.topic}</dd>
+                </div>
+                <div className="detail-item">
+                  <dt>目标读者</dt>
+                  <dd>{article.targetReader || "未填写"}</dd>
+                </div>
+                <div className="detail-item">
+                  <dt>核心问题</dt>
+                  <dd>{article.coreProblem || "未填写"}</dd>
+                </div>
+                <div className="detail-item">
+                  <dt>热点锚点</dt>
+                  <dd>{article.hotAnchor || "未填写"}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "angles" ? (
+          <section
+            aria-labelledby="workflow-tab-angles"
+            className="panel"
+            id="workflow-panel-angles"
+            role="tabpanel"
+            tabIndex={0}
+          >
+        <div className="panel-head">
+          <h2 className="panel-title">角度</h2>
+          {selectedAngle ? <span className="status">已选择</span> : null}
+        </div>
+        <div className="panel-body">
+          <StagePromptDialog
+            title={STAGE_PROMPT_UI.angle.title}
+            stage="angle"
+            defaultPromptLabel={STAGE_PROMPT_UI.angle.defaultPromptLabel}
+            defaultPrompt={angleDefaultPrompt}
+            onDefaultPromptChange={setAngleDefaultPrompt}
+            onSaveDefaultPrompt={() => runAction("save-angle-default-prompt", () => saveStagePrompt("angle", angleDefaultPrompt))}
+            requirements={angleRequirements}
+            selectedIds={selectedAngleRequirementIds}
+            pending={pending !== null}
+            onSelectedIdsChange={setSelectedAngleRequirementIds}
+            onCreate={(input) => runAction("create-angle-requirement", () => createRequirement(input))}
+            onUpdate={(id, input) => runAction("update-angle-requirement", () => updateRequirement(id, input))}
+            onDelete={(id) => runAction("delete-angle-requirement", () => deleteRequirement(id))}
+          />
+
+          <label className="field prompt-field">
+            <span className="label">对当前文章的要求</span>
+            <textarea
+              className="textarea prompt-textarea"
+              placeholder={STAGE_PROMPT_UI.angle.customPlaceholder}
+              value={angleCustomInstruction}
+              onChange={(event) => setAngleCustomInstruction(event.target.value)}
+            />
+            <button
+              className="button secondary prompt-save-button"
+              disabled={pending !== null}
+              onClick={() => runAction("save-angle-custom-requirement", () => saveCustomInstructionAsRequirement("angle", angleCustomInstruction))}
+              type="button"
+            >
+              保存为可选提示词
+            </button>
+          </label>
+
+          <div className="action-row">
+            <button
+              className="button"
+              disabled={pending !== null}
+              onClick={() =>
+                runAction("generate-angles", async () => {
+                  await postJson(`/api/articles/${article.id}/generate-angles`, {
+                    customInstruction: angleCustomInstruction,
+                    selectedRequirementIds: selectedAngleRequirementIds
+                  });
+                })
+              }
+              type="button"
+            >
+              {pending === "generate-angles" ? "生成中" : "AI 生成角度"}
+            </button>
+          </div>
+
+          <form className="inline-form" onSubmit={submitManualAngle}>
+            <input className="input" name="angleTitle" placeholder="手动创建角度标题" required />
+            <input className="input" name="readerPain" placeholder="读者痛点，可选" />
+            <input className="input" name="promise" placeholder="文章承诺，可选" />
+            <input className="input" name="risk" placeholder="风险提醒，可选" />
+            <button className="button secondary" disabled={pending !== null} type="submit">
+              手动创建角度
+            </button>
+          </form>
+
+          <div className="cards-grid">
+            {angles.map((angle) => (
+              <article className="mini-card" key={angle.id}>
+                <div className="mini-card-head">
+                  <h3>{angle.angleTitle}</h3>
+                  <span className="source-pill">{angle.source === "ai" ? "AI" : "手动"}</span>
+                </div>
+                <p>{angle.readerPain || "未填写读者痛点"}</p>
+                <p>{angle.promise || "未填写文章承诺"}</p>
+                <p>{angle.risk || "未填写风险提醒"}</p>
+                <button
+                  className={angle.selected ? "button" : "button secondary"}
+                  disabled={pending !== null}
+                  onClick={() =>
+                    runAction(
+                      "select-angle",
+                      () =>
+                        postJson(`/api/articles/${article.id}/select-angle`, {
+                          angleId: angle.id
+                        }),
+                      "outline"
+                    )
+                  }
+                  type="button"
+                >
+                  {angle.selected ? "当前角度" : "选择角度"}
+                </button>
+              </article>
+            ))}
+          </div>
+        </div>
+          </section>
+        ) : null}
+
+        {activeTab === "outline" ? (
+          <section
+            aria-labelledby="workflow-tab-outline"
+            className="panel"
+            id="workflow-panel-outline"
+            role="tabpanel"
+            tabIndex={0}
+          >
+        <div className="panel-head">
+          <h2 className="panel-title">主线和提纲</h2>
+          <div className="panel-head-actions">
+            {outlines.length > 0 ? (
+              <>
+                <label className="version-switcher">
+                  <span className="sr-only">切换提纲版本</span>
+                  <select
+                    aria-label="切换提纲版本"
+                    disabled={pending !== null}
+                    onChange={(event) => selectOutlineVersion(event.target.value)}
+                    value={selectedOutlineId}
+                  >
+                    {outlines.map((outline) => (
+                      <option key={outline.id} value={outline.id}>
+                        {getOutlineOptionLabel(outline)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  aria-label="查看提纲提示词配方"
+                  className="icon-action"
+                  disabled={!selectedOutlineId || pending !== null}
+                  onClick={() => void openPromptRecipe("outline", selectedOutlineId)}
+                  title="查看提示词配方"
+                  type="button"
+                >
+                  <ScrollText aria-hidden="true" size={16} />
+                </button>
+              </>
+            ) : acceptedOutline ? (
+              <span className="status">已确认</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="panel-body">
+          <StagePromptDialog
+            title="主线提纲提示词设置"
+            stage="outline"
+            defaultPromptLabel="主线提纲默认提示词"
+            defaultPrompt={outlineDefaultPrompt}
+            onDefaultPromptChange={setOutlineDefaultPrompt}
+            onSaveDefaultPrompt={() => runAction("save-outline-default-prompt", () => saveStagePrompt("outline", outlineDefaultPrompt))}
+            requirements={outlineRequirements}
+            selectedIds={selectedOutlineRequirementIds}
+            pending={pending !== null}
+            onSelectedIdsChange={setSelectedOutlineRequirementIds}
+            onCreate={(input) => runAction("create-outline-requirement", () => createRequirement(input))}
+            onUpdate={(id, input) => runAction("update-outline-requirement", () => updateRequirement(id, input))}
+            onDelete={(id) => runAction("delete-outline-requirement", () => deleteRequirement(id))}
+          />
+
+          <label className="field prompt-field">
+            <span className="label">对当前文章的要求</span>
+            <textarea
+              className="textarea prompt-textarea"
+              placeholder="例如：不要强调到账速度，强调家庭现金流安排"
+              value={outlineCustomInstruction}
+              onChange={(event) => setOutlineCustomInstruction(event.target.value)}
+            />
+            <button
+              className="button secondary prompt-save-button"
+              disabled={pending !== null}
+              onClick={() => runAction("save-outline-custom-requirement", () => saveCustomInstructionAsRequirement("outline", outlineCustomInstruction))}
+              type="button"
+            >
+              保存为可选提示词
+            </button>
+          </label>
+
+          <div className="action-row">
+            <button
+              className="button"
+              disabled={!article.selectedAngleId || pending !== null}
+              onClick={() =>
+                runAction("generate-outline", async () => {
+                  const outline = await postJson<OutlineVersion>(`/api/articles/${article.id}/generate-outline`, {
+                    customInstruction: outlineCustomInstruction,
+                    selectedRequirementIds: selectedOutlineRequirementIds
+                  });
+                  setSelectedOutlineId(outline.id);
+                  setMainline(outline.mainline);
+                  setOutlineMarkdown(outline.outlineMarkdown);
+                })
+              }
+              type="button"
+            >
+              {pending === "generate-outline" ? "生成中" : "生成主线和提纲"}
+            </button>
+          </div>
+
+          {selectedOutline ? (
+            <div className="editor-grid">
+              <label className="field">
+                <span className="label">主线判断</span>
+                <textarea className="textarea" value={mainline} onChange={(event) => setMainline(event.target.value)} />
+              </label>
+              <label className="field">
+                <span className="label">Markdown 提纲</span>
+                <textarea
+                  className="textarea tall"
+                  value={outlineMarkdown}
+                  onChange={(event) => setOutlineMarkdown(event.target.value)}
+                />
+              </label>
+              <div className="action-row">
+                <button
+                  className="button"
+                  disabled={!selectedOutlineId || pending !== null}
+                  onClick={() =>
+                    runAction("update-outline", async () => {
+                      const saved = await patchJson<OutlineVersion>(`/api/articles/${article.id}/outlines`, {
+                        outlineVersionId: selectedOutlineId,
+                        mainline,
+                        outlineMarkdown
+                      });
+                      setSelectedOutlineId(saved.id);
+                      setNotice(`已保存到提纲 v${saved.versionNo}`);
+                    })
+                  }
+                  type="button"
+                >
+                  保存当前版本
+                </button>
+                <button
+                  className="button secondary"
+                  disabled={pending !== null}
+                  onClick={() =>
+                    runAction("save-outline", async () => {
+                      const saved = await postJson<OutlineVersion>(`/api/articles/${article.id}/outlines`, {
+                        mainline,
+                        outlineMarkdown
+                      });
+                      setSelectedOutlineId(saved.id);
+                      setNotice(`已另存为提纲 v${saved.versionNo}`);
+                    })
+                  }
+                  type="button"
+                >
+                  另存为新版本
+                </button>
+                <button
+                  className="button"
+                  disabled={!selectedOutlineId || pending !== null}
+                  onClick={() =>
+                    runAction(
+                      "accept-outline",
+                      () =>
+                        postJson(`/api/articles/${article.id}/accept-outline`, {
+                          outlineId: selectedOutlineId
+                        }),
+                      "draft"
+                    )
+                  }
+                  type="button"
+                >
+                  确认提纲
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="subtle">选择角度后生成主线和提纲。</p>
+          )}
+        </div>
+          </section>
+        ) : null}
+
+        {activeTab === "draft" ? (
+          <section
+            aria-labelledby="workflow-tab-draft"
+            className="panel"
+            id="workflow-panel-draft"
+            role="tabpanel"
+            tabIndex={0}
+          >
+        <div className="panel-head">
+          <h2 className="panel-title">Markdown 文案</h2>
+          <div className="panel-head-actions">
+            {latestDraft ? (
+              <>
+                <label className="version-switcher">
+                  <span className="sr-only">切换文案版本</span>
+                  <select
+                    aria-label="切换文案版本"
+                    disabled={pending !== null}
+                    onChange={(event) => selectDraftVersion(event.target.value)}
+                    value={selectedDraftId}
+                  >
+                    {drafts.map((draft) => (
+                      <option key={draft.id} value={draft.id}>
+                        v{draft.versionNo}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  aria-label="查看文案提示词配方"
+                  className="icon-action"
+                  disabled={!selectedDraftId || pending !== null}
+                  onClick={() => void openPromptRecipe("draft", selectedDraftId)}
+                  title="查看提示词配方"
+                  type="button"
+                >
+                  <ScrollText aria-hidden="true" size={16} />
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <div className="panel-body">
+          <StagePromptDialog
+            title="Markdown 文案提示词设置"
+            stage="draft"
+            defaultPromptLabel="Markdown 文案默认提示词"
+            defaultPrompt={draftDefaultPrompt}
+            onDefaultPromptChange={setDraftDefaultPrompt}
+            onSaveDefaultPrompt={() => runAction("save-draft-default-prompt", () => saveStagePrompt("draft", draftDefaultPrompt))}
+            requirements={draftRequirements}
+            selectedIds={selectedDraftRequirementIds}
+            pending={pending !== null}
+            onSelectedIdsChange={setSelectedDraftRequirementIds}
+            onCreate={(input) => runAction("create-draft-requirement", () => createRequirement(input))}
+            onUpdate={(id, input) => runAction("update-draft-requirement", () => updateRequirement(id, input))}
+            onDelete={(id) => runAction("delete-draft-requirement", () => deleteRequirement(id))}
+          />
+
+          <label className="field prompt-field">
+            <span className="label">对当前文章的要求</span>
+            <textarea
+              className="textarea prompt-textarea"
+              placeholder="例如：开头不要用热点追问，先从家庭生活场景进入"
+              value={draftCustomInstruction}
+              onChange={(event) => setDraftCustomInstruction(event.target.value)}
+            />
+            <button
+              className="button secondary prompt-save-button"
+              disabled={pending !== null}
+              onClick={() => runAction("save-draft-custom-requirement", () => saveCustomInstructionAsRequirement("draft", draftCustomInstruction))}
+              type="button"
+            >
+              保存为可选提示词
+            </button>
+          </label>
+
+          <div className="action-row">
+            <button
+              className="button"
+              disabled={!acceptedOutline || pending !== null}
+              onClick={() =>
+                runAction("generate-draft", async () => {
+                  const draft = await postJson<DraftVersion>(`/api/articles/${article.id}/generate-draft`, {
+                    customInstruction: draftCustomInstruction,
+                    selectedRequirementIds: selectedDraftRequirementIds
+                  });
+                  setDraftMarkdown(draft.markdown);
+                  setSelectedDraftId(draft.id);
+                })
+              }
+              type="button"
+            >
+              {pending === "generate-draft" ? "生成中" : "生成 Markdown 文案"}
+            </button>
+          </div>
+
+          {latestDraft ? (
+            <div className="draft-grid">
+              <div className="field">
+                <div className="pane-label-row">
+                  <span className="label">Markdown 编辑</span>
+                  <button
+                    aria-label="全屏编辑 Markdown"
+                    className="icon-action"
+                    onClick={() => setFullscreenPane("editor")}
+                    title="全屏编辑 Markdown"
+                    type="button"
+                  >
+                    <Maximize2 size={16} aria-hidden />
+                  </button>
+                </div>
+                <textarea
+                  aria-label="Markdown 编辑"
+                  className="textarea draft-editor"
+                  ref={draftEditorRef}
+                  value={draftMarkdown}
+                  onChange={(event) => setDraftMarkdown(event.target.value)}
+                />
+              </div>
+              <div>
+                <div className="pane-label-row">
+                  <span className="label">基础预览</span>
+                  <button
+                    aria-label="全屏查看基础预览"
+                    className="icon-action"
+                    onClick={() => setFullscreenPane("preview")}
+                    title="全屏查看基础预览"
+                    type="button"
+                  >
+                    <Maximize2 size={16} aria-hidden />
+                  </button>
+                </div>
+                <MarkdownPreview markdown={draftMarkdown} />
+              </div>
+              <div className="action-row">
+                <button
+                  className="button"
+                  disabled={!selectedDraftId || pending !== null}
+                  onClick={() =>
+                    runAction("update-draft", async () => {
+                      const saved = await fetch(`/api/articles/${article.id}/drafts`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          draftVersionId: selectedDraftId,
+                          markdown: draftMarkdown
+                        })
+                      });
+                      const result = (await saved.json()) as DraftVersion & { error?: string };
+                      if (!saved.ok) {
+                        throw new Error(result.error || "保存当前版本失败");
+                      }
+                      setNotice(`已保存到文案 v${result.versionNo}`);
+                    })
+                  }
+                  type="button"
+                >
+                  保存当前版本
+                </button>
+                <button
+                  className="button secondary"
+                  disabled={pending !== null}
+                  onClick={() =>
+                    runAction("save-draft", async () => {
+                      const saved = await postJson<DraftVersion>(`/api/articles/${article.id}/drafts`, {
+                        markdown: draftMarkdown
+                      });
+                      setSelectedDraftId(saved.id);
+                      setNotice(`已另存为文案 v${saved.versionNo}`);
+                    })
+                  }
+                  type="button"
+                >
+                  另存为新版本
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="subtle">确认提纲后生成 Markdown 初稿。</p>
+          )}
+        </div>
+          </section>
+        ) : null}
+
+      {fullscreenPane ? (
+        <div
+          aria-label={fullscreenPane === "editor" ? "Markdown 全屏编辑" : "基础预览全屏"}
+          aria-modal="true"
+          className="fullscreen-overlay"
+          role="dialog"
+        >
+          <div className="fullscreen-shell">
+            <div className="fullscreen-head">
+              <div>
+                <p className="eyebrow">{fullscreenPane === "editor" ? "Editor" : "Preview"}</p>
+                <h2>{fullscreenPane === "editor" ? "Markdown 编辑" : "基础预览"}</h2>
+              </div>
+              <button aria-label="关闭全屏" className="icon-action" onClick={closeFullscreen} title="关闭全屏" type="button">
+                <X size={18} aria-hidden />
+              </button>
+            </div>
+            <div className="fullscreen-body">
+              {fullscreenPane === "editor" ? (
+                <textarea
+                  aria-label="Markdown 全屏编辑"
+                  className="textarea draft-editor fullscreen-editor"
+                  ref={fullscreenEditorRef}
+                  value={draftMarkdown}
+                  onChange={(event) => setDraftMarkdown(event.target.value)}
+                />
+              ) : (
+                <div className="fullscreen-preview">
+                  <MarkdownPreview markdown={draftMarkdown} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {promptRecipe ? <PromptRecipeDialog recipe={promptRecipe} onClose={() => setPromptRecipe(null)} /> : null}
+
+        {activeTab === "diagnosis" ? (
+          <section
+            aria-labelledby="workflow-tab-diagnosis"
+            className="panel diagnosis-panel"
+            id="workflow-panel-diagnosis"
+            role="tabpanel"
+            tabIndex={0}
+          >
+        <div className="panel-head">
+          <h2 className="panel-title">dbs-content 诊断</h2>
+          {diagnoses.length > 0 ? <span className="status">{diagnoses.length} 次</span> : null}
+        </div>
+        <div className="panel-body">
+          <StagePromptDialog
+            title={STAGE_PROMPT_UI.dbs.title}
+            stage="dbs"
+            defaultPromptLabel={STAGE_PROMPT_UI.dbs.defaultPromptLabel}
+            defaultPrompt={dbsDefaultPrompt}
+            onDefaultPromptChange={setDbsDefaultPrompt}
+            onSaveDefaultPrompt={() => runAction("save-dbs-default-prompt", () => saveStagePrompt("dbs", dbsDefaultPrompt))}
+            requirements={dbsRequirements}
+            selectedIds={selectedDbsRequirementIds}
+            pending={pending !== null}
+            onSelectedIdsChange={setSelectedDbsRequirementIds}
+            onCreate={(input) => runAction("create-dbs-requirement", () => createRequirement(input))}
+            onUpdate={(id, input) => runAction("update-dbs-requirement", () => updateRequirement(id, input))}
+            onDelete={(id) => runAction("delete-dbs-requirement", () => deleteRequirement(id))}
+          />
+
+          <label className="field prompt-field">
+            <span className="label">对当前文章的要求</span>
+            <textarea
+              className="textarea prompt-textarea"
+              placeholder={STAGE_PROMPT_UI.dbs.customPlaceholder}
+              value={dbsCustomInstruction}
+              onChange={(event) => setDbsCustomInstruction(event.target.value)}
+            />
+            <button
+              className="button secondary prompt-save-button"
+              disabled={pending !== null}
+              onClick={() => runAction("save-dbs-custom-requirement", () => saveCustomInstructionAsRequirement("dbs", dbsCustomInstruction))}
+              type="button"
+            >
+              保存为可选提示词
+            </button>
+          </label>
+
+          <div className="action-row">
+            <label className="select-field">
+              <span className="label">诊断文案版本</span>
+              <select
+                aria-label="诊断文案版本"
+                className="input"
+                disabled={drafts.length === 0 || pending !== null}
+                onChange={(event) => setSelectedDraftId(event.target.value)}
+                value={selectedDraftId}
+              >
+                {drafts.map((draft) => (
+                  <option key={draft.id} value={draft.id}>
+                    v{draft.versionNo} · {draft.draftType === "revision" ? "修改稿" : draft.draftType === "initial" ? "初稿" : "保存稿"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="button"
+              disabled={!selectedDraftId || pending !== null}
+              onClick={() =>
+                runAction(
+                  "run-dbs",
+                  async () => {
+                    const diagnosis = await postJson<ContentDiagnosis>(`/api/articles/${article.id}/run-dbs-content`, {
+                      draftVersionId: selectedDraftId,
+                      customInstruction: dbsCustomInstruction,
+                      selectedRequirementIds: selectedDbsRequirementIds
+                    });
+                    setSelectedDiagnosisId(diagnosis.id);
+                    setNotice("已保存 dbs-content 诊断");
+                  },
+                  "diagnosis"
+                )
+              }
+              type="button"
+            >
+              {pending === "run-dbs" ? "诊断中" : "运行 dbs-content"}
+            </button>
+            <button
+              className="button secondary"
+              disabled={!selectedDiagnosis || pending !== null}
+              onClick={() =>
+                runAction(
+                  "revise",
+                  async () => {
+                    const draft = await postJson<DraftVersion>(`/api/articles/${article.id}/revise-from-diagnosis`, {
+                      diagnosisId: selectedDiagnosis?.id
+                    });
+                    setDraftMarkdown(draft.markdown);
+                    setNotice(`已生成修改稿 v${draft.versionNo}`);
+                  },
+                  "draft"
+                )
+              }
+              type="button"
+            >
+              {pending === "revise" ? "生成中" : "基于诊断生成修改稿"}
+            </button>
+          </div>
+
+          {selectedDiagnosis ? (
+            <div className="diagnosis-layout">
+              <div className="diagnosis-list">
+                {diagnoses.map((diagnosis) => (
+                  <button
+                    className={diagnosis.id === selectedDiagnosis.id ? "diagnosis-row active" : "diagnosis-row"}
+                    key={diagnosis.id}
+                    onClick={() => setSelectedDiagnosisId(diagnosis.id)}
+                    type="button"
+                  >
+                    <span>诊断 {getDraftLabel(diagnosis.draftVersionId)}</span>
+                    <span>{formatTime(diagnosis.createdAt)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="diagnosis-detail">
+                {selectedDiagnosis.sourceInvocationId ? (
+                  <div className="action-row compact">
+                    <button
+                      className="button secondary"
+                      disabled={pending !== null}
+                      onClick={() => void openPromptRecipe("invocation", selectedDiagnosis.sourceInvocationId)}
+                      type="button"
+                    >
+                      查看本次提示词配方
+                    </button>
+                  </div>
+                ) : null}
+                <div className="diagnosis-metrics">
+                  <p>{selectedDiagnosis.textCleanliness}</p>
+                  <p>{selectedDiagnosis.titleCover}</p>
+                  <p>{selectedDiagnosis.expressionEfficiency}</p>
+                  <p>{selectedDiagnosis.cognitiveGap}</p>
+                  <p>{selectedDiagnosis.aiTrace}</p>
+                </div>
+                {selectedDiagnosis.firstFix ? <p className="first-fix">{selectedDiagnosis.firstFix}</p> : null}
+                <MarkdownPreview markdown={selectedDiagnosis.diagnosisMarkdown} />
+              </div>
+            </div>
+          ) : (
+            <p className="subtle">生成文案后运行 dbs-content。</p>
+          )}
+        </div>
+          </section>
+        ) : null}
+
+        {activeTab === "final" ? (
+          <section
+            aria-labelledby="workflow-tab-final"
+            className="panel"
+            id="workflow-panel-final"
+            role="tabpanel"
+            tabIndex={0}
+          >
+        <div className="panel-head">
+          <h2 className="panel-title">版本链和最终稿</h2>
+          {finalDraft ? <span className="status">最终稿 v{finalDraft.versionNo}</span> : null}
+        </div>
+        <div className="panel-body">
+          {finalDraft ? (
+            <div className="action-row">
+              <button
+                className="button"
+                disabled={article.status !== "human_review" || pending !== null}
+                onClick={() =>
+                  runAction(
+                    "ready",
+                    async () => {
+                      await postJson(`/api/articles/${article.id}/mark-ready-to-publish`);
+                      setNotice("已进入发布队列");
+                    },
+                    "publish"
+                  )
+                }
+                type="button"
+              >
+                {article.status === "ready_to_publish" ? "已进入发布队列" : "标记待发布"}
+              </button>
+            </div>
+          ) : null}
+
+          {drafts.length > 0 ? (
+            <div className="cards-grid">
+              {drafts.map((draft) => (
+                <article className="mini-card" key={draft.id}>
+                  <div className="mini-card-head">
+                    <h3>v{draft.versionNo}</h3>
+                    {draft.isFinal ? <span className="source-pill">最终稿</span> : <span className="source-pill">{draft.createdBy}</span>}
+                  </div>
+                  <p>{draft.draftType === "revision" ? "修改稿" : draft.draftType === "initial" ? "初稿" : "保存稿"}</p>
+                  <p>{draft.sourceDiagnosisId ? `来源诊断：${diagnoses.find((item) => item.id === draft.sourceDiagnosisId) ? "已关联" : "未载入"}` : "无诊断来源"}</p>
+                  <p>{formatTime(draft.createdAt)}</p>
+                  <div className="action-row compact">
+                    <button className="button secondary" onClick={() => loadDraftIntoEditor(draft)} type="button">
+                      载入编辑器
+                    </button>
+                    {draft.sourceInvocationId ? (
+                      <button
+                        className="button secondary"
+                        disabled={pending !== null}
+                        onClick={() => void openPromptRecipe("invocation", draft.sourceInvocationId)}
+                        type="button"
+                      >
+                        提示词配方
+                      </button>
+                    ) : null}
+                    <button
+                      className="button"
+                      disabled={!canMarkFinal || pending !== null}
+                      onClick={() =>
+                        runAction(
+                          "final",
+                          async () => {
+                            await postJson<DraftVersion>(`/api/articles/${article.id}/mark-final-draft`, {
+                              draftVersionId: draft.id
+                            });
+                            setNotice(`已标记最终稿 v${draft.versionNo}`);
+                          },
+                          "final"
+                        )
+                      }
+                      type="button"
+                    >
+                      标记最终稿
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="subtle">暂无文案版本。</p>
+          )}
+        </div>
+          </section>
+        ) : null}
+
+        {activeTab === "publish" ? (
+          <section
+            aria-labelledby="workflow-tab-publish"
+            className="panel"
+            id="workflow-panel-publish"
+            role="tabpanel"
+            tabIndex={0}
+          >
+        <div className="panel-head">
+          <h2 className="panel-title">发布包</h2>
+          {latestUpload?.status === "success" ? <span className="status">已上传草稿箱</span> : null}
+        </div>
+        <div className="panel-body">
+          <StagePromptDialog
+            title={STAGE_PROMPT_UI.pre_publish.title}
+            stage="pre_publish"
+            defaultPromptLabel={STAGE_PROMPT_UI.pre_publish.defaultPromptLabel}
+            defaultPrompt={prePublishDefaultPrompt}
+            onDefaultPromptChange={setPrePublishDefaultPrompt}
+            onSaveDefaultPrompt={() => runAction("save-pre-publish-default-prompt", () => saveStagePrompt("pre_publish", prePublishDefaultPrompt))}
+            requirements={prePublishRequirements}
+            selectedIds={selectedPrePublishRequirementIds}
+            pending={pending !== null}
+            onSelectedIdsChange={setSelectedPrePublishRequirementIds}
+            onCreate={(input) => runAction("create-pre-publish-requirement", () => createRequirement(input))}
+            onUpdate={(id, input) => runAction("update-pre-publish-requirement", () => updateRequirement(id, input))}
+            onDelete={(id) => runAction("delete-pre-publish-requirement", () => deleteRequirement(id))}
+          />
+
+          <label className="field prompt-field">
+            <span className="label">对当前文章的要求</span>
+            <textarea
+              className="textarea prompt-textarea"
+              placeholder={STAGE_PROMPT_UI.pre_publish.customPlaceholder}
+              value={prePublishCustomInstruction}
+              onChange={(event) => setPrePublishCustomInstruction(event.target.value)}
+            />
+            <button
+              className="button secondary prompt-save-button"
+              disabled={pending !== null}
+              onClick={() =>
+                runAction("save-pre-publish-custom-requirement", () =>
+                  saveCustomInstructionAsRequirement("pre_publish", prePublishCustomInstruction)
+                )
+              }
+              type="button"
+            >
+              保存为可选提示词
+            </button>
+          </label>
+
+          <div className="publish-actions">
+            <button
+              className="button secondary"
+              disabled={!finalDraft || pending !== null}
+              onClick={() =>
+                runAction("pre-publish-check", async () => {
+                  await postJson<PromptRunArtifact>(`/api/articles/${article.id}/pre-publish-check`, {
+                    customInstruction: prePublishCustomInstruction,
+                    selectedRequirementIds: selectedPrePublishRequirementIds
+                  });
+                  setNotice("已生成发布前检查摘要");
+                })
+              }
+              type="button"
+            >
+              {pending === "pre-publish-check" ? "检查中" : "生成发布前检查摘要"}
+            </button>
+
+            <button
+              className="button"
+              disabled={!finalDraft || pending !== null}
+              onClick={() =>
+                runAction("render-html", async () => {
+                  const asset = await postJson<ArticleAsset>(`/api/articles/${article.id}/render-html`);
+                  setNotice(`已生成公众号 HTML：${asset.variant}`);
+                })
+              }
+              type="button"
+            >
+              {pending === "render-html" ? "生成中" : "生成公众号 HTML"}
+            </button>
+
+            <label className="file-field">
+              <span className="label">封面素材，可选</span>
+              <input accept="image/*" aria-label="封面素材，可选" onChange={handleCoverFile} type="file" />
+            </label>
+
+            <button
+              className="button secondary"
+              disabled={!finalDraft || pending !== null}
+              onClick={() =>
+                runAction("generate-cover", async () => {
+                  const formData = new FormData();
+                  if (coverFile) {
+                    formData.append("coverSource", coverFile);
+                  }
+                  const generated = await postForm<ArticleAsset[]>(`/api/articles/${article.id}/generate-cover`, formData);
+                  setNotice(`已生成封面 ${generated.length} 张`);
+                })
+              }
+              type="button"
+            >
+              {pending === "generate-cover" ? "生成中" : coverFile ? "用素材生成封面" : "生成默认封面"}
+            </button>
+
+            <button
+              className="button"
+              disabled={!finalDraft || pending !== null}
+              onClick={() =>
+                runAction("upload-wechat", async () => {
+                  const upload = await postJson<WechatDraftUpload>(`/api/articles/${article.id}/upload-wechat-draft`);
+                  setNotice(`已上传公众号草稿箱：${upload.wechatMediaId}`);
+                })
+              }
+              type="button"
+            >
+              {pending === "upload-wechat" ? "上传中" : "上传公众号草稿箱"}
+            </button>
+          </div>
+
+          {latestPrePublishArtifact ? (
+            <section className="prompt-artifact">
+              <div className="prompt-artifact-head">
+                <div>
+                  <h3>最新发布前检查</h3>
+                  <p>{formatTime(latestPrePublishArtifact.createdAt)}</p>
+                </div>
+                {latestPrePublishArtifact.sourceInvocationId ? (
+                  <button
+                    aria-label="查看发布前检查提示词配方"
+                    className="icon-action"
+                    disabled={pending !== null}
+                    onClick={() => void openPromptRecipe("invocation", latestPrePublishArtifact.sourceInvocationId)}
+                    title="查看提示词配方"
+                    type="button"
+                  >
+                    <ScrollText aria-hidden="true" size={16} />
+                  </button>
+                ) : null}
+              </div>
+              <MarkdownPreview markdown={latestPrePublishArtifact.summaryMarkdown} />
+            </section>
+          ) : null}
+
+          <div className="publish-grid">
+            <div className="publish-checklist">
+              <h3>发布检查</h3>
+              <p className={finalDraft ? "check-item done" : "check-item"}>最终稿：{finalDraft ? `v${finalDraft.versionNo}` : "未标记"}</p>
+              <p className={htmlAssets.length > 0 ? "check-item done" : "check-item"}>HTML：{htmlAssets.length} 个</p>
+              <p className={coverAssets.some((asset) => asset.variant === "wechat_21_9") ? "check-item done" : "check-item"}>
+                21:9 封面：{coverAssets.filter((asset) => asset.variant === "wechat_21_9").length} 个
+              </p>
+              <p className={coverAssets.some((asset) => asset.variant === "wechat_1_1") ? "check-item done" : "check-item"}>
+                1:1 封面：{coverAssets.filter((asset) => asset.variant === "wechat_1_1").length} 个
+              </p>
+              <p className={latestUpload?.status === "success" ? "check-item done" : "check-item"}>
+                草稿箱：{latestUpload?.status === "success" ? latestUpload.wechatMediaId : "未上传"}
+              </p>
+            </div>
+
+            <div className="asset-list">
+              <h3>资产记录</h3>
+              {assets.length > 0 ? (
+                assets.map((asset) => (
+                  <div className="asset-row" key={asset.id}>
+                    <span>{asset.assetType}</span>
+                    <span>{asset.variant || "default"}</span>
+                    <span>{asset.path}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="subtle">暂无发布资产。</p>
+              )}
+            </div>
+          </div>
+
+          {uploads.length > 0 ? (
+            <div className="upload-list">
+              <h3>草稿箱记录</h3>
+              {uploads.map((upload) => (
+                <div className="asset-row" key={upload.id}>
+                  <span>{upload.status}</span>
+                  <span>{upload.wechatMediaId || upload.errorMessage || "无 media_id"}</span>
+                  <span>{upload.uploadedAt ? formatTime(upload.uploadedAt) : "未完成"}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+          </section>
+        ) : null}
+
+        {activeTab === "review" ? (
+          <section
+            aria-labelledby="workflow-tab-review"
+            className="panel"
+            id="workflow-panel-review"
+            role="tabpanel"
+            tabIndex={0}
+          >
+            <div className="panel-head">
+              <h2 className="panel-title">复盘</h2>
+              <span className="status">{getTabMeta("review")}</span>
+            </div>
+            <div className="panel-body">
+              <StagePromptDialog
+                title={STAGE_PROMPT_UI.review.title}
+                stage="review"
+                defaultPromptLabel={STAGE_PROMPT_UI.review.defaultPromptLabel}
+                defaultPrompt={reviewDefaultPrompt}
+                onDefaultPromptChange={setReviewDefaultPrompt}
+                onSaveDefaultPrompt={() => runAction("save-review-default-prompt", () => saveStagePrompt("review", reviewDefaultPrompt))}
+                requirements={reviewRequirements}
+                selectedIds={selectedReviewRequirementIds}
+                pending={pending !== null}
+                onSelectedIdsChange={setSelectedReviewRequirementIds}
+                onCreate={(input) => runAction("create-review-requirement", () => createRequirement(input))}
+                onUpdate={(id, input) => runAction("update-review-requirement", () => updateRequirement(id, input))}
+                onDelete={(id) => runAction("delete-review-requirement", () => deleteRequirement(id))}
+              />
+
+              <label className="field prompt-field">
+                <span className="label">对当前文章的要求</span>
+                <textarea
+                  className="textarea prompt-textarea"
+                  placeholder={STAGE_PROMPT_UI.review.customPlaceholder}
+                  value={reviewCustomInstruction}
+                  onChange={(event) => setReviewCustomInstruction(event.target.value)}
+                />
+                <button
+                  className="button secondary prompt-save-button"
+                  disabled={pending !== null}
+                  onClick={() =>
+                    runAction("save-review-custom-requirement", () => saveCustomInstructionAsRequirement("review", reviewCustomInstruction))
+                  }
+                  type="button"
+                >
+                  保存为可选提示词
+                </button>
+              </label>
+
+              <div className="action-row">
+                <button
+                  className="button secondary"
+                  disabled={!finalDraft || pending !== null}
+                  onClick={() =>
+                    runAction("review-check", async () => {
+                      await postJson<PromptRunArtifact>(`/api/articles/${article.id}/review-check`, {
+                        customInstruction: reviewCustomInstruction,
+                        selectedRequirementIds: selectedReviewRequirementIds
+                      });
+                      setNotice("已生成复盘检查清单");
+                    })
+                  }
+                  type="button"
+                >
+                  {pending === "review-check" ? "生成中" : "生成复盘检查清单"}
+                </button>
+              </div>
+
+              {latestReviewArtifact ? (
+                <section className="prompt-artifact">
+                  <div className="prompt-artifact-head">
+                    <div>
+                      <h3>最新复盘检查清单</h3>
+                      <p>{formatTime(latestReviewArtifact.createdAt)}</p>
+                    </div>
+                    {latestReviewArtifact.sourceInvocationId ? (
+                      <button
+                        aria-label="查看复盘提示词配方"
+                        className="icon-action"
+                        disabled={pending !== null}
+                        onClick={() => void openPromptRecipe("invocation", latestReviewArtifact.sourceInvocationId)}
+                        title="查看提示词配方"
+                        type="button"
+                      >
+                        <ScrollText aria-hidden="true" size={16} />
+                      </button>
+                    ) : null}
+                  </div>
+                  <MarkdownPreview markdown={latestReviewArtifact.summaryMarkdown} />
+                </section>
+              ) : null}
+
+              <div className="publish-grid">
+                <div className="publish-checklist">
+                  <h3>复盘状态</h3>
+                  <p className={latestUpload?.status === "success" ? "check-item done" : "check-item"}>
+                    草稿箱：{latestUpload?.status === "success" ? latestUpload.wechatMediaId : "未上传"}
+                  </p>
+                  <p className={articleStatus === "published_manually" || articleStatus === "review_pending" || articleStatus === "review_recorded" ? "check-item done" : "check-item"}>
+                    人工发布：{articleStatus === "published_manually" || articleStatus === "review_pending" || articleStatus === "review_recorded" ? "已发布" : "未确认"}
+                  </p>
+                  <p className={articleStatus === "review_recorded" ? "check-item done" : "check-item"}>
+                    复盘快照：{articleStatus === "review_recorded" ? "已记录" : "待回填"}
+                  </p>
+                </div>
+                <div className="asset-list">
+                  <h3>复盘指标</h3>
+                  <p className="subtle">发布后回填浏览量、点赞、转发、推荐、评论和归因。</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </div>
+  );
+}

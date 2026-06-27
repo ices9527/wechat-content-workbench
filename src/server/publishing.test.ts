@@ -1,0 +1,140 @@
+import fs from "node:fs";
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { articleAssets, wechatDraftUploads } from "@/db/schema";
+import { createTestDatabase } from "@/test/test-db";
+
+import { FakeAIClient } from "./ai";
+import {
+  acceptOutline,
+  createArticle,
+  createManualAngle,
+  generateDraft,
+  generateOutline,
+  getArticle,
+  markFinalDraft,
+  markReadyToPublish,
+  reviseFromDiagnosis,
+  runDbsContent,
+  selectAngle
+} from "./articles";
+import {
+  FakeWechatDraftClient,
+  generateCoverAssets,
+  listArticleAssets,
+  listWechatDraftUploads,
+  markdownToWechatHtml,
+  renderWechatHtmlAsset,
+  uploadWechatDraft,
+  type WechatDraftClient
+} from "./publishing";
+
+async function createReadyArticle(db: ReturnType<typeof createTestDatabase>["db"]) {
+  const article = createArticle({ topic: "跨境支付通" }, db);
+  const angle = createManualAngle(article.id, { angleTitle: "速度不是重点" }, db);
+  selectAngle(article.id, angle.id, db);
+  const outline = await generateOutline(article.id, new FakeAIClient(), db);
+  acceptOutline(article.id, outline.id, db);
+  const draft = await generateDraft(article.id, new FakeAIClient(), db);
+  const diagnosis = await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+  const revision = await reviseFromDiagnosis(article.id, { diagnosisId: diagnosis.id }, new FakeAIClient(), db);
+  markFinalDraft(article.id, { draftVersionId: revision.id }, db);
+  markReadyToPublish(article.id, db);
+  return { articleId: article.id, revision };
+}
+
+describe("publishing service", () => {
+  it("converts basic Markdown into WeChat-friendly HTML", () => {
+    const html = markdownToWechatHtml("# 标题\n\n## 小节\n- 要点\n普通段落 <script>");
+
+    expect(html).toContain("<h1");
+    expect(html).toContain("<h2");
+    expect(html).toContain("<li");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders final draft HTML asset without changing Markdown", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId, revision } = await createReadyArticle(db);
+
+    const asset = renderWechatHtmlAsset(articleId, db, { assetRoot });
+    const assets = db.select().from(articleAssets).all();
+
+    expect(asset.assetType).toBe("html");
+    expect(asset.draftVersionId).toBe(revision.id);
+    expect(fs.existsSync(asset.path)).toBe(true);
+    expect(fs.readFileSync(asset.path, "utf8")).toContain("wechat-article");
+    expect(assets).toHaveLength(1);
+    expect(getArticle(articleId, db)?.status).toBe("publish_package_generated");
+  });
+
+  it("rejects HTML rendering before final draft is marked ready", () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "还没有最终稿" }, db);
+
+    expect(() => renderWechatHtmlAsset(article.id, db)).toThrow("请先标记最终稿");
+  });
+
+  it("generates two default cover assets after HTML", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    renderWechatHtmlAsset(articleId, db, { assetRoot });
+
+    const covers = generateCoverAssets(articleId, {}, db, { assetRoot });
+
+    expect(covers).toHaveLength(2);
+    expect(covers.map((cover) => cover.variant)).toEqual(["wechat_21_9", "wechat_1_1"]);
+    expect(covers.every((cover) => fs.existsSync(cover.path))).toBe(true);
+    expect(listArticleAssets(articleId, db).filter((asset) => asset.assetType === "cover")).toHaveLength(2);
+    expect(getArticle(articleId, db)?.status).toBe("cover_generated");
+  });
+
+  it("rejects WeChat draft upload before HTML and covers exist", async () => {
+    const { db } = createTestDatabase();
+    const { articleId } = await createReadyArticle(db);
+
+    await expect(uploadWechatDraft(articleId, new FakeWechatDraftClient(), db)).rejects.toThrow("请先生成 HTML 和封面");
+  });
+
+  it("uploads draft through fake adapter and records the result", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    renderWechatHtmlAsset(articleId, db, { assetRoot });
+    generateCoverAssets(articleId, { filename: "source.png", mimeType: "image/png", buffer: Buffer.from("fake") }, db, { assetRoot });
+
+    const upload = await uploadWechatDraft(articleId, new FakeWechatDraftClient(), db);
+    const uploads = listWechatDraftUploads(articleId, db);
+
+    expect(upload.status).toBe("success");
+    expect(upload.wechatMediaId).toContain("fake_media_");
+    expect(uploads).toHaveLength(1);
+    expect(db.select().from(wechatDraftUploads).all()).toHaveLength(1);
+    expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
+  });
+
+  it("records adapter failures without advancing status", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    renderWechatHtmlAsset(articleId, db, { assetRoot });
+    generateCoverAssets(articleId, {}, db, { assetRoot });
+    const failingClient: WechatDraftClient = {
+      async uploadDraft() {
+        throw new Error("微信接口失败");
+      }
+    };
+
+    const upload = await uploadWechatDraft(articleId, failingClient, db);
+
+    expect(upload.status).toBe("failed");
+    expect(upload.errorMessage).toBe("微信接口失败");
+    expect(getArticle(articleId, db)?.status).toBe("cover_generated");
+  });
+});

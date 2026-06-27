@@ -1,0 +1,11 @@
+node_modules
+.next
+coverage
+playwright-report
+test-results
+.env
+*.tsbuildinfo
+data/assets/
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
