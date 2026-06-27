@@ -22,6 +22,18 @@ describe("prompt templates", () => {
     expect(() => renderPrompt("generate_draft", { topic: "香港教育" })).toThrow("Missing prompt variable");
   });
 
+  it("renders draft prompt with strict JSON markdown output", () => {
+    const prompt = renderPrompt("generate_draft", {
+      topic: "香港账户",
+      mainline: "账户只是工具，路径才是判断。",
+      outlineMarkdown: "## 一、先讲开户误解"
+    });
+
+    expect(prompt).toContain("必须只输出 JSON");
+    expect(prompt).toContain("markdown：完整公众号 Markdown 初稿");
+    expect(prompt).toContain("不要只返回提纲或摘要");
+  });
+
   it("renders dbs-content diagnosis requirements", () => {
     const prompt = renderPrompt("dbs_content", {
       topic: "跨境支付通",
@@ -46,6 +58,7 @@ describe("prompt templates", () => {
     expect(prompt).toContain("dbs-content 诊断");
     expect(prompt).toContain("# 原稿");
     expect(prompt).toContain("# 诊断");
+    expect(prompt).toContain("markdown：完整 Markdown 修改稿");
   });
 
   it("renders pre-publish and review check prompts", () => {

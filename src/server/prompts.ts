@@ -34,7 +34,10 @@ const templates: Record<PromptTask, string> = {
     "请根据主线和提纲生成一篇 Markdown 初稿。",
     "主题：{{topic}}",
     "主线：{{mainline}}",
-    "提纲：{{outlineMarkdown}}"
+    "提纲：{{outlineMarkdown}}",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "markdown：完整公众号 Markdown 初稿，包含标题、开头、正文小标题、段落和结尾，不要只返回提纲或摘要。"
   ].join("\n"),
   dbs_content: [
     "你是 dontbesilent 的内容创作诊断 AI，只诊断，不代写。",
@@ -65,7 +68,8 @@ const templates: Record<PromptTask, string> = {
     "dbs-content 诊断：",
     "{{diagnosisMarkdown}}",
     "",
-    "必须输出 JSON，字段包括 markdown。"
+    "必须只输出 JSON，字段包括：",
+    "markdown：完整 Markdown 修改稿，包含标题、开头、正文小标题、段落和结尾。"
   ].join("\n"),
   pre_publish_check: [
     "你是公众号发布前检查助手。",

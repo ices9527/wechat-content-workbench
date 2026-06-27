@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FakeAIClient, normalizeGeneratedOutline } from "./ai";
+import { FakeAIClient, normalizeGeneratedDraft, normalizeGeneratedOutline } from "./ai";
 
 describe("fake AI client", () => {
   it("generates at least five structured angles", async () => {
@@ -43,6 +43,32 @@ describe("fake AI client", () => {
     expect(outline.mainline).toContain("路径");
     expect(outline.outlineMarkdown).toContain("## 文章标题");
     expect(outline.outlineMarkdown).toContain("## 小标题");
+  });
+
+  it("normalizes draft responses with non-standard markdown fields", () => {
+    const draft = normalizeGeneratedDraft({
+      文案: "# 香港账户还能不能开\n\n真正变了的不是开户，而是资金路径。"
+    });
+
+    expect(draft.markdown).toContain("# 香港账户还能不能开");
+    expect(draft.markdown).toContain("资金路径");
+  });
+
+  it("builds draft markdown from structured object responses", () => {
+    const draft = normalizeGeneratedDraft({
+      标题: "香港账户还能不能开",
+      开头: "很多人先问还能不能开户。",
+      正文结构: [
+        {
+          小标题: "账户不是终点",
+          内容: "真正要解释清楚的是资金来源、用途和回流路径。"
+        }
+      ]
+    });
+
+    expect(draft.markdown).toContain("## 标题");
+    expect(draft.markdown).toContain("香港账户还能不能开");
+    expect(draft.markdown).toContain("账户不是终点");
   });
 
   it("generates structured diagnosis and revised draft content", async () => {

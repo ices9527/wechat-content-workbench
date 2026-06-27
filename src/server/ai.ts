@@ -99,6 +99,20 @@ function outlineObjectToMarkdown(json: Record<string, unknown>): string {
     .join("\n\n");
 }
 
+function draftObjectToMarkdown(json: Record<string, unknown>): string {
+  const ignoredKeys = new Set(["id", "metadata", "meta", "status", "状态", "说明"]);
+  return Object.entries(json)
+    .map(([key, value]) => {
+      if (ignoredKeys.has(key)) {
+        return "";
+      }
+      const text = stringifyPromptValue(value);
+      return text ? `## ${key}\n${text}` : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function parseJsonContent(content: string): Record<string, unknown> {
   const trimmed = content.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -128,6 +142,35 @@ export function normalizeGeneratedOutline(json: Record<string, unknown>): Genera
     ]) || outlineObjectToMarkdown(json);
 
   return { mainline, outlineMarkdown };
+}
+
+export function normalizeGeneratedDraft(json: Record<string, unknown>): GeneratedDraft {
+  const markdown =
+    firstPromptValue(json, [
+      "markdown",
+      "draftMarkdown",
+      "draft_markdown",
+      "articleMarkdown",
+      "contentMarkdown",
+      "wechatMarkdown",
+      "公众号Markdown",
+      "Markdown 文案",
+      "markdown文案",
+      "Markdown 初稿",
+      "Markdown初稿",
+      "draft",
+      "content",
+      "article",
+      "body",
+      "text",
+      "文案",
+      "正文",
+      "初稿",
+      "文章",
+      "公众号文案"
+    ]) || draftObjectToMarkdown(json);
+
+  return { markdown };
 }
 
 export class FakeAIClient implements AIClient {
@@ -339,9 +382,7 @@ export class OpenAICompatibleClient implements AIClient {
 
   async generateDraft(prompt: string): Promise<GeneratedDraft> {
     const json = await this.completeJson(prompt);
-    return {
-      markdown: String(json.markdown || "")
-    };
+    return normalizeGeneratedDraft(json);
   }
 
   async diagnoseContent(prompt: string): Promise<GeneratedDiagnosis> {
@@ -359,9 +400,7 @@ export class OpenAICompatibleClient implements AIClient {
 
   async reviseDraft(prompt: string): Promise<GeneratedDraft> {
     const json = await this.completeJson(prompt);
-    return {
-      markdown: String(json.markdown || "")
-    };
+    return normalizeGeneratedDraft(json);
   }
 
   async generatePrePublishCheck(prompt: string): Promise<GeneratedPromptArtifact> {
