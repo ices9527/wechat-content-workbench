@@ -1,6 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FakeAIClient, normalizeGeneratedDraft, normalizeGeneratedOutline, normalizeGeneratedTopicDiagnosis } from "./ai";
+import {
+  FakeAIClient,
+  OpenAICompatibleClient,
+  normalizeGeneratedDraft,
+  normalizeGeneratedOutline,
+  normalizeGeneratedTopicDiagnosis
+} from "./ai";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("fake AI client", () => {
   it("generates at least five structured angles", async () => {
@@ -113,5 +123,53 @@ describe("fake AI client", () => {
 
     expect(prePublish.summaryMarkdown).toContain("发布前检查摘要");
     expect(review.summaryMarkdown).toContain("复盘归因检查清单");
+  });
+
+  it("parses fenced JSON from OpenAI compatible responses", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "```json\n{\"markdown\":\"# 香港账户还能不能开\\n\\n路径才是重点。\"}\n```"
+              }
+            }
+          ]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new OpenAICompatibleClient({
+      databaseUrl: "file::memory:",
+      openaiApiKey: "test-key",
+      openaiBaseUrl: "http://llm.example/v1",
+      openaiModel: "test-model"
+    });
+    const draft = await client.generateDraft("生成文案");
+
+    expect(draft.markdown).toContain("路径才是重点");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://llm.example/v1/chat/completions",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("surfaces OpenAI compatible request failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unauthorized", { status: 401 }))
+    );
+
+    const client = new OpenAICompatibleClient({
+      databaseUrl: "file::memory:",
+      openaiApiKey: "test-key",
+      openaiBaseUrl: "http://llm.example/v1",
+      openaiModel: "test-model"
+    });
+
+    await expect(client.generateDraft("生成文案")).rejects.toThrow("AI request failed: 401");
   });
 });

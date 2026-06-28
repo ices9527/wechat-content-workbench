@@ -20,6 +20,8 @@ import type { ArticleStatus } from "@/domain/status";
 import type { ArticleListItem, PromptRecipe, RequirementStage } from "@/server/articles";
 import { MarkdownPreview } from "./markdown-preview";
 
+// API helpers
+
 async function postJson<T>(url: string, payload?: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
@@ -77,6 +79,8 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   throw new Error(`${fallbackMessage}（服务器返回了非 JSON 响应）`);
 }
 
+// Formatters and workflow constants
+
 function formatTime(value: string): string {
   return value.replace("T", " ").slice(0, 16);
 }
@@ -123,6 +127,8 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "publish", label: "发布" },
   { id: "review", label: "复盘" }
 ];
+
+const PROMPT_STAGES: RequirementStage[] = ["angle", "outline", "draft", "dbs", "pre_publish", "review"];
 
 const STAGE_PROMPT_UI: Record<
   RequirementStage,
@@ -220,6 +226,8 @@ const FINAL_DRAFT_LOCKED_STATUSES = new Set<ArticleStatus>([
 function canMarkFinalDraft(status: ArticleStatus): boolean {
   return !FINAL_DRAFT_LOCKED_STATUSES.has(status);
 }
+
+// Prompt configuration components
 
 function RequirementSelector({
   title,
@@ -708,6 +716,8 @@ function PromptRecipeDialog({ recipe, onClose }: { recipe: PromptRecipe; onClose
   );
 }
 
+// Stage keyed prompt state helpers
+
 function defaultRequirementIdsFromKey(key: string): string[] {
   return key
     .split("|")
@@ -715,6 +725,24 @@ function defaultRequirementIdsFromKey(key: string): string[] {
     .map((item) => item.slice(0, item.lastIndexOf(":")))
     .filter(Boolean);
 }
+
+function createStageRecord<T>(factory: (stage: RequirementStage) => T): Record<RequirementStage, T> {
+  const record = {} as Record<RequirementStage, T>;
+  for (const stage of PROMPT_STAGES) {
+    record[stage] = factory(stage);
+  }
+  return record;
+}
+
+function promptDraftsFromStagePrompts(stagePrompts: StagePromptDefault[]): Record<RequirementStage, string> {
+  return createStageRecord((stage) => stagePrompts.find((prompt) => prompt.stage === stage)?.prompt || "");
+}
+
+function selectedRequirementIdsFromKeys(requirementKeys: Record<RequirementStage, string>): Record<RequirementStage, string[]> {
+  return createStageRecord((stage) => defaultRequirementIdsFromKey(requirementKeys[stage]));
+}
+
+// Article workflow composer
 
 export function ArticleWorkflow({
   article,
@@ -760,21 +788,16 @@ export function ArticleWorkflow({
   const [selectedOutlineId, setSelectedOutlineId] = useState(latestOutline?.id || "");
   const [draftMarkdown, setDraftMarkdown] = useState(latestDraft?.markdown || "");
   const [selectedDraftId, setSelectedDraftId] = useState(latestDraft?.id || "");
-  const anglePrompt = stagePrompts.find((prompt) => prompt.stage === "angle") || null;
-  const outlinePrompt = stagePrompts.find((prompt) => prompt.stage === "outline") || null;
-  const draftPrompt = stagePrompts.find((prompt) => prompt.stage === "draft") || null;
-  const dbsPrompt = stagePrompts.find((prompt) => prompt.stage === "dbs") || null;
-  const prePublishPrompt = stagePrompts.find((prompt) => prompt.stage === "pre_publish") || null;
-  const reviewPrompt = stagePrompts.find((prompt) => prompt.stage === "review") || null;
+  const stagePromptKey = useMemo(
+    () =>
+      PROMPT_STAGES.map((stage) => {
+        const prompt = stagePrompts.find((item) => item.stage === stage);
+        return `${stage}:${prompt?.id || ""}:${prompt?.prompt || ""}`;
+      }).join("|"),
+    [stagePrompts]
+  );
   const requirementsByStage = useMemo(() => {
-    const grouped: Record<RequirementStage, RequirementPreset[]> = {
-      angle: [],
-      outline: [],
-      draft: [],
-      dbs: [],
-      pre_publish: [],
-      review: []
-    };
+    const grouped = createStageRecord<RequirementPreset[]>(() => []);
     for (const requirement of requirementPresets) {
       if (requirement.stage in grouped) {
         grouped[requirement.stage as RequirementStage].push(requirement);
@@ -789,15 +812,8 @@ export function ArticleWorkflow({
   const prePublishRequirements = requirementsByStage.pre_publish;
   const reviewRequirements = requirementsByStage.review;
   const requirementKeys = useMemo(
-    () => ({
-      angle: angleRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
-      outline: outlineRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
-      draft: draftRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
-      dbs: dbsRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
-      pre_publish: prePublishRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|"),
-      review: reviewRequirements.map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|")
-    }),
-    [angleRequirements, dbsRequirements, draftRequirements, outlineRequirements, prePublishRequirements, reviewRequirements]
+    () => createStageRecord((stage) => requirementsByStage[stage].map((requirement) => `${requirement.id}:${requirement.defaultEnabled}`).join("|")),
+    [requirementsByStage]
   );
   const promptArtifactsByStage = useMemo(
     () => ({
@@ -808,37 +824,50 @@ export function ArticleWorkflow({
   );
   const latestPrePublishArtifact = promptArtifactsByStage.pre_publish[0] || null;
   const latestReviewArtifact = promptArtifactsByStage.review[0] || null;
-  const [angleDefaultPrompt, setAngleDefaultPrompt] = useState(anglePrompt?.prompt || "");
-  const [outlineDefaultPrompt, setOutlineDefaultPrompt] = useState(outlinePrompt?.prompt || "");
-  const [draftDefaultPrompt, setDraftDefaultPrompt] = useState(draftPrompt?.prompt || "");
-  const [dbsDefaultPrompt, setDbsDefaultPrompt] = useState(dbsPrompt?.prompt || "");
-  const [prePublishDefaultPrompt, setPrePublishDefaultPrompt] = useState(prePublishPrompt?.prompt || "");
-  const [reviewDefaultPrompt, setReviewDefaultPrompt] = useState(reviewPrompt?.prompt || "");
-  const [angleCustomInstruction, setAngleCustomInstruction] = useState("");
+  const [defaultPromptDrafts, setDefaultPromptDrafts] = useState<Record<RequirementStage, string>>(() =>
+    promptDraftsFromStagePrompts(stagePrompts)
+  );
+  const [customInstructions, setCustomInstructions] = useState<Record<RequirementStage, string>>(() => createStageRecord(() => ""));
   const [topicDiagnosisCustomInstruction, setTopicDiagnosisCustomInstruction] = useState("");
-  const [outlineCustomInstruction, setOutlineCustomInstruction] = useState("");
-  const [draftCustomInstruction, setDraftCustomInstruction] = useState("");
-  const [dbsCustomInstruction, setDbsCustomInstruction] = useState("");
-  const [prePublishCustomInstruction, setPrePublishCustomInstruction] = useState("");
-  const [reviewCustomInstruction, setReviewCustomInstruction] = useState("");
-  const [selectedAngleRequirementIds, setSelectedAngleRequirementIds] = useState<string[]>(() =>
-    angleRequirements.filter((requirement) => requirement.defaultEnabled).map((requirement) => requirement.id)
+  const [selectedRequirementIdsByStage, setSelectedRequirementIdsByStage] = useState<Record<RequirementStage, string[]>>(() =>
+    selectedRequirementIdsFromKeys(requirementKeys)
   );
-  const [selectedOutlineRequirementIds, setSelectedOutlineRequirementIds] = useState<string[]>(() =>
-    defaultRequirementIdsFromKey(requirementKeys.outline)
-  );
-  const [selectedDraftRequirementIds, setSelectedDraftRequirementIds] = useState<string[]>(() =>
-    defaultRequirementIdsFromKey(requirementKeys.draft)
-  );
-  const [selectedDbsRequirementIds, setSelectedDbsRequirementIds] = useState<string[]>(() =>
-    defaultRequirementIdsFromKey(requirementKeys.dbs)
-  );
-  const [selectedPrePublishRequirementIds, setSelectedPrePublishRequirementIds] = useState<string[]>(() =>
-    defaultRequirementIdsFromKey(requirementKeys.pre_publish)
-  );
-  const [selectedReviewRequirementIds, setSelectedReviewRequirementIds] = useState<string[]>(() =>
-    defaultRequirementIdsFromKey(requirementKeys.review)
-  );
+  const angleDefaultPrompt = defaultPromptDrafts.angle;
+  const outlineDefaultPrompt = defaultPromptDrafts.outline;
+  const draftDefaultPrompt = defaultPromptDrafts.draft;
+  const dbsDefaultPrompt = defaultPromptDrafts.dbs;
+  const prePublishDefaultPrompt = defaultPromptDrafts.pre_publish;
+  const reviewDefaultPrompt = defaultPromptDrafts.review;
+  const setAngleDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("angle", value);
+  const setOutlineDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("outline", value);
+  const setDraftDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("draft", value);
+  const setDbsDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("dbs", value);
+  const setPrePublishDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("pre_publish", value);
+  const setReviewDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("review", value);
+  const angleCustomInstruction = customInstructions.angle;
+  const outlineCustomInstruction = customInstructions.outline;
+  const draftCustomInstruction = customInstructions.draft;
+  const dbsCustomInstruction = customInstructions.dbs;
+  const prePublishCustomInstruction = customInstructions.pre_publish;
+  const reviewCustomInstruction = customInstructions.review;
+  const setAngleCustomInstruction = (value: string) => setCustomInstructionForStage("angle", value);
+  const setOutlineCustomInstruction = (value: string) => setCustomInstructionForStage("outline", value);
+  const setDraftCustomInstruction = (value: string) => setCustomInstructionForStage("draft", value);
+  const setDbsCustomInstruction = (value: string) => setCustomInstructionForStage("dbs", value);
+  const setPrePublishCustomInstruction = (value: string) => setCustomInstructionForStage("pre_publish", value);
+  const setReviewCustomInstruction = (value: string) => setCustomInstructionForStage("review", value);
+  const selectedAngleRequirementIds = selectedRequirementIdsByStage.angle;
+  const selectedOutlineRequirementIds = selectedRequirementIdsByStage.outline;
+  const selectedDraftRequirementIds = selectedRequirementIdsByStage.draft;
+  const selectedDbsRequirementIds = selectedRequirementIdsByStage.dbs;
+  const selectedPrePublishRequirementIds = selectedRequirementIdsByStage.pre_publish;
+  const selectedReviewRequirementIds = selectedRequirementIdsByStage.review;
+  const setSelectedAngleRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("angle", ids);
+  const setSelectedOutlineRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("outline", ids);
+  const setSelectedDraftRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("draft", ids);
+  const setSelectedDbsRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("dbs", ids);
+  const setSelectedPrePublishRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("pre_publish", ids);
+  const setSelectedReviewRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("review", ids);
   const [selectedDiagnosisId, setSelectedDiagnosisId] = useState(diagnoses[0]?.id || "");
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -863,6 +892,18 @@ export function ArticleWorkflow({
   const topicDiagnosisWarning = latestTopicDiagnosis
     ? TOPIC_DIAGNOSIS_WARNING_COPY[latestTopicDiagnosis.verdict] || null
     : null;
+
+  function setDefaultPromptDraftForStage(stage: RequirementStage, value: string) {
+    setDefaultPromptDrafts((current) => ({ ...current, [stage]: value }));
+  }
+
+  function setCustomInstructionForStage(stage: RequirementStage, value: string) {
+    setCustomInstructions((current) => ({ ...current, [stage]: value }));
+  }
+
+  function setSelectedRequirementIdsForStage(stage: RequirementStage, ids: string[]) {
+    setSelectedRequirementIdsByStage((current) => ({ ...current, [stage]: ids }));
+  }
 
   function getTabMeta(tabId: WorkflowTabId): string {
     if (tabId === "topic") {
@@ -931,52 +972,12 @@ export function ArticleWorkflow({
   }, [latestOutline, outlineById, selectedOutlineId]);
 
   useEffect(() => {
-    setAngleDefaultPrompt(anglePrompt?.prompt || "");
-  }, [anglePrompt?.id, anglePrompt?.prompt]);
+    setDefaultPromptDrafts(promptDraftsFromStagePrompts(stagePrompts));
+  }, [stagePromptKey, stagePrompts]);
 
   useEffect(() => {
-    setOutlineDefaultPrompt(outlinePrompt?.prompt || "");
-  }, [outlinePrompt?.id, outlinePrompt?.prompt]);
-
-  useEffect(() => {
-    setDraftDefaultPrompt(draftPrompt?.prompt || "");
-  }, [draftPrompt?.id, draftPrompt?.prompt]);
-
-  useEffect(() => {
-    setDbsDefaultPrompt(dbsPrompt?.prompt || "");
-  }, [dbsPrompt?.id, dbsPrompt?.prompt]);
-
-  useEffect(() => {
-    setPrePublishDefaultPrompt(prePublishPrompt?.prompt || "");
-  }, [prePublishPrompt?.id, prePublishPrompt?.prompt]);
-
-  useEffect(() => {
-    setReviewDefaultPrompt(reviewPrompt?.prompt || "");
-  }, [reviewPrompt?.id, reviewPrompt?.prompt]);
-
-  useEffect(() => {
-    setSelectedAngleRequirementIds(defaultRequirementIdsFromKey(requirementKeys.angle));
-  }, [article.id, requirementKeys.angle]);
-
-  useEffect(() => {
-    setSelectedOutlineRequirementIds(defaultRequirementIdsFromKey(requirementKeys.outline));
-  }, [article.id, requirementKeys.outline]);
-
-  useEffect(() => {
-    setSelectedDraftRequirementIds(defaultRequirementIdsFromKey(requirementKeys.draft));
-  }, [article.id, requirementKeys.draft]);
-
-  useEffect(() => {
-    setSelectedDbsRequirementIds(defaultRequirementIdsFromKey(requirementKeys.dbs));
-  }, [article.id, requirementKeys.dbs]);
-
-  useEffect(() => {
-    setSelectedPrePublishRequirementIds(defaultRequirementIdsFromKey(requirementKeys.pre_publish));
-  }, [article.id, requirementKeys.pre_publish]);
-
-  useEffect(() => {
-    setSelectedReviewRequirementIds(defaultRequirementIdsFromKey(requirementKeys.review));
-  }, [article.id, requirementKeys.review]);
+    setSelectedRequirementIdsByStage(selectedRequirementIdsFromKeys(requirementKeys));
+  }, [article.id, requirementKeys]);
 
   useEffect(() => {
     const urlTab = searchParams.get("tab");
@@ -1121,19 +1122,7 @@ export function ArticleWorkflow({
       stage,
       prompt
     });
-    if (stage === "outline") {
-      setOutlineDefaultPrompt(saved.prompt);
-    } else if (stage === "draft") {
-      setDraftDefaultPrompt(saved.prompt);
-    } else if (stage === "angle") {
-      setAngleDefaultPrompt(saved.prompt);
-    } else if (stage === "dbs") {
-      setDbsDefaultPrompt(saved.prompt);
-    } else if (stage === "pre_publish") {
-      setPrePublishDefaultPrompt(saved.prompt);
-    } else {
-      setReviewDefaultPrompt(saved.prompt);
-    }
+    setDefaultPromptDraftForStage(stage, saved.prompt);
     setNotice(STAGE_PROMPT_UI[stage].savedNotice);
   }
 

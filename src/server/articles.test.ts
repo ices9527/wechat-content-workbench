@@ -69,6 +69,23 @@ class FailingTopicDiagnosisClient extends FakeAIClient {
   }
 }
 
+class IncompleteOutlineClient extends FakeAIClient {
+  async generateOutline() {
+    return {
+      mainline: "",
+      outlineMarkdown: "## 只有提纲，没有主线"
+    };
+  }
+}
+
+class EmptyDraftClient extends FakeAIClient {
+  async generateDraft() {
+    return {
+      markdown: ""
+    };
+  }
+}
+
 describe("article service", () => {
   it("creates articles with topic_created status and local owner", () => {
     const { db } = createTestDatabase();
@@ -376,6 +393,58 @@ describe("article service", () => {
     expect(draftRecipe.selectedRequirements.map((requirement) => requirement.label)).toContain(draftRequirement.label);
     expect(draftRecipe.customInstruction).toBe("开头先从家庭生活场景进入。");
     expect(draftRecipe.finalPrompt).toContain("开头先从家庭生活场景进入。");
+
+    updateStagePromptDefault({ stage: "draft", prompt: "后来改掉的默认提示词" }, db);
+    updateRequirementPreset(
+      draftRequirement.id,
+      {
+        label: "后来改掉的标签",
+        promptFragment: "后来改掉的可选提示词"
+      },
+      db
+    );
+    const recipeAfterPromptEdits = getPromptRecipeForDraft(article.id, draft.id, db);
+
+    expect(recipeAfterPromptEdits.stageDefaultPrompt?.prompt).toContain("专业克制");
+    expect(recipeAfterPromptEdits.stageDefaultPrompt?.prompt).not.toContain("后来改掉");
+    expect(recipeAfterPromptEdits.selectedRequirements[0].label).toBe(draftRequirement.label);
+    expect(recipeAfterPromptEdits.selectedRequirements[0].promptFragment).toBe(draftRequirement.promptFragment);
+    expect(recipeAfterPromptEdits.finalPrompt).toContain(draftRequirement.promptFragment);
+    expect(recipeAfterPromptEdits.finalPrompt).not.toContain("后来改掉的可选提示词");
+  });
+
+  it("records failed outline invocations when AI returns incomplete structure", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是第一眼" }, db);
+    selectAngle(article.id, angle.id, db);
+
+    await expect(generateOutline(article.id, new IncompleteOutlineClient(), db)).rejects.toThrow("AI 返回的提纲结构不完整");
+
+    const invocations = db.select().from(aiInvocations).where(eq(aiInvocations.taskType, "generate_outline")).all();
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].status).toBe("failed");
+    expect(invocations[0].errorMessage).toBe("AI 返回的提纲结构不完整");
+    expect(db.select().from(outlineVersions).all()).toHaveLength(0);
+    expect(getArticle(article.id, db)?.status).toBe("angle_selected");
+  });
+
+  it("records failed draft invocations when AI returns empty markdown", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是第一眼" }, db);
+    selectAngle(article.id, angle.id, db);
+    const outline = await generateOutline(article.id, new FakeAIClient(), db);
+    acceptOutline(article.id, outline.id, db);
+
+    await expect(generateDraft(article.id, new EmptyDraftClient(), db)).rejects.toThrow("AI 返回的文案为空");
+
+    const invocations = db.select().from(aiInvocations).where(eq(aiInvocations.taskType, "generate_draft")).all();
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0].status).toBe("failed");
+    expect(invocations[0].errorMessage).toBe("AI 返回的文案为空");
+    expect(db.select().from(draftVersions).all()).toHaveLength(0);
+    expect(getArticle(article.id, db)?.status).toBe("outline_review");
   });
 
   it("updates an existing draft version without creating a new version", async () => {

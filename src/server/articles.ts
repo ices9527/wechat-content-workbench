@@ -1,16 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { assertCanTransition, getNextAction, getStatusLabel, isPublishQueueStatus, type ArticleStatus } from "@/domain/status";
-import {
-  defaultStagePromptLabel,
-  requirementStageSchema,
-  stagePromptStageSchema,
-  type RequirementStage,
-  type StagePromptStage
-} from "@/domain/stages";
+import { requirementStageSchema, stagePromptStageSchema, type RequirementStage, type StagePromptStage } from "@/domain/stages";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/ensure";
 import { LOCAL_USER_ID } from "@/db/seed";
@@ -24,13 +18,10 @@ import {
   draftVersions,
   outlineVersions,
   promptRunArtifacts,
-  requirementPresets,
-  stagePromptDefaults,
   topicDiagnoses,
   wechatDraftUploads,
   workflowEvents,
   type AngleCandidate,
-  type AIInvocation,
   type ArticleProject,
   type ContentDiagnosis,
   type DraftVersion,
@@ -45,10 +36,30 @@ import {
 import type { AIClient, GeneratedAngle, GeneratedTopicDiagnosis } from "./ai";
 import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline } from "./article-records";
+import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
+import { resolveSelectedRequirements } from "./requirements";
+import { getStagePromptDefault } from "./stage-prompts";
 
 export { requirementStageSchema, stagePromptStageSchema };
+export {
+  createRequirementInputSchema,
+  createRequirementPreset,
+  deleteRequirementPreset,
+  listRequirementPresets,
+  requirementTypeSchema,
+  resolveSelectedRequirements,
+  updateRequirementInputSchema,
+  updateRequirementPreset
+} from "./requirements";
+export { getStagePromptDefault, listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "./stage-prompts";
+export { getPromptRecipeForDraft, getPromptRecipeForInvocation, getPromptRecipeForOutline } from "./prompt-recipes";
+export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
+export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";
+export type { UpdateStagePromptInput } from "./stage-prompts";
 export type { RequirementStage, StagePromptStage };
+
+// Schemas and public types
 
 export const createArticleInputSchema = z.object({
   topic: z.string().trim().min(1, "主题不能为空"),
@@ -103,39 +114,6 @@ export const topicDiagnosisInputSchema = z.object({
   customInstruction: promptControlInputShape.customInstruction
 });
 
-export const requirementTypeSchema = z.enum(["must", "avoid", "prefer", "check", "compliance"]);
-
-export const createRequirementInputSchema = z.object({
-  stage: requirementStageSchema,
-  category: z.string().trim().min(1, "分类不能为空").max(40, "分类不能超过 40 字"),
-  type: requirementTypeSchema,
-  label: z.string().trim().min(1, "标签不能为空").max(80, "标签不能超过 80 字"),
-  description: z.string().trim().max(240, "说明不能超过 240 字").optional(),
-  promptFragment: z.string().trim().min(1, "提示词不能为空").max(2000, "提示词不能超过 2000 字"),
-  defaultEnabled: z.boolean().optional().default(false),
-  priority: z.coerce.number().int().min(0).max(9999).optional().default(500)
-});
-
-export const updateRequirementInputSchema = z.object({
-  stage: requirementStageSchema.optional(),
-  category: z.string().trim().min(1, "分类不能为空").max(40, "分类不能超过 40 字").optional(),
-  type: requirementTypeSchema.optional(),
-  label: z.string().trim().min(1, "标签不能为空").max(80, "标签不能超过 80 字").optional(),
-  description: z.string().trim().max(240, "说明不能超过 240 字").optional(),
-  promptFragment: z.string().trim().min(1, "提示词不能为空").max(2000, "提示词不能超过 2000 字").optional(),
-  defaultEnabled: z.boolean().optional(),
-  enabled: z.boolean().optional(),
-  archived: z.boolean().optional(),
-  priority: z.coerce.number().int().min(0).max(9999).optional()
-});
-
-export const updateStagePromptInputSchema = z.object({
-  stage: stagePromptStageSchema,
-  label: z.string().trim().min(1, "名称不能为空").max(80, "名称不能超过 80 字").optional(),
-  prompt: z.string().trim().max(8000, "默认提示词不能超过 8000 字").default(""),
-  enabled: z.boolean().optional()
-});
-
 export const runDbsContentInputSchema = z.object({
   draftVersionId: z.string().trim().min(1, "必须指定文案版本"),
   ...promptControlInputShape
@@ -160,42 +138,13 @@ export type SaveOutlineInput = z.infer<typeof saveOutlineInputSchema>;
 export type UpdateOutlineInput = z.infer<typeof updateOutlineInputSchema>;
 export type GenerateWithPromptInput = z.input<typeof generateWithPromptInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
-export type CreateRequirementInput = z.infer<typeof createRequirementInputSchema>;
-export type UpdateRequirementInput = z.infer<typeof updateRequirementInputSchema>;
-export type UpdateStagePromptInput = z.infer<typeof updateStagePromptInputSchema>;
 export type RunDbsContentInput = z.input<typeof runDbsContentInputSchema>;
 export type PrePublishCheckInput = z.input<typeof prePublishCheckInputSchema>;
 export type ReviewCheckInput = z.input<typeof reviewCheckInputSchema>;
 export type ReviseFromDiagnosisInput = z.infer<typeof reviseFromDiagnosisInputSchema>;
 export type MarkFinalDraftInput = z.infer<typeof markFinalDraftInputSchema>;
 
-export type PromptRecipeRequirement = {
-  id: string;
-  requirementPresetId: string;
-  stableKey: string;
-  label: string;
-  promptFragment: string;
-  stage: string;
-  createdAt: string;
-};
-
-export type PromptRecipe = {
-  articleId: string;
-  invocationId: string | null;
-  taskType: string | null;
-  model: string | null;
-  baseUrl: string | null;
-  status: string | null;
-  createdAt: string | null;
-  stageDefaultPrompt: {
-    label: string;
-    prompt: string;
-  } | null;
-  selectedRequirements: PromptRecipeRequirement[];
-  customInstruction: string | null;
-  finalPrompt: string | null;
-  emptyReason?: string;
-};
+// Read model helpers
 
 function titleFromTopic(topic: string): string {
   return topic.length > 48 ? `${topic.slice(0, 48)}...` : topic;
@@ -209,6 +158,8 @@ function toListItem(article: ArticleProject): ArticleListItem {
     nextAction: getNextAction(status)
   };
 }
+
+// Workflow guards and event recording
 
 function recordWorkflowEvent(
   db: WorkbenchDatabase,
@@ -249,6 +200,8 @@ function transitionArticle(
   return { ...article, status: toStatus, updatedAt };
 }
 
+// AI invocation snapshots
+
 function recordAIInvocation(
   db: WorkbenchDatabase,
   input: {
@@ -282,6 +235,35 @@ function recordAIInvocation(
     })
     .run();
   return id;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function recordFailedAIInvocation(
+  db: WorkbenchDatabase,
+  input: {
+    article: ArticleProject;
+    taskType: string;
+    client: Pick<AIClient, "model" | "baseUrl">;
+    prompt: string;
+    customInstruction?: string | null;
+    stagePrompt?: Pick<StagePromptDefault, "label" | "prompt" | "enabled"> | null;
+    error: unknown;
+    fallbackMessage: string;
+  }
+): string {
+  return recordAIInvocation(db, {
+    article: input.article,
+    taskType: input.taskType,
+    client: input.client,
+    prompt: input.prompt,
+    customInstruction: input.customInstruction,
+    stagePrompt: input.stagePrompt,
+    status: "failed",
+    errorMessage: getErrorMessage(input.error, input.fallbackMessage)
+  });
 }
 
 function recordAIInvocationRequirements(
@@ -318,6 +300,8 @@ function buildSelectedRequirementSummaryMarkdown(title: string, requirements: Re
   }
   return ["", `## ${title}`, ...requirements.map((requirement) => `- ${requirement.label}：${requirement.promptFragment}`)].join("\n");
 }
+
+// Shared command helpers
 
 function requireFinalDraft(article: ArticleProject, db: WorkbenchDatabase): DraftVersion {
   if (article.finalDraftVersionId) {
@@ -366,6 +350,8 @@ function getPublishContext(articleId: string, db: WorkbenchDatabase): {
 
   return { htmlAssetCount, coverAssetCount, uploadStatus };
 }
+
+// Article read models and queries
 
 export function createArticle(input: CreateArticleInput, db: WorkbenchDatabase = getDatabase().db): ArticleProject {
   const parsed = createArticleInputSchema.parse(input);
@@ -485,353 +471,7 @@ export function listPromptRunArtifacts(
   return db.select().from(promptRunArtifacts).where(and(...conditions)).orderBy(desc(promptRunArtifacts.createdAt)).all();
 }
 
-export function listStagePromptDefaults(db: WorkbenchDatabase = getDatabase().db): StagePromptDefault[] {
-  return db.select().from(stagePromptDefaults).where(eq(stagePromptDefaults.ownerId, LOCAL_USER_ID)).all();
-}
-
-export function getStagePromptDefault(
-  stage: StagePromptStage,
-  db: WorkbenchDatabase = getDatabase().db
-): StagePromptDefault | null {
-  return (
-    db
-      .select()
-      .from(stagePromptDefaults)
-      .where(and(eq(stagePromptDefaults.ownerId, LOCAL_USER_ID), eq(stagePromptDefaults.stage, stage)))
-      .get() || null
-  );
-}
-
-export function updateStagePromptDefault(
-  input: UpdateStagePromptInput,
-  db: WorkbenchDatabase = getDatabase().db
-): StagePromptDefault {
-  const parsed = updateStagePromptInputSchema.parse(input);
-  const existing = getStagePromptDefault(parsed.stage, db);
-  const now = new Date().toISOString();
-
-  if (existing) {
-    db.update(stagePromptDefaults)
-      .set({
-        label: parsed.label ?? existing.label,
-        prompt: parsed.prompt,
-        enabled: parsed.enabled ?? existing.enabled,
-        updatedAt: now
-      })
-      .where(eq(stagePromptDefaults.id, existing.id))
-      .run();
-    return {
-      ...existing,
-      label: parsed.label ?? existing.label,
-      prompt: parsed.prompt,
-      enabled: parsed.enabled ?? existing.enabled,
-      updatedAt: now
-    };
-  }
-
-  const created: StagePromptDefault = {
-    id: `${LOCAL_USER_ID}_${parsed.stage}`,
-    ownerId: LOCAL_USER_ID,
-    stage: parsed.stage,
-    label: parsed.label ?? defaultStagePromptLabel(parsed.stage),
-    prompt: parsed.prompt,
-    enabled: parsed.enabled ?? true,
-    createdAt: now,
-    updatedAt: now
-  };
-  db.insert(stagePromptDefaults).values(created).run();
-  return created;
-}
-
-export function listRequirementPresets(
-  input: { stage?: RequirementStage; includeArchived?: boolean } = {},
-  db: WorkbenchDatabase = getDatabase().db
-): RequirementPreset[] {
-  const parsedStage = input.stage ? requirementStageSchema.parse(input.stage) : undefined;
-  const conditions = [eq(requirementPresets.ownerId, LOCAL_USER_ID)];
-
-  if (parsedStage) {
-    conditions.push(eq(requirementPresets.stage, parsedStage));
-  }
-  if (!input.includeArchived) {
-    conditions.push(eq(requirementPresets.enabled, true));
-    conditions.push(isNull(requirementPresets.archivedAt));
-  }
-
-  return db
-    .select()
-    .from(requirementPresets)
-    .where(and(...conditions))
-    .orderBy(asc(requirementPresets.stage), asc(requirementPresets.category), asc(requirementPresets.priority))
-    .all();
-}
-
-export function resolveSelectedRequirements(
-  ids: string[] | undefined,
-  stage: RequirementStage,
-  db: WorkbenchDatabase = getDatabase().db
-): RequirementPreset[] {
-  const parsedStage = requirementStageSchema.parse(stage);
-  const uniqueIds = Array.from(new Set((ids || []).filter(Boolean)));
-
-  if (uniqueIds.length === 0) {
-    return [];
-  }
-
-  const rows = db
-    .select()
-    .from(requirementPresets)
-    .where(and(eq(requirementPresets.ownerId, LOCAL_USER_ID), inArray(requirementPresets.id, uniqueIds)))
-    .orderBy(asc(requirementPresets.priority))
-    .all();
-
-  if (rows.length !== uniqueIds.length) {
-    throw new Error("可选提示词不存在");
-  }
-
-  const invalid = rows.find((row) => row.stage !== parsedStage || !row.enabled || row.archivedAt);
-  if (invalid) {
-    throw new Error("可选提示词不适用于当前阶段");
-  }
-
-  return rows;
-}
-
-export function createRequirementPreset(
-  input: CreateRequirementInput,
-  db: WorkbenchDatabase = getDatabase().db
-): RequirementPreset {
-  const parsed = createRequirementInputSchema.parse(input);
-  const now = new Date().toISOString();
-  const requirement: RequirementPreset = {
-    id: randomUUID(),
-    stableKey: `USER-${randomUUID()}`,
-    ownerId: LOCAL_USER_ID,
-    stage: parsed.stage,
-    category: parsed.category,
-    type: parsed.type,
-    label: parsed.label,
-    description: parsed.description || parsed.label,
-    promptFragment: parsed.promptFragment,
-    defaultEnabled: parsed.defaultEnabled,
-    enabled: true,
-    priority: parsed.priority,
-    source: "user",
-    archivedAt: null,
-    createdAt: now,
-    updatedAt: now
-  };
-  db.insert(requirementPresets).values(requirement).run();
-  return requirement;
-}
-
-function requireRequirementPreset(id: string, db: WorkbenchDatabase): RequirementPreset {
-  const requirement = db
-    .select()
-    .from(requirementPresets)
-    .where(and(eq(requirementPresets.id, id), eq(requirementPresets.ownerId, LOCAL_USER_ID)))
-    .get();
-  if (!requirement) {
-    throw new Error("可选提示词不存在");
-  }
-  return requirement;
-}
-
-export function updateRequirementPreset(
-  id: string,
-  input: UpdateRequirementInput,
-  db: WorkbenchDatabase = getDatabase().db
-): RequirementPreset {
-  const existing = requireRequirementPreset(id, db);
-  const parsed = updateRequirementInputSchema.parse(input);
-  const now = new Date().toISOString();
-  const values = {
-    stage: parsed.stage ?? existing.stage,
-    category: parsed.category ?? existing.category,
-    type: parsed.type ?? existing.type,
-    label: parsed.label ?? existing.label,
-    description: parsed.description ?? existing.description,
-    promptFragment: parsed.promptFragment ?? existing.promptFragment,
-    defaultEnabled: parsed.defaultEnabled ?? existing.defaultEnabled,
-    enabled: parsed.enabled ?? existing.enabled,
-    priority: parsed.priority ?? existing.priority,
-    archivedAt: parsed.archived === undefined ? existing.archivedAt : parsed.archived ? now : null,
-    updatedAt: now
-  };
-
-  db.update(requirementPresets).set(values).where(eq(requirementPresets.id, existing.id)).run();
-  return { ...existing, ...values };
-}
-
-export function deleteRequirementPreset(
-  id: string,
-  db: WorkbenchDatabase = getDatabase().db
-): { deleted: boolean; archived: boolean; requirement: RequirementPreset } {
-  const existing = requireRequirementPreset(id, db);
-  const used = db
-    .select()
-    .from(aiInvocationRequirements)
-    .where(eq(aiInvocationRequirements.requirementPresetId, existing.id))
-    .get();
-
-  if (used) {
-    const archived = updateRequirementPreset(
-      existing.id,
-      {
-        enabled: false,
-        archived: true
-      },
-      db
-    );
-    return { deleted: false, archived: true, requirement: archived };
-  }
-
-  db.delete(requirementPresets).where(eq(requirementPresets.id, existing.id)).run();
-  return { deleted: true, archived: false, requirement: existing };
-}
-
-function listRequirementSnapshotsForInvocation(
-  aiInvocationId: string,
-  db: WorkbenchDatabase
-): AIInvocationRequirement[] {
-  return db
-    .select()
-    .from(aiInvocationRequirements)
-    .where(eq(aiInvocationRequirements.aiInvocationId, aiInvocationId))
-    .orderBy(asc(aiInvocationRequirements.createdAt))
-    .all();
-}
-
-function findRequirementSnapshotsForDraft(
-  articleId: string,
-  draft: DraftVersion,
-  db: WorkbenchDatabase
-): AIInvocationRequirement[] {
-  if (draft.sourceInvocationId) {
-    return listRequirementSnapshotsForInvocation(draft.sourceInvocationId, db);
-  }
-
-  const invocations = db
-    .select()
-    .from(aiInvocations)
-    .where(and(eq(aiInvocations.articleId, articleId), eq(aiInvocations.taskType, "generate_draft")))
-    .orderBy(desc(aiInvocations.createdAt))
-    .all();
-
-  for (const invocation of invocations) {
-    if (!invocation.response) {
-      continue;
-    }
-    try {
-      const response = JSON.parse(invocation.response) as { markdown?: string };
-      if (response.markdown && draft.markdown.includes(response.markdown.slice(0, 80))) {
-        return listRequirementSnapshotsForInvocation(invocation.id, db);
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return [];
-}
-
-function toPromptRecipeRequirement(requirement: AIInvocationRequirement): PromptRecipeRequirement {
-  return {
-    id: requirement.id,
-    requirementPresetId: requirement.requirementPresetId,
-    stableKey: requirement.stableKeySnapshot,
-    label: requirement.labelSnapshot,
-    promptFragment: requirement.promptFragmentSnapshot,
-    stage: requirement.stageSnapshot,
-    createdAt: requirement.createdAt
-  };
-}
-
-function emptyPromptRecipe(articleId: string, reason: string): PromptRecipe {
-  return {
-    articleId,
-    invocationId: null,
-    taskType: null,
-    model: null,
-    baseUrl: null,
-    status: null,
-    createdAt: null,
-    stageDefaultPrompt: null,
-    selectedRequirements: [],
-    customInstruction: null,
-    finalPrompt: null,
-    emptyReason: reason
-  };
-}
-
-function requireInvocationRecipe(articleId: string, invocationId: string, db: WorkbenchDatabase): PromptRecipe {
-  const invocation = db
-    .select()
-    .from(aiInvocations)
-    .where(and(eq(aiInvocations.id, invocationId), eq(aiInvocations.articleId, articleId)))
-    .get() as AIInvocation | undefined;
-
-  if (!invocation) {
-    return emptyPromptRecipe(articleId, "没有找到对应的 AI 调用记录。");
-  }
-
-  const selectedRequirements = listRequirementSnapshotsForInvocation(invocation.id, db).map(toPromptRecipeRequirement);
-  const stageDefaultPrompt = invocation.stagePromptSnapshot
-    ? {
-        label: invocation.stagePromptLabelSnapshot || "默认提示词",
-        prompt: invocation.stagePromptSnapshot
-      }
-    : null;
-
-  return {
-    articleId,
-    invocationId: invocation.id,
-    taskType: invocation.taskType,
-    model: invocation.model,
-    baseUrl: invocation.baseUrl,
-    status: invocation.status,
-    createdAt: invocation.createdAt,
-    stageDefaultPrompt,
-    selectedRequirements,
-    customInstruction: invocation.customInstruction,
-    finalPrompt: invocation.prompt
-  };
-}
-
-export function getPromptRecipeForInvocation(
-  articleId: string,
-  invocationId: string,
-  db: WorkbenchDatabase = getDatabase().db
-): PromptRecipe {
-  const article = requireArticle(articleId, db);
-  return requireInvocationRecipe(article.id, invocationId, db);
-}
-
-export function getPromptRecipeForOutline(
-  articleId: string,
-  outlineVersionId: string,
-  db: WorkbenchDatabase = getDatabase().db
-): PromptRecipe {
-  const article = requireArticle(articleId, db);
-  const outline = requireOutline(article.id, outlineVersionId, db);
-  if (!outline.sourceInvocationId) {
-    return emptyPromptRecipe(article.id, "这个提纲版本没有绑定 AI 提示词记录，可能是人工保存或旧版本数据。");
-  }
-  return requireInvocationRecipe(article.id, outline.sourceInvocationId, db);
-}
-
-export function getPromptRecipeForDraft(
-  articleId: string,
-  draftVersionId: string,
-  db: WorkbenchDatabase = getDatabase().db
-): PromptRecipe {
-  const article = requireArticle(articleId, db);
-  const draft = requireDraft(article.id, draftVersionId, db);
-  if (!draft.sourceInvocationId) {
-    return emptyPromptRecipe(article.id, "这个文案版本没有绑定 AI 提示词记录，可能是人工保存或旧版本数据。");
-  }
-  return requireInvocationRecipe(article.id, draft.sourceInvocationId, db);
-}
+// Requirement compliance helpers
 
 function buildRequirementComplianceMarkdown(markdown: string, requirements: AIInvocationRequirement[]): string {
   if (requirements.length === 0) {
@@ -874,6 +514,8 @@ function hasUsefulTopicDiagnosis(generated: GeneratedTopicDiagnosis): boolean {
     generated.nextAction
   ].some((value) => value.trim().length > 0);
 }
+
+// Topic and angle commands
 
 export function createManualAngle(
   articleId: string,
@@ -978,14 +620,14 @@ export async function runTopicDiagnosis(
 
     return diagnosis;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "topic_diagnosis",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "AI 选题诊断失败"
+      error,
+      fallbackMessage: "AI 选题诊断失败"
     });
     throw error;
   }
@@ -1055,15 +697,15 @@ export async function generateAngles(
 
     return created;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "generate_angles",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "AI 生成角度失败"
+      error,
+      fallbackMessage: "AI 生成角度失败"
     });
     throw error;
   }
@@ -1092,6 +734,8 @@ export function selectAngle(articleId: string, angleId: string, db: WorkbenchDat
 
   return { ...angle, selected: true };
 }
+
+// Outline commands
 
 export async function generateOutline(
   articleId: string,
@@ -1162,15 +806,15 @@ export async function generateOutline(
 
     return outline;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "generate_outline",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "AI 生成提纲失败"
+      error,
+      fallbackMessage: "AI 生成提纲失败"
     });
     throw error;
   }
@@ -1250,6 +894,8 @@ export function acceptOutline(articleId: string, outlineId: string, db: Workbenc
   return { ...outline, accepted: true };
 }
 
+// Draft commands
+
 export async function generateDraft(
   articleId: string,
   client: AIClient = getAIClient(),
@@ -1322,15 +968,15 @@ export async function generateDraft(
 
     return draft;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "generate_draft",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "AI 生成文案失败"
+      error,
+      fallbackMessage: "AI 生成文案失败"
     });
     throw error;
   }
@@ -1379,6 +1025,8 @@ export function updateDraftVersion(
   });
   return { ...draft, markdown: parsed.markdown };
 }
+
+// dbs-content and revision commands
 
 export async function runDbsContent(
   articleId: string,
@@ -1470,15 +1118,15 @@ export async function runDbsContent(
 
     return diagnosis;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "dbs_content",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "dbs-content 诊断失败"
+      error,
+      fallbackMessage: "dbs-content 诊断失败"
     });
     throw error;
   }
@@ -1555,13 +1203,13 @@ export async function reviseFromDiagnosis(
 
     return draft;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "revise_from_diagnosis",
       client,
       prompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "生成修改稿失败"
+      error,
+      fallbackMessage: "生成修改稿失败"
     });
     throw error;
   }
@@ -1594,6 +1242,8 @@ export function markFinalDraft(
 
   return { ...draft, isFinal: true };
 }
+
+// Publish and review commands
 
 export function markReadyToPublish(articleId: string, db: WorkbenchDatabase = getDatabase().db): ArticleProject {
   const article = requireArticle(articleId, db);
@@ -1683,15 +1333,15 @@ export async function runPrePublishCheck(
 
     return artifact;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "pre_publish_check",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "生成发布前检查摘要失败"
+      error,
+      fallbackMessage: "生成发布前检查摘要失败"
     });
     throw error;
   }
@@ -1766,19 +1416,21 @@ export async function runReviewCheck(
 
     return artifact;
   } catch (error) {
-    recordAIInvocation(db, {
+    recordFailedAIInvocation(db, {
       article,
       taskType: "review_check",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "生成复盘检查清单失败"
+      error,
+      fallbackMessage: "生成复盘检查清单失败"
     });
     throw error;
   }
 }
+
+// Miscellaneous application helpers
 
 export function listPublishQueueArticles(db: WorkbenchDatabase = getDatabase().db): ArticleListItem[] {
   return listArticles({ publishQueueOnly: true }, db).filter((article) => isPublishQueueStatus(article.status as ArticleStatus));
