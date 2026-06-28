@@ -177,7 +177,7 @@ h1 {
 
 .article-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px 220px;
+  grid-template-columns: minmax(0, 1fr) 140px 150px 220px;
   gap: 16px;
   align-items: center;
   border-top: 1px solid var(--line);
@@ -215,6 +215,51 @@ h1 {
   padding: 4px 9px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.topic-diagnosis-badge {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.topic-diagnosis-badge span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.topic-diagnosis-badge strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.topic-diagnosis-badge.verdict-pass {
+  border-color: #b6dcc9;
+  background: #f1faf5;
+}
+
+.topic-diagnosis-badge.verdict-revise {
+  border-color: #d9c99a;
+  background: #fffaf0;
+}
+
+.topic-diagnosis-badge.verdict-hold,
+.topic-diagnosis-badge.verdict-drop {
+  border-color: #e1b8b0;
+  background: #fff5f3;
+}
+
+.topic-diagnosis-badge.verdict-missing {
+  color: var(--muted);
 }
 
 .sr-only {

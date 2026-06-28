@@ -18,6 +18,15 @@ export function ArticleList({ articles, emptyText = "还没有文章。先从右
             <p className="article-meta">{article.topic}</p>
           </div>
           <StatusBadge label={article.statusLabel} />
+          <div
+            className={`topic-diagnosis-badge ${
+              article.latestTopicDiagnosis ? `verdict-${article.latestTopicDiagnosis.verdict}` : "verdict-missing"
+            }`}
+            title={article.latestTopicDiagnosis?.riskSummary || "还没有运行选题诊断"}
+          >
+            <span>选题诊断</span>
+            <strong>{article.latestTopicDiagnosis?.verdictLabel || "未诊断"}</strong>
+          </div>
           <div className="next-action">{article.nextAction}</div>
         </Link>
       ))}

@@ -87,6 +87,11 @@ export type CreateArticleInput = z.infer<typeof createArticleInputSchema>;
 export type ArticleListItem = ArticleProject & {
   statusLabel: string;
   nextAction: string;
+  latestTopicDiagnosis: ArticleListTopicDiagnosis | null;
+};
+
+export type ArticleListTopicDiagnosis = Pick<TopicDiagnosis, "id" | "verdict" | "riskSummary" | "createdAt"> & {
+  verdictLabel: string;
 };
 
 export const manualAngleInputSchema = z.object({
@@ -164,13 +169,59 @@ function titleFromTopic(topic: string): string {
   return topic.length > 48 ? `${topic.slice(0, 48)}...` : topic;
 }
 
-function toListItem(article: ArticleProject): ArticleListItem {
+function formatTopicDiagnosisVerdict(verdict: string): string {
+  if (verdict === "pass") {
+    return "通过";
+  }
+  if (verdict === "revise") {
+    return "修改后通过";
+  }
+  if (verdict === "hold") {
+    return "暂缓";
+  }
+  if (verdict === "drop") {
+    return "放弃";
+  }
+  return verdict;
+}
+
+function toListItem(article: ArticleProject, latestTopicDiagnosis: TopicDiagnosis | null = null): ArticleListItem {
   const status = article.status as ArticleStatus;
   return {
     ...article,
     statusLabel: getStatusLabel(status),
-    nextAction: getNextAction(status)
+    nextAction: getNextAction(status),
+    latestTopicDiagnosis: latestTopicDiagnosis
+      ? {
+          id: latestTopicDiagnosis.id,
+          verdict: latestTopicDiagnosis.verdict,
+          verdictLabel: formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict),
+          riskSummary: latestTopicDiagnosis.riskSummary,
+          createdAt: latestTopicDiagnosis.createdAt
+        }
+      : null
   };
+}
+
+function getLatestTopicDiagnosesForArticles(articleIds: string[], db: WorkbenchDatabase): Map<string, TopicDiagnosis> {
+  if (articleIds.length === 0) {
+    return new Map();
+  }
+
+  const diagnoses = db
+    .select()
+    .from(topicDiagnoses)
+    .where(inArray(topicDiagnoses.articleId, articleIds))
+    .orderBy(desc(topicDiagnoses.createdAt))
+    .all();
+
+  const latestByArticleId = new Map<string, TopicDiagnosis>();
+  for (const diagnosis of diagnoses) {
+    if (!latestByArticleId.has(diagnosis.articleId)) {
+      latestByArticleId.set(diagnosis.articleId, diagnosis);
+    }
+  }
+  return latestByArticleId;
 }
 
 // Workflow guards and event recording
@@ -424,12 +475,20 @@ export function listArticles(
   } else {
     rows = db.select().from(articleProjects).orderBy(desc(articleProjects.updatedAt)).all();
   }
-  return rows.map(toListItem);
+  const latestTopicDiagnoses = getLatestTopicDiagnosesForArticles(
+    rows.map((article) => article.id),
+    db
+  );
+  return rows.map((article) => toListItem(article, latestTopicDiagnoses.get(article.id) || null));
 }
 
 export function getArticle(id: string, db: WorkbenchDatabase = getDatabase().db): ArticleListItem | null {
   const article = db.select().from(articleProjects).where(eq(articleProjects.id, id)).get();
-  return article ? toListItem(article) : null;
+  if (!article) {
+    return null;
+  }
+  const latestTopicDiagnosis = getLatestTopicDiagnosesForArticles([article.id], db).get(article.id) || null;
+  return toListItem(article, latestTopicDiagnosis);
 }
 
 export function listAngles(articleId: string, db: WorkbenchDatabase = getDatabase().db): AngleCandidate[] {

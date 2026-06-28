@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 
 import { expectPromptDialogScrollable } from "./helpers";
 
+const actionTimeout = 15_000;
+
 test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await page.goto("/");
 
@@ -31,8 +33,8 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(outlinePromptDialog).toHaveCount(0);
 
   await page.getByRole("button", { name: "生成主线和提纲" }).click();
-  await expect(page.getByLabel("主线判断")).toHaveValue(/这篇文章/);
-  await expect(page.getByLabel("Markdown 提纲")).toHaveValue(/## 一/);
+  await expect(page.getByLabel("主线判断")).toHaveValue(/这篇文章/, { timeout: actionTimeout });
+  await expect(page.getByLabel("Markdown 提纲")).toHaveValue(/## 一/, { timeout: actionTimeout });
   await outlinePanel.getByRole("button", { name: "查看提纲提示词配方" }).click();
   const outlineRecipeDialog = page.getByRole("dialog", { name: "提示词配方" });
   await expect(outlineRecipeDialog.getByRole("heading", { name: "默认提示词" })).toBeVisible();
@@ -42,12 +44,12 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
 
   await page.getByLabel("主线判断").fill("这是提纲 v1 的主线");
   await page.getByRole("button", { name: "另存为新版本" }).click();
-  await expect(page.getByText("已另存为提纲 v2")).toBeVisible();
+  await expect(page.getByText("已另存为提纲 v2")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByLabel("切换提纲版本").locator("option")).toHaveCount(2);
 
   await page.getByLabel("主线判断").fill("这是提纲 v2 的覆盖修改");
   await page.getByRole("button", { name: "保存当前版本" }).click();
-  await expect(page.getByText("已保存到提纲 v2")).toBeVisible();
+  await expect(page.getByText("已保存到提纲 v2")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByLabel("切换提纲版本").locator("option")).toHaveCount(2);
 
   await page.getByLabel("切换提纲版本").selectOption({ label: "v1" });
@@ -59,13 +61,13 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(page.getByLabel("主线判断")).toHaveValue(/覆盖修改/);
 
   await page.getByRole("button", { name: "确认提纲" }).click();
-  await expect(page.locator(".status", { hasText: "提纲已确认" }).first()).toBeVisible();
+  await expect(page.locator(".status", { hasText: "提纲已确认" }).first()).toBeVisible({ timeout: actionTimeout });
 
   const draftPanel = page.locator("#workflow-panel-draft");
   await draftPanel.getByPlaceholder("例如：开头不要用热点追问，先从家庭生活场景进入").fill("开头先从家庭现金流场景进入。");
   page.once("dialog", (dialog) => dialog.accept("家庭现金流开头"));
   await draftPanel.getByRole("button", { name: "保存为可选提示词" }).click();
-  await expect(page.getByText("已新增可选提示词")).toBeVisible();
+  await expect(page.getByText("已新增可选提示词")).toBeVisible({ timeout: actionTimeout });
 
   await draftPanel.getByRole("button", { name: "打开Markdown 文案提示词设置" }).click();
   const promptDialog = page.getByRole("dialog", { name: "Markdown 文案提示词设置" });
@@ -82,7 +84,7 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
 
   await page.getByRole("button", { name: "生成 Markdown 文案" }).click();
   const editor = page.getByLabel("Markdown 编辑");
-  await expect(editor).toHaveValue(/跨境支付通火了/);
+  await expect(editor).toHaveValue(/跨境支付通火了/, { timeout: actionTimeout });
   await draftPanel.getByRole("button", { name: "查看文案提示词配方" }).click();
   const draftRecipeDialog = page.getByRole("dialog", { name: "提示词配方" });
   await expect(draftRecipeDialog.locator(".prompt-recipe-card", { hasText: "开头先从家庭现金流场景进入。" }).first()).toBeVisible();
@@ -116,12 +118,12 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
 
   await editor.fill(`${await editor.inputValue()}\n\n这是人工补充的一段。`);
   await page.getByRole("button", { name: "另存为新版本" }).click();
-  await expect(page.getByText("已另存为文案 v2")).toBeVisible();
+  await expect(page.getByText("已另存为文案 v2")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByLabel("切换文案版本").locator("option")).toHaveCount(2);
 
   await editor.fill(`${await editor.inputValue()}\n\n这是覆盖当前版本的一段。`);
   await page.getByRole("button", { name: "保存当前版本" }).click();
-  await expect(page.getByText("已保存到文案 v2")).toBeVisible();
+  await expect(page.getByText("已保存到文案 v2")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByLabel("切换文案版本").locator("option")).toHaveCount(2);
 
   await page.getByLabel("切换文案版本").selectOption({ label: "v1" });

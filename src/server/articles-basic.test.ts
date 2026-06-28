@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { aiInvocations, requirementPresets, topicDiagnoses, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
-import { createArticleWithDraft, FailingTopicDiagnosisClient, FakeAIClient } from "./articles-test-utils";
+import { createArticleWithDraft, FailingTopicDiagnosisClient, FakeAIClient, HoldTopicDiagnosisClient } from "./articles-test-utils";
 import {
   createArticle,
   createRequirementPreset,
@@ -127,6 +127,24 @@ describe("article service basics", () => {
     const articles = listArticles({}, db);
     expect(articles).toHaveLength(1);
     expect(articles[0].nextAction).toBe("生成角度或手动创建角度");
+  });
+
+  it("shows the latest topic diagnosis summary in article lists", async () => {
+    const { db } = createTestDatabase();
+    const diagnosedArticle = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+    createArticle({ topic: "还没有诊断的主题" }, db);
+
+    await runTopicDiagnosis(diagnosedArticle.id, { customInstruction: "第一次诊断。" }, new FakeAIClient(), db);
+    const latest = await runTopicDiagnosis(diagnosedArticle.id, { customInstruction: "强制暂缓。" }, new HoldTopicDiagnosisClient(), db);
+    const articles = listArticles({}, db);
+
+    const diagnosedItem = articles.find((article) => article.id === diagnosedArticle.id);
+    const missingItem = articles.find((article) => article.topic === "还没有诊断的主题");
+    expect(diagnosedItem?.latestTopicDiagnosis?.id).toBe(latest.id);
+    expect(diagnosedItem?.latestTopicDiagnosis?.verdict).toBe("hold");
+    expect(diagnosedItem?.latestTopicDiagnosis?.verdictLabel).toBe("暂缓");
+    expect(diagnosedItem?.latestTopicDiagnosis?.riskSummary).toContain("资料解释");
+    expect(missingItem?.latestTopicDiagnosis).toBeNull();
   });
 
   it("runs topic diagnosis and records the invocation", async () => {
