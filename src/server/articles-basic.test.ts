@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocations, requirementPresets, topicDiagnoses, workflowEvents } from "@/db/schema";
+import { aiInvocationRequirements, aiInvocations, requirementPresets, topicDiagnoses, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { createArticleWithDraft, FailingTopicDiagnosisClient, FakeAIClient, HoldTopicDiagnosisClient } from "./articles-test-utils";
@@ -46,18 +46,21 @@ describe("article service basics", () => {
   it("seeds selectable requirement presets", () => {
     const { db } = createTestDatabase();
     const outlineRequirements = listRequirementPresets({ stage: "outline" }, db);
+    const topicRequirements = listRequirementPresets({ stage: "topic" }, db);
     const draftRequirements = listRequirementPresets({ stage: "draft" }, db);
     const dbsRequirements = listRequirementPresets({ stage: "dbs" }, db);
     const prePublishRequirements = listRequirementPresets({ stage: "pre_publish" }, db);
     const angleRequirements = listRequirementPresets({ stage: "angle" }, db);
     const reviewRequirements = listRequirementPresets({ stage: "review" }, db);
 
+    expect(topicRequirements).toHaveLength(8);
     expect(angleRequirements.length).toBeGreaterThanOrEqual(5);
     expect(outlineRequirements.length).toBeGreaterThanOrEqual(6);
     expect(draftRequirements.length).toBeGreaterThanOrEqual(24);
     expect(dbsRequirements.length).toBeGreaterThanOrEqual(5);
     expect(prePublishRequirements.length).toBeGreaterThanOrEqual(10);
     expect(reviewRequirements.length).toBeGreaterThanOrEqual(4);
+    expect(topicRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(4);
     expect(outlineRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(6);
     expect(draftRequirements.find((requirement) => requirement.stableKey === "STYLE-005")?.promptFragment).toContain("不是");
     expect(draftRequirements.find((requirement) => requirement.stableKey === "BAN-001")?.promptFragment).toContain("综上所述");
@@ -175,6 +178,31 @@ describe("article service basics", () => {
     expect(invocations[0].response || "").toContain("targetReaderCheck");
     expect(updated?.status).toBe("topic_diagnosed");
     expect(updated?.nextAction).toBe("生成角度或手动创建角度");
+  });
+
+  it("records selected topic requirements in topic diagnosis invocations", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+    const topicRequirement = listRequirementPresets({ stage: "topic" }, db).find((requirement) => requirement.stableKey === "TOPIC-001");
+
+    expect(topicRequirement).toBeDefined();
+    if (!topicRequirement) {
+      throw new Error("TOPIC-001 seed requirement missing");
+    }
+    const diagnosis = await runTopicDiagnosis(
+      article.id,
+      { customInstruction: "重点检查是否有今天点开的理由。", selectedRequirementIds: [topicRequirement.id] },
+      new FakeAIClient(),
+      db
+    );
+    const invocationRequirements = db.select().from(aiInvocationRequirements).all();
+    const invocation = db.select().from(aiInvocations).where(eq(aiInvocations.id, diagnosis.sourceInvocationId as string)).get();
+
+    expect(invocationRequirements).toHaveLength(1);
+    expect(invocationRequirements[0].requirementPresetId).toBe(topicRequirement.id);
+    expect(invocationRequirements[0].stageSnapshot).toBe("topic");
+    expect(invocation?.prompt).toContain("目标读者具体");
+    expect(invocation?.prompt).toContain("用户本次额外约束");
   });
 
   it("keeps later workflow status when topic diagnosis is rerun", async () => {

@@ -1,11 +1,13 @@
 import { z } from "zod";
 
-export const REQUIREMENT_STAGES = ["angle", "outline", "draft", "dbs", "pre_publish", "review"] as const;
+export const REQUIREMENT_STAGES = ["topic", "angle", "outline", "draft", "dbs", "pre_publish", "review"] as const;
 
-export const FUTURE_REQUIREMENT_STAGES = ["topic", "research", "stop_slop", "illustration"] as const;
+export const STAGE_PROMPT_STAGES = ["angle", "outline", "draft", "dbs", "pre_publish", "review"] as const;
+
+export const FUTURE_REQUIREMENT_STAGES = ["research", "stop_slop", "illustration"] as const;
 
 export const requirementStageSchema = z.enum(REQUIREMENT_STAGES);
-export const stagePromptStageSchema = requirementStageSchema;
+export const stagePromptStageSchema = z.enum(STAGE_PROMPT_STAGES);
 
 export type RequirementStage = z.infer<typeof requirementStageSchema>;
 export type StagePromptStage = z.infer<typeof stagePromptStageSchema>;

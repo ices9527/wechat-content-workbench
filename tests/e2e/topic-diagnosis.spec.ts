@@ -16,6 +16,14 @@ test("runs topic diagnosis before angle generation without blocking the flow", a
 
   await expect(page.getByRole("tab", { name: /^选题诊断/ })).toHaveAttribute("aria-selected", "true");
   const topicDiagnosisPanel = page.locator("#workflow-panel-topic-diagnosis");
+  await topicDiagnosisPanel.getByRole("button", { name: "打开选题诊断提示词设置" }).click();
+  const topicPromptDialog = page.getByRole("dialog", { name: "选题诊断提示词设置" });
+  await expect(topicPromptDialog).toBeVisible();
+  await expect(topicPromptDialog.getByText("目标读者具体").first()).toBeVisible();
+  await expect(topicPromptDialog.getByText("真实问题成立").first()).toBeVisible();
+  await expect(topicPromptDialog.getByText("默认提示词")).toHaveCount(0);
+  await topicPromptDialog.getByRole("button", { name: "关闭提示词设置" }).click();
+
   await topicDiagnosisPanel.getByPlaceholder("例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户").fill("重点检查是否有今天点开的理由。");
   await topicDiagnosisPanel.getByRole("button", { name: "运行 DBS 选题诊断" }).click();
   await expect(page.getByText("已完成选题诊断")).toBeVisible({ timeout: actionTimeout });
@@ -103,6 +111,7 @@ test("shows topic diagnosis history snapshots and prompt recipes", async ({ page
   const recipeDialog = page.getByRole("dialog", { name: "提示词配方" });
   await expect(recipeDialog).toBeVisible({ timeout: actionTimeout });
   await expect(recipeDialog.getByText("topic_diagnosis")).toBeVisible();
+  await expect(recipeDialog.getByText("目标读者具体").first()).toBeVisible();
   await expect(recipeDialog.getByText("第一次要求：检查真实读者。").first()).toBeVisible();
   await page.getByRole("button", { name: "关闭提示词配方" }).click();
 

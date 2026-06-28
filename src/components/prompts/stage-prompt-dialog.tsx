@@ -22,7 +22,8 @@ export function StagePromptDialog({
   pending,
   onCreate,
   onUpdate,
-  onDelete
+  onDelete,
+  showDefaultPrompt = true
 }: {
   title: string;
   stage: RequirementStage;
@@ -37,6 +38,7 @@ export function StagePromptDialog({
   onCreate: (input: RequirementEditorInput) => Promise<void>;
   onUpdate: (id: string, input: Record<string, unknown>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  showDefaultPrompt?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const stageUi = STAGE_PROMPT_UI[stage];
@@ -86,22 +88,24 @@ export function StagePromptDialog({
             </div>
 
             <div className="fullscreen-body prompt-config-body">
-              <section className="prompt-config-section">
-                <div className="prompt-config-section-head">
-                  <h3>默认提示词</h3>
-                  <button className="button secondary" disabled={pending} onClick={onSaveDefaultPrompt} type="button">
-                    保存默认提示词
-                  </button>
-                </div>
-                <label className="field">
-                  <span className="label">{defaultPromptLabel}</span>
-                  <textarea
-                    className="textarea prompt-textarea"
-                    value={defaultPrompt}
-                    onChange={(event) => onDefaultPromptChange(event.target.value)}
-                  />
-                </label>
-              </section>
+              {showDefaultPrompt ? (
+                <section className="prompt-config-section">
+                  <div className="prompt-config-section-head">
+                    <h3>默认提示词</h3>
+                    <button className="button secondary" disabled={pending} onClick={onSaveDefaultPrompt} type="button">
+                      保存默认提示词
+                    </button>
+                  </div>
+                  <label className="field">
+                    <span className="label">{defaultPromptLabel}</span>
+                    <textarea
+                      className="textarea prompt-textarea"
+                      value={defaultPrompt}
+                      onChange={(event) => onDefaultPromptChange(event.target.value)}
+                    />
+                  </label>
+                </section>
+              ) : null}
 
               <RequirementSelector
                 title="可选提示词"

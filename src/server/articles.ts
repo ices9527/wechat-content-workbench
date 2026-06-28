@@ -129,9 +129,7 @@ const promptControlInputShape = {
 };
 
 export const generateWithPromptInputSchema = z.object(promptControlInputShape);
-export const topicDiagnosisInputSchema = z.object({
-  customInstruction: promptControlInputShape.customInstruction
-});
+export const topicDiagnosisInputSchema = z.object(promptControlInputShape);
 
 export const runDbsContentInputSchema = z.object({
   draftVersionId: z.string().trim().min(1, "必须指定文案版本"),
@@ -629,6 +627,7 @@ export async function runTopicDiagnosis(
 ): Promise<TopicDiagnosis> {
   const parsed = topicDiagnosisInputSchema.parse(input);
   const article = requireArticle(articleId, db);
+  const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "topic", db);
   const prompt = buildLayeredPrompt(
     renderPrompt("topic_diagnosis", {
       topic: article.topic,
@@ -637,6 +636,7 @@ export async function runTopicDiagnosis(
       hotAnchor: article.hotAnchor
     }),
     {
+      selectedRequirements,
       customInstruction: parsed.customInstruction
     }
   );
@@ -681,6 +681,7 @@ export async function runTopicDiagnosis(
       });
       diagnosis = { ...diagnosis, sourceInvocationId: invocationId };
       db.insert(topicDiagnoses).values(diagnosis).run();
+      recordAIInvocationRequirements(db, invocationId, selectedRequirements);
 
       const fromStatus = article.status as ArticleStatus;
       if (fromStatus === "topic_created") {

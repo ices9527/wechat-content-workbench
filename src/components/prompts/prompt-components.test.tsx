@@ -170,6 +170,33 @@ describe("prompt components", () => {
     expect(screen.queryByRole("dialog", { name: "Markdown 文案提示词设置" })).not.toBeInTheDocument();
   });
 
+  it("can show a requirement-only prompt dialog for topic diagnosis", () => {
+    render(
+      <StagePromptDialog
+        title="选题诊断提示词设置"
+        stage="topic"
+        defaultPromptLabel="选题诊断默认提示词"
+        defaultPrompt=""
+        onDefaultPromptChange={vi.fn()}
+        onSaveDefaultPrompt={vi.fn(async () => undefined)}
+        requirements={[requirement({ stage: "topic", label: "目标读者具体", category: "读者", defaultEnabled: true })]}
+        selectedIds={["req-1"]}
+        onSelectedIdsChange={vi.fn()}
+        pending={false}
+        onCreate={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        showDefaultPrompt={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开选题诊断提示词设置" }));
+
+    expect(screen.getByRole("dialog", { name: "选题诊断提示词设置" })).toBeInTheDocument();
+    expect(screen.queryByText("默认提示词")).not.toBeInTheDocument();
+    expect(screen.getAllByText("目标读者具体").length).toBeGreaterThan(0);
+  });
+
   it("renders prompt recipe snapshots and closes with Escape", () => {
     const onClose = vi.fn();
     const recipe: PromptRecipe = {

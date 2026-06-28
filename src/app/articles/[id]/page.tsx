@@ -35,6 +35,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const uploads = listWechatDraftUploads(article.id);
   const stagePrompts = listStagePromptDefaults();
   const requirementPresets = [
+    ...listRequirementPresets({ stage: "topic", includeArchived: true }),
     ...listRequirementPresets({ stage: "angle", includeArchived: true }),
     ...listRequirementPresets({ stage: "outline", includeArchived: true }),
     ...listRequirementPresets({ stage: "draft", includeArchived: true }),

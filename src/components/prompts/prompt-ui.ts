@@ -10,6 +10,13 @@ export const STAGE_PROMPT_UI: Record<
     savedNotice: string;
   }
 > = {
+  topic: {
+    eyebrow: "Topic Prompt",
+    title: "选题诊断提示词设置",
+    defaultPromptLabel: "选题诊断默认提示词",
+    customPlaceholder: "例如：重点判断目标读者是否具体，不要只追热点",
+    savedNotice: "已保存选题诊断默认提示词"
+  },
   angle: {
     eyebrow: "Angle Prompt",
     title: "角度提示词设置",

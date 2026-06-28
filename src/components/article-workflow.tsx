@@ -24,6 +24,7 @@ import type { PromptRecipe } from "@/server/prompt-recipes";
 import { MarkdownPreview } from "./markdown-preview";
 import { PromptRecipeDialog } from "./prompts/prompt-recipe-dialog";
 import { STAGE_PROMPT_UI } from "./prompts/prompt-ui";
+import type { RequirementEditorInput } from "./prompts/requirement-selector";
 import { StagePromptDialog } from "./prompts/stage-prompt-dialog";
 
 // API helpers
@@ -138,7 +139,7 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "review", label: "复盘" }
 ];
 
-const PROMPT_STAGES: RequirementStage[] = ["angle", "outline", "draft", "dbs", "pre_publish", "review"];
+const PROMPT_STAGES: RequirementStage[] = ["topic", "angle", "outline", "draft", "dbs", "pre_publish", "review"];
 
 function isWorkflowTabId(value: string | null): value is WorkflowTabId {
   return WORKFLOW_TABS.some((tab) => tab.id === value);
@@ -245,19 +246,31 @@ function TopicPanel({ article }: { article: ArticleListItem }) {
 function TopicDiagnosisPanel({
   latestTopicDiagnosis,
   topicDiagnoses,
+  requirements,
+  selectedRequirementIds,
   customInstruction,
   pending,
+  onSelectedRequirementIdsChange,
   onCustomInstructionChange,
   onRunDiagnosis,
-  onOpenPromptRecipe
+  onOpenPromptRecipe,
+  onCreateRequirement,
+  onUpdateRequirement,
+  onDeleteRequirement
 }: {
   latestTopicDiagnosis: TopicDiagnosis | null;
   topicDiagnoses: TopicDiagnosis[];
+  requirements: RequirementPreset[];
+  selectedRequirementIds: string[];
   customInstruction: string;
   pending: string | null;
+  onSelectedRequirementIdsChange: (ids: string[]) => void;
   onCustomInstructionChange: (value: string) => void;
   onRunDiagnosis: () => void;
   onOpenPromptRecipe: (topicDiagnosisId: string) => void;
+  onCreateRequirement: (input: RequirementEditorInput) => Promise<void>;
+  onUpdateRequirement: (id: string, input: Record<string, unknown>) => Promise<void>;
+  onDeleteRequirement: (id: string) => Promise<void>;
 }) {
   return (
     <WorkflowPanel
@@ -265,6 +278,23 @@ function TopicDiagnosisPanel({
       title="选题诊断"
       status={latestTopicDiagnosis ? formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict) : "待诊断"}
     >
+      <StagePromptDialog
+        title={STAGE_PROMPT_UI.topic.title}
+        stage="topic"
+        defaultPromptLabel={STAGE_PROMPT_UI.topic.defaultPromptLabel}
+        defaultPrompt=""
+        onDefaultPromptChange={() => undefined}
+        onSaveDefaultPrompt={async () => undefined}
+        requirements={requirements}
+        selectedIds={selectedRequirementIds}
+        pending={pending !== null}
+        onSelectedIdsChange={onSelectedRequirementIdsChange}
+        onCreate={onCreateRequirement}
+        onUpdate={onUpdateRequirement}
+        onDelete={onDeleteRequirement}
+        showDefaultPrompt={false}
+      />
+
       <label className="field prompt-field">
         <span className="label">对当前选题的要求</span>
         <textarea
@@ -526,6 +556,7 @@ export function ArticleWorkflow({
     }
     return grouped;
   }, [requirementPresets]);
+  const topicRequirements = requirementsByStage.topic;
   const angleRequirements = requirementsByStage.angle;
   const outlineRequirements = requirementsByStage.outline;
   const draftRequirements = requirementsByStage.draft;
@@ -577,12 +608,14 @@ export function ArticleWorkflow({
   const setDbsCustomInstruction = (value: string) => setCustomInstructionForStage("dbs", value);
   const setPrePublishCustomInstruction = (value: string) => setCustomInstructionForStage("pre_publish", value);
   const setReviewCustomInstruction = (value: string) => setCustomInstructionForStage("review", value);
+  const selectedTopicRequirementIds = selectedRequirementIdsByStage.topic;
   const selectedAngleRequirementIds = selectedRequirementIdsByStage.angle;
   const selectedOutlineRequirementIds = selectedRequirementIdsByStage.outline;
   const selectedDraftRequirementIds = selectedRequirementIdsByStage.draft;
   const selectedDbsRequirementIds = selectedRequirementIdsByStage.dbs;
   const selectedPrePublishRequirementIds = selectedRequirementIdsByStage.pre_publish;
   const selectedReviewRequirementIds = selectedRequirementIdsByStage.review;
+  const setSelectedTopicRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("topic", ids);
   const setSelectedAngleRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("angle", ids);
   const setSelectedOutlineRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("outline", ids);
   const setSelectedDraftRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("draft", ids);
@@ -960,18 +993,25 @@ export function ArticleWorkflow({
           <TopicDiagnosisPanel
             latestTopicDiagnosis={latestTopicDiagnosis}
             topicDiagnoses={topicDiagnoses}
+            requirements={topicRequirements}
+            selectedRequirementIds={selectedTopicRequirementIds}
             customInstruction={topicDiagnosisCustomInstruction}
             pending={pending}
+            onSelectedRequirementIdsChange={setSelectedTopicRequirementIds}
             onCustomInstructionChange={setTopicDiagnosisCustomInstruction}
             onRunDiagnosis={() =>
               runAction("run-topic-diagnosis", async () => {
                 await postJson<{ diagnosis: TopicDiagnosis }>(`/api/articles/${article.id}/run-topic-diagnosis`, {
-                  customInstruction: topicDiagnosisCustomInstruction
+                  customInstruction: topicDiagnosisCustomInstruction,
+                  selectedRequirementIds: selectedTopicRequirementIds
                 });
                 setNotice("已完成选题诊断");
               })
             }
             onOpenPromptRecipe={(topicDiagnosisId) => void openPromptRecipe("topic-diagnosis", topicDiagnosisId)}
+            onCreateRequirement={(input) => runAction("create-topic-requirement", () => createRequirement(input))}
+            onUpdateRequirement={(id, input) => runAction("update-topic-requirement", () => updateRequirement(id, input))}
+            onDeleteRequirement={(id) => runAction("delete-topic-requirement", () => deleteRequirement(id))}
           />
         ) : null}
 

@@ -68,6 +68,94 @@ export const DEFAULT_STAGE_PROMPTS = [
 
 export const DEFAULT_REQUIREMENT_PRESETS = [
   {
+    stableKey: "TOPIC-001",
+    stage: "topic",
+    category: "读者",
+    type: "must",
+    label: "目标读者具体",
+    description: "选题必须指向能判断自身场景的具体读者。",
+    promptFragment: "诊断时必须检查目标读者是否具体到能判断自己的生活场景、资金场景、家庭角色或决策处境；不要只接受“普通人”“中产家庭”这类泛泛读者。",
+    defaultEnabled: true,
+    priority: 10
+  },
+  {
+    stableKey: "TOPIC-002",
+    stage: "topic",
+    category: "问题",
+    type: "must",
+    label: "真实问题成立",
+    description: "选题要回答读者真实问题，不只是资料主题。",
+    promptFragment: "诊断时必须判断这是不是读者真实会遇到的问题，而不是政策资料、产品说明或行业新闻本身。",
+    defaultEnabled: true,
+    priority: 20
+  },
+  {
+    stableKey: "TOPIC-003",
+    stage: "topic",
+    category: "入口",
+    type: "must",
+    label: "今天点开理由",
+    description: "说明读者为什么现在需要看。",
+    promptFragment: "诊断时必须检查这个选题是否有今天点开的理由；热点只能作为入口，必须说明它和读者当前决策、风险或行动的关系。",
+    defaultEnabled: true,
+    priority: 30
+  },
+  {
+    stableKey: "TOPIC-004",
+    stage: "topic",
+    category: "行动",
+    type: "must",
+    label: "落到家庭决策",
+    description: "选题要能落到边界、选择或行动建议。",
+    promptFragment: "诊断时必须判断选题能否落到家庭决策、路径边界、风险识别或下一步行动，而不是停留在知识解释。",
+    defaultEnabled: true,
+    priority: 40
+  },
+  {
+    stableKey: "TOPIC-005",
+    stage: "topic",
+    category: "禁区",
+    type: "avoid",
+    label: "不要只追热点",
+    description: "热点不能替代读者问题。",
+    promptFragment: "如果选题只是复述热点、追新闻或借热点讲常识，请标记为需要修改，要求把热点翻译成读者具体问题。",
+    defaultEnabled: false,
+    priority: 50
+  },
+  {
+    stableKey: "TOPIC-006",
+    stage: "topic",
+    category: "禁区",
+    type: "avoid",
+    label: "不要资料解释",
+    description: "避免写成资料罗列或百科解释。",
+    promptFragment: "如果选题容易写成资料罗列、百科解释或规则说明，请在风险中明确指出，并要求补上读者决策场景。",
+    defaultEnabled: false,
+    priority: 60
+  },
+  {
+    stableKey: "TOPIC-007",
+    stage: "topic",
+    category: "合规",
+    type: "compliance",
+    label: "不承诺确定结果",
+    description: "选题诊断阶段就避免绝对化承诺。",
+    promptFragment: "诊断时检查选题是否暗示收益、速度、身份、审批、开户或其他确定结果；如果有，要提示改成条件化、边界化表达。",
+    defaultEnabled: false,
+    priority: 70
+  },
+  {
+    stableKey: "TOPIC-008",
+    stage: "topic",
+    category: "传播",
+    type: "check",
+    label: "有转发对象",
+    description: "判断文章未来是否容易被转给具体人群。",
+    promptFragment: "诊断时检查这个选题是否有明确转发对象和转发理由；如果没有，请提示补强目标读者和使用场景。",
+    defaultEnabled: false,
+    priority: 80
+  },
+  {
     stableKey: "OUTLINE-001",
     stage: "outline",
     category: "主线",
