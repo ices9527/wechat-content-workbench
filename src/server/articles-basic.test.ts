@@ -10,6 +10,7 @@ import {
   createRequirementPreset,
   deleteRequirementPreset,
   getArticle,
+  getLatestTopicDiagnosisContext,
   listArticles,
   listPublishQueueArticles,
   listRequirementPresets,
@@ -149,6 +150,8 @@ describe("article service basics", () => {
     expect(diagnosis.sourceInvocationId).toBeTruthy();
     expect(rows).toHaveLength(1);
     expect(listTopicDiagnoses(article.id, db)).toHaveLength(1);
+    expect(getLatestTopicDiagnosisContext(article.id, db)?.diagnosisId).toBe(diagnosis.id);
+    expect(getLatestTopicDiagnosisContext(article.id, db)?.riskSummary).toContain("资料解释");
     expect(invocations).toHaveLength(1);
     expect(invocations[0].prompt).toContain("重点检查是否有今天点开的理由");
     expect(invocations[0].response || "").toContain("targetReaderCheck");

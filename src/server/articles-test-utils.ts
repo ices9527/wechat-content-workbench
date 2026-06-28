@@ -1,6 +1,6 @@
 import type { createTestDatabase } from "@/test/test-db";
 
-import { FakeAIClient } from "./ai";
+import { FakeAIClient, type GeneratedTopicDiagnosis } from "./ai";
 import { acceptOutline, createArticle, createManualAngle, generateDraft, generateOutline, selectAngle } from "./articles";
 
 type TestDatabase = ReturnType<typeof createTestDatabase>["db"];
@@ -20,6 +20,21 @@ export async function createArticleWithDraft(db: TestDatabase) {
 export class FailingTopicDiagnosisClient extends FakeAIClient {
   async diagnoseTopic(): Promise<never> {
     throw new Error("topic diagnosis unavailable");
+  }
+}
+
+export class HoldTopicDiagnosisClient extends FakeAIClient {
+  async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
+    return {
+      verdict: "hold",
+      targetReaderCheck: "目标读者还不够具体。",
+      readerProblemCheck: "真实问题没有压实。",
+      timelinessCheck: "今天点开的理由不足。",
+      actionabilityCheck: "暂时不适合进入后续生产流程。",
+      riskSummary: "继续写容易变成资料解释。",
+      suggestionsMarkdown: "## 暂缓建议\n- 先补清楚读者为什么今天要看。",
+      nextAction: "修改主题或重新运行选题诊断。"
+    };
   }
 }
 

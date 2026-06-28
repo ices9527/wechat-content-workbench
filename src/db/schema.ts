@@ -116,6 +116,7 @@ export const aiInvocations = sqliteTable("ai_invocations", {
   customInstruction: text("custom_instruction"),
   stagePromptLabelSnapshot: text("stage_prompt_label_snapshot"),
   stagePromptSnapshot: text("stage_prompt_snapshot"),
+  upstreamContextJson: text("upstream_context_json"),
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
   status: text("status").notNull(),

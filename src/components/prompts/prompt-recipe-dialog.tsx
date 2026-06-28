@@ -55,6 +55,20 @@ export function PromptRecipeDialog({ recipe, onClose }: { recipe: PromptRecipe; 
           </section>
 
           <section className="prompt-recipe-section">
+            <h3>上游选题诊断</h3>
+            {recipe.upstreamTopicDiagnosis ? (
+              <div className="prompt-recipe-card">
+                <strong>诊断结论：{recipe.upstreamTopicDiagnosis.verdict}</strong>
+                <p>主题快照：{recipe.upstreamTopicDiagnosis.topicSnapshot}</p>
+                {recipe.upstreamTopicDiagnosis.riskSummary ? <p>主要风险：{recipe.upstreamTopicDiagnosis.riskSummary}</p> : null}
+                {recipe.upstreamTopicDiagnosis.nextAction ? <p>下一步建议：{recipe.upstreamTopicDiagnosis.nextAction}</p> : null}
+              </div>
+            ) : (
+              <p className="subtle">没有使用上游选题诊断。</p>
+            )}
+          </section>
+
+          <section className="prompt-recipe-section">
             <h3>可选提示词</h3>
             {recipe.selectedRequirements.length > 0 ? (
               <div className="prompt-recipe-list">

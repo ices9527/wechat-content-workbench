@@ -10,6 +10,7 @@ import {
 } from "@/db/schema";
 
 import { requireArticle, requireDraft, requireOutline } from "./article-records";
+import { type TopicDiagnosisContext, type UpstreamContextSnapshot } from "./topic-diagnosis-context";
 
 export type PromptRecipeRequirement = {
   id: string;
@@ -33,6 +34,7 @@ export type PromptRecipe = {
     label: string;
     prompt: string;
   } | null;
+  upstreamTopicDiagnosis: TopicDiagnosisContext | null;
   selectedRequirements: PromptRecipeRequirement[];
   customInstruction: string | null;
   finalPrompt: string | null;
@@ -106,11 +108,25 @@ function emptyPromptRecipe(articleId: string, reason: string): PromptRecipe {
     status: null,
     createdAt: null,
     stageDefaultPrompt: null,
+    upstreamTopicDiagnosis: null,
     selectedRequirements: [],
     customInstruction: null,
     finalPrompt: null,
     emptyReason: reason
   };
+}
+
+function parseUpstreamTopicDiagnosis(upstreamContextJson: string | null): TopicDiagnosisContext | null {
+  if (!upstreamContextJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(upstreamContextJson) as UpstreamContextSnapshot;
+    return parsed.topicDiagnosis || null;
+  } catch {
+    return null;
+  }
 }
 
 function requireInvocationRecipe(articleId: string, invocationId: string, db: WorkbenchDatabase): PromptRecipe {
@@ -141,6 +157,7 @@ function requireInvocationRecipe(articleId: string, invocationId: string, db: Wo
     status: invocation.status,
     createdAt: invocation.createdAt,
     stageDefaultPrompt,
+    upstreamTopicDiagnosis: parseUpstreamTopicDiagnosis(invocation.upstreamContextJson),
     selectedRequirements,
     customInstruction: invocation.customInstruction,
     finalPrompt: invocation.prompt

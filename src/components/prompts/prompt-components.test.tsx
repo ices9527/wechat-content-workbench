@@ -184,6 +184,23 @@ describe("prompt components", () => {
         label: "Markdown 默认提示词",
         prompt: "专业克制。"
       },
+      upstreamTopicDiagnosis: {
+        diagnosisId: "topic-diagnosis-1",
+        verdict: "revise",
+        targetReaderCheck: "目标读者需要更具体。",
+        readerProblemCheck: "真实问题是家庭资金路径。",
+        timelinessCheck: "有今天点开的理由。",
+        actionabilityCheck: "可以继续，但要处理边界。",
+        riskSummary: "容易写成工具宣传。",
+        suggestionsMarkdown: "补强家庭场景。",
+        nextAction: "先补一句读者场景。",
+        topicSnapshot: "跨境支付通",
+        targetReaderSnapshot: "跨境家庭",
+        coreProblemSnapshot: "资金路径",
+        hotAnchorSnapshot: "热点",
+        customInstructionSnapshot: null,
+        createdAt: "2026-06-28T09:00:00.000Z"
+      },
       selectedRequirements: [
         {
           id: "snap-1",
@@ -203,6 +220,8 @@ describe("prompt components", () => {
 
     expect(screen.getByRole("dialog", { name: "提示词配方" })).toBeInTheDocument();
     expect(screen.getByText("Markdown 默认提示词")).toBeInTheDocument();
+    expect(screen.getByText("诊断结论：revise")).toBeInTheDocument();
+    expect(screen.getByText("主要风险：容易写成工具宣传。")).toBeInTheDocument();
     expect(screen.getByText("REQ-001")).toBeInTheDocument();
     expect(screen.getByText("开头先从家庭生活场景进入。")).toBeInTheDocument();
 
@@ -222,6 +241,7 @@ describe("prompt components", () => {
       createdAt: null,
       emptyReason: "这个版本没有绑定 AI 提示词记录。",
       stageDefaultPrompt: null,
+      upstreamTopicDiagnosis: null,
       selectedRequirements: [],
       customInstruction: "",
       finalPrompt: ""

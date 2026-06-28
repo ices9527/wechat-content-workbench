@@ -100,8 +100,8 @@ const TOPIC_DIAGNOSIS_VERDICT_LABELS: Record<string, string> = {
 
 const TOPIC_DIAGNOSIS_WARNING_COPY: Record<string, string> = {
   revise: "选题诊断建议先补强后再生成角度，你仍然可以继续。",
-  hold: "选题诊断建议暂缓。继续生成角度前，建议先确认今天点开的理由和读者真实问题。",
-  drop: "选题诊断建议放弃。你仍可继续，但这篇文章进入生产线的风险较高。"
+  hold: "选题诊断建议暂缓。请修改主题或重新运行选题诊断后继续。",
+  drop: "选题诊断建议放弃。请修改主题或重新运行选题诊断后继续。"
 };
 
 function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string {
@@ -109,6 +109,10 @@ function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string
     return "未诊断";
   }
   return TOPIC_DIAGNOSIS_VERDICT_LABELS[verdict] || verdict;
+}
+
+function isBlockingTopicDiagnosisVerdict(verdict: string | null | undefined): boolean {
+  return verdict === "hold" || verdict === "drop";
 }
 
 type WorkflowTabId =
@@ -562,6 +566,7 @@ export function ArticleWorkflow({
   const topicDiagnosisWarning = latestTopicDiagnosis
     ? TOPIC_DIAGNOSIS_WARNING_COPY[latestTopicDiagnosis.verdict] || null
     : null;
+  const topicDiagnosisBlocksDownstream = isBlockingTopicDiagnosisVerdict(latestTopicDiagnosis?.verdict);
 
   function setDefaultPromptDraftForStage(stage: RequirementStage, value: string) {
     setDefaultPromptDrafts((current) => ({ ...current, [stage]: value }));
@@ -725,6 +730,10 @@ export function ArticleWorkflow({
 
   async function submitManualAngle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (topicDiagnosisBlocksDownstream) {
+      setError(topicDiagnosisWarning || "请修改主题或重新运行选题诊断后继续。");
+      return;
+    }
     const form = event.currentTarget;
     const formData = new FormData(form);
     await runAction("manual-angle", async () => {
@@ -914,7 +923,7 @@ export function ArticleWorkflow({
         {activeTab === "angles" ? (
           <AnglesPanel selectedAngle={selectedAngle}>
           {topicDiagnosisWarning ? (
-            <p className={latestTopicDiagnosis?.verdict === "drop" ? "error" : "notice"}>{topicDiagnosisWarning}</p>
+            <p className={topicDiagnosisBlocksDownstream ? "error" : "notice"}>{topicDiagnosisWarning}</p>
           ) : null}
 
           <StagePromptDialog
@@ -954,7 +963,7 @@ export function ArticleWorkflow({
           <div className="action-row">
             <button
               className="button"
-              disabled={pending !== null}
+              disabled={pending !== null || topicDiagnosisBlocksDownstream}
               onClick={() =>
                 runAction("generate-angles", async () => {
                   await postJson(`/api/articles/${article.id}/generate-angles`, {
@@ -974,7 +983,7 @@ export function ArticleWorkflow({
             <input className="input" name="readerPain" placeholder="读者痛点，可选" />
             <input className="input" name="promise" placeholder="文章承诺，可选" />
             <input className="input" name="risk" placeholder="风险提醒，可选" />
-            <button className="button secondary" disabled={pending !== null} type="submit">
+            <button className="button secondary" disabled={pending !== null || topicDiagnosisBlocksDownstream} type="submit">
               手动创建角度
             </button>
           </form>
@@ -991,7 +1000,7 @@ export function ArticleWorkflow({
                 <p>{angle.risk || "未填写风险提醒"}</p>
                 <button
                   className={angle.selected ? "button" : "button secondary"}
-                  disabled={pending !== null}
+                  disabled={pending !== null || topicDiagnosisBlocksDownstream}
                   onClick={() =>
                     runAction(
                       "select-angle",
@@ -1048,6 +1057,8 @@ export function ArticleWorkflow({
             ) : null
             }
           >
+          {topicDiagnosisBlocksDownstream && topicDiagnosisWarning ? <p className="error">{topicDiagnosisWarning}</p> : null}
+
           <StagePromptDialog
             title="主线提纲提示词设置"
             stage="outline"
@@ -1085,7 +1096,7 @@ export function ArticleWorkflow({
           <div className="action-row">
             <button
               className="button"
-              disabled={!article.selectedAngleId || pending !== null}
+              disabled={!article.selectedAngleId || pending !== null || topicDiagnosisBlocksDownstream}
               onClick={() =>
                 runAction("generate-outline", async () => {
                   const outline = await postJson<OutlineVersion>(`/api/articles/${article.id}/generate-outline`, {
@@ -1212,6 +1223,8 @@ export function ArticleWorkflow({
             ) : null
             }
           >
+          {topicDiagnosisBlocksDownstream && topicDiagnosisWarning ? <p className="error">{topicDiagnosisWarning}</p> : null}
+
           <StagePromptDialog
             title="Markdown 文案提示词设置"
             stage="draft"
@@ -1249,7 +1262,7 @@ export function ArticleWorkflow({
           <div className="action-row">
             <button
               className="button"
-              disabled={!acceptedOutline || pending !== null}
+              disabled={!acceptedOutline || pending !== null || topicDiagnosisBlocksDownstream}
               onClick={() =>
                 runAction("generate-draft", async () => {
                   const draft = await postJson<DraftVersion>(`/api/articles/${article.id}/generate-draft`, {

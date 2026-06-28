@@ -105,7 +105,32 @@ export class FakeAIClient implements AIClient {
     ];
   }
 
-  async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
+  async diagnoseTopic(prompt = ""): Promise<GeneratedTopicDiagnosis> {
+    const normalizedPrompt = prompt.toLowerCase();
+    if (prompt.includes("强制暂缓") || normalizedPrompt.includes("force hold") || normalizedPrompt.includes("verdict: hold")) {
+      return {
+        verdict: "hold",
+        targetReaderCheck: "目标读者还不够具体。",
+        readerProblemCheck: "真实问题没有压实。",
+        timelinessCheck: "今天点开的理由不足。",
+        actionabilityCheck: "暂时不适合进入后续生产流程。",
+        riskSummary: "继续写容易变成资料解释。",
+        suggestionsMarkdown: "## 暂缓建议\n- 先补清楚读者为什么今天要看。",
+        nextAction: "修改主题或重新运行选题诊断。"
+      };
+    }
+    if (prompt.includes("强制放弃") || normalizedPrompt.includes("force drop") || normalizedPrompt.includes("verdict: drop")) {
+      return {
+        verdict: "drop",
+        targetReaderCheck: "目标读者过于泛化。",
+        readerProblemCheck: "读者问题不成立。",
+        timelinessCheck: "没有今天点开的理由。",
+        actionabilityCheck: "不建议进入后续生产流程。",
+        riskSummary: "继续写会变成无明确读者的资料整理。",
+        suggestionsMarkdown: "## 放弃建议\n- 换一个更具体的主题。",
+        nextAction: "放弃当前主题，重新立题。"
+      };
+    }
     return {
       verdict: "revise",
       targetReaderCheck: "目标读者有方向，但需要再具体到正在处理跨境资金安排的家庭。",

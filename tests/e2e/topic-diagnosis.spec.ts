@@ -28,3 +28,26 @@ test("runs topic diagnosis before angle generation without blocking the flow", a
   await expect(page.getByRole("tab", { name: /^角度/ })).toContainText("5 个");
   await expectNoRuntimeErrorOverlay(page);
 });
+
+test("blocks downstream angle actions when topic diagnosis is hold", async ({ page }) => {
+  await page.goto("/");
+
+  const topic = `Sprint10 hold topic diagnosis ${Date.now()}`;
+  await page.getByLabel("主题").fill(topic);
+  await page.getByLabel("目标读者").fill("还不够具体的跨境家庭");
+  await page.getByLabel("核心问题").fill("问题还没有压实");
+  await page.getByRole("button", { name: "新建文章" }).click();
+  await page.waitForURL(/\/articles\//);
+
+  const topicDiagnosisPanel = page.locator("#workflow-panel-topic-diagnosis");
+  await topicDiagnosisPanel.getByPlaceholder("例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户").fill("强制暂缓，用于验证流程阻断。");
+  await topicDiagnosisPanel.getByRole("button", { name: "运行 DBS 选题诊断" }).click();
+  await expect(page.getByText("已完成选题诊断")).toBeVisible();
+  await expect(topicDiagnosisPanel.locator(".topic-verdict-line strong", { hasText: "暂缓" })).toBeVisible();
+
+  await page.getByRole("tab", { name: /^角度/ }).click();
+  await expect(page.getByText("选题诊断建议暂缓。请修改主题或重新运行选题诊断后继续。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "AI 生成角度" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "手动创建角度" })).toBeDisabled();
+  await expectNoRuntimeErrorOverlay(page);
+});

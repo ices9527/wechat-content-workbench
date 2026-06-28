@@ -40,6 +40,13 @@ import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
+import {
+  assertTopicDiagnosisAllowsDownstreamFlow,
+  formatTopicDiagnosisContextForPrompt,
+  getLatestTopicDiagnosisContext,
+  toUpstreamContextSnapshot,
+  type UpstreamContextSnapshot
+} from "./topic-diagnosis-context";
 
 export { requirementStageSchema, stagePromptStageSchema };
 export {
@@ -54,8 +61,10 @@ export {
 } from "./requirements";
 export { getStagePromptDefault, listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "./stage-prompts";
 export { getPromptRecipeForDraft, getPromptRecipeForInvocation, getPromptRecipeForOutline } from "./prompt-recipes";
+export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";
+export type { TopicDiagnosisContext } from "./topic-diagnosis-context";
 export type { UpdateStagePromptInput } from "./stage-prompts";
 export type { RequirementStage, StagePromptStage };
 
@@ -212,6 +221,7 @@ function recordAIInvocation(
     response?: unknown;
     customInstruction?: string | null;
     stagePrompt?: Pick<StagePromptDefault, "label" | "prompt" | "enabled"> | null;
+    upstreamContext?: UpstreamContextSnapshot | null;
     status: "success" | "failed";
     errorMessage?: string;
   }
@@ -230,6 +240,7 @@ function recordAIInvocation(
       customInstruction: input.customInstruction || null,
       stagePromptLabelSnapshot: input.stagePrompt?.enabled ? input.stagePrompt.label : null,
       stagePromptSnapshot: input.stagePrompt?.enabled ? input.stagePrompt.prompt : null,
+      upstreamContextJson: input.upstreamContext ? JSON.stringify(input.upstreamContext) : null,
       status: input.status,
       errorMessage: input.errorMessage || null
     })
@@ -250,6 +261,7 @@ function recordFailedAIInvocation(
     prompt: string;
     customInstruction?: string | null;
     stagePrompt?: Pick<StagePromptDefault, "label" | "prompt" | "enabled"> | null;
+    upstreamContext?: UpstreamContextSnapshot | null;
     error: unknown;
     fallbackMessage: string;
   }
@@ -261,6 +273,7 @@ function recordFailedAIInvocation(
     prompt: input.prompt,
     customInstruction: input.customInstruction,
     stagePrompt: input.stagePrompt,
+    upstreamContext: input.upstreamContext,
     status: "failed",
     errorMessage: getErrorMessage(input.error, input.fallbackMessage)
   });
@@ -523,6 +536,8 @@ export function createManualAngle(
   db: WorkbenchDatabase = getDatabase().db
 ): AngleCandidate {
   const article = requireArticle(articleId, db);
+  const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
+  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
   const parsed = manualAngleInputSchema.parse(input);
   const angle: AngleCandidate = {
     id: randomUUID(),
@@ -641,15 +656,23 @@ export async function generateAngles(
 ): Promise<AngleCandidate[]> {
   const parsed = generateWithPromptInputSchema.parse(input);
   const article = requireArticle(articleId, db);
+  const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
+  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   const stagePrompt = getStagePromptDefault("angle", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "angle", db);
   const prompt = buildLayeredPrompt(
-    renderPrompt("generate_angles", {
-      topic: article.topic,
-      targetReader: article.targetReader,
-      coreProblem: article.coreProblem,
-      hotAnchor: article.hotAnchor
-    }),
+    [
+      renderPrompt("generate_angles", {
+        topic: article.topic,
+        targetReader: article.targetReader,
+        coreProblem: article.coreProblem,
+        hotAnchor: article.hotAnchor
+      }),
+      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "angle")
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements,
@@ -690,6 +713,7 @@ export async function generateAngles(
         response: { angles: generated },
         customInstruction: parsed.customInstruction,
         stagePrompt,
+        upstreamContext,
         status: "success"
       });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
@@ -704,6 +728,7 @@ export async function generateAngles(
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
+      upstreamContext,
       error,
       fallbackMessage: "AI 生成角度失败"
     });
@@ -721,6 +746,8 @@ export function selectAngle(articleId: string, angleId: string, db: WorkbenchDat
   if (!angle) {
     throw new Error("角度不存在");
   }
+  const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
+  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
 
   db.transaction(() => {
     db.update(angleCandidates).set({ selected: false }).where(eq(angleCandidates.articleId, articleId)).run();
@@ -745,6 +772,9 @@ export async function generateOutline(
 ): Promise<OutlineVersion> {
   const parsed = generateWithPromptInputSchema.parse(input);
   const article = requireArticle(articleId, db);
+  const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
+  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   if (!article.selectedAngleId) {
     throw new Error("请先选择一个角度");
   }
@@ -755,12 +785,17 @@ export async function generateOutline(
   const stagePrompt = getStagePromptDefault("outline", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "outline", db);
   const prompt = buildLayeredPrompt(
-    renderPrompt("generate_outline", {
-      topic: article.topic,
-      angleTitle: angle.angleTitle,
-      readerPain: angle.readerPain,
-      promise: angle.promise
-    }),
+    [
+      renderPrompt("generate_outline", {
+        topic: article.topic,
+        angleTitle: angle.angleTitle,
+        readerPain: angle.readerPain,
+        promise: angle.promise
+      }),
+      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "outline")
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements,
@@ -796,6 +831,7 @@ export async function generateOutline(
         response: generated,
         customInstruction: parsed.customInstruction,
         stagePrompt,
+        upstreamContext,
         status: "success"
       });
       outline = { ...outline, sourceInvocationId: invocationId };
@@ -813,6 +849,7 @@ export async function generateOutline(
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
+      upstreamContext,
       error,
       fallbackMessage: "AI 生成提纲失败"
     });
@@ -904,6 +941,9 @@ export async function generateDraft(
 ): Promise<DraftVersion> {
   const parsed = generateWithPromptInputSchema.parse(input);
   const article = requireArticle(articleId, db);
+  const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
+  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   const outline = db
     .select()
     .from(outlineVersions)
@@ -915,11 +955,16 @@ export async function generateDraft(
   const stagePrompt = getStagePromptDefault("draft", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "draft", db);
   const prompt = buildLayeredPrompt(
-    renderPrompt("generate_draft", {
-      topic: article.topic,
-      mainline: outline.mainline,
-      outlineMarkdown: outline.outlineMarkdown
-    }),
+    [
+      renderPrompt("generate_draft", {
+        topic: article.topic,
+        mainline: outline.mainline,
+        outlineMarkdown: outline.outlineMarkdown
+      }),
+      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "draft")
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements,
@@ -958,6 +1003,7 @@ export async function generateDraft(
         response: generated,
         customInstruction: parsed.customInstruction,
         stagePrompt,
+        upstreamContext,
         status: "success"
       });
       draft = { ...draft, sourceInvocationId: invocationId };
@@ -975,6 +1021,7 @@ export async function generateDraft(
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
+      upstreamContext,
       error,
       fallbackMessage: "AI 生成文案失败"
     });

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { aiInvocationRequirements, aiInvocations, angleCandidates, draftVersions, outlineVersions, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
-import { FakeAIClient, IncompleteOutlineClient } from "./articles-test-utils";
+import { FakeAIClient, HoldTopicDiagnosisClient, IncompleteOutlineClient } from "./articles-test-utils";
 import {
   acceptOutline,
   createArticle,
@@ -14,6 +14,7 @@ import {
   generateOutline,
   getArticle,
   listRequirementPresets,
+  runTopicDiagnosis,
   saveDraftVersion,
   selectAngle,
   updateOutlineVersion
@@ -33,20 +34,23 @@ describe("article angle and outline service", () => {
   it("generates AI angles and records the invocation", async () => {
     const { db } = createTestDatabase();
     const article = createArticle({ topic: "跨境支付通" }, db);
+    await runTopicDiagnosis(article.id, {}, new FakeAIClient(), db);
     const requirement = listRequirementPresets({ stage: "angle" }, db)[0];
     const angles = await generateAngles(article.id, new FakeAIClient(), db, {
       customInstruction: "这次只要家庭现金流角度。",
       selectedRequirementIds: [requirement.id]
     });
     const invocations = db.select().from(aiInvocations).all();
+    const angleInvocation = invocations.find((invocation) => invocation.taskType === "generate_angles");
     const snapshots = db.select().from(aiInvocationRequirements).all();
     const updated = getArticle(article.id, db);
 
     expect(angles).toHaveLength(5);
     expect(angles[0].source).toBe("ai");
-    expect(invocations[0].taskType).toBe("generate_angles");
-    expect(invocations[0].prompt).toContain("这次只要家庭现金流角度。");
-    expect(invocations[0].prompt).toContain(requirement.promptFragment);
+    expect(angleInvocation?.prompt).toContain("这次只要家庭现金流角度。");
+    expect(angleInvocation?.prompt).toContain(requirement.promptFragment);
+    expect(angleInvocation?.prompt).toContain("上游选题诊断快照");
+    expect(angleInvocation?.upstreamContextJson || "").toContain('"verdict":"revise"');
     expect(snapshots[0].labelSnapshot).toBe(requirement.label);
     expect(updated?.status).toBe("angles_generated");
   });
@@ -98,6 +102,39 @@ describe("article angle and outline service", () => {
     expect(outlines).toHaveLength(1);
     expect(drafts).toHaveLength(1);
     expect(reworkEvent).toBeDefined();
+  });
+
+  it("blocks downstream angle and outline flow when the latest topic diagnosis says hold", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开" }, db);
+    const first = createManualAngle(article.id, { angleTitle: "开户不是重点" }, db);
+    const second = createManualAngle(article.id, { angleTitle: "资金路径才是重点" }, db);
+    selectAngle(article.id, first.id, db);
+
+    await runTopicDiagnosis(article.id, {}, new HoldTopicDiagnosisClient(), db);
+
+    await expect(generateAngles(article.id, new FakeAIClient(), db)).rejects.toThrow("最新选题诊断结论为“暂缓”");
+    expect(() => createManualAngle(article.id, { angleTitle: "继续新增" }, db)).toThrow("最新选题诊断结论为“暂缓”");
+    expect(() => selectAngle(article.id, second.id, db)).toThrow("最新选题诊断结论为“暂缓”");
+    await expect(generateOutline(article.id, new FakeAIClient(), db)).rejects.toThrow("最新选题诊断结论为“暂缓”");
+
+    const selected = db.select().from(angleCandidates).where(eq(angleCandidates.selected, true)).all();
+    expect(selected).toHaveLength(1);
+    expect(selected[0].id).toBe(first.id);
+  });
+
+  it("blocks draft generation when a later topic diagnosis says hold", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "资金路径才是重点" }, db);
+    selectAngle(article.id, angle.id, db);
+    const outline = await generateOutline(article.id, new FakeAIClient(), db);
+    acceptOutline(article.id, outline.id, db);
+
+    await runTopicDiagnosis(article.id, {}, new HoldTopicDiagnosisClient(), db);
+
+    await expect(generateDraft(article.id, new FakeAIClient(), db)).rejects.toThrow("最新选题诊断结论为“暂缓”");
+    expect(db.select().from(draftVersions).all()).toHaveLength(0);
   });
 
   it("generates outline, accepts it, and generates a draft", async () => {

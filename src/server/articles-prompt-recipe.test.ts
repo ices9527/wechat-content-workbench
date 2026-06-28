@@ -23,6 +23,7 @@ import {
   runDbsContent,
   runPrePublishCheck,
   runReviewCheck,
+  runTopicDiagnosis,
   selectAngle,
   updateDraftVersion,
   updateRequirementPreset,
@@ -79,6 +80,27 @@ describe("article prompt recipe service", () => {
     expect(recipeAfterPromptEdits.selectedRequirements[0].promptFragment).toBe(draftRequirement.promptFragment);
     expect(recipeAfterPromptEdits.finalPrompt).toContain(draftRequirement.promptFragment);
     expect(recipeAfterPromptEdits.finalPrompt).not.toContain("后来改掉的可选提示词");
+  });
+
+  it("shows upstream topic diagnosis snapshots in outline and draft prompt recipes", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+    await runTopicDiagnosis(article.id, {}, new FakeAIClient(), db);
+    const angle = createManualAngle(article.id, { angleTitle: "真正变化在资金路径" }, db);
+    selectAngle(article.id, angle.id, db);
+
+    const outline = await generateOutline(article.id, new FakeAIClient(), db);
+    acceptOutline(article.id, outline.id, db);
+    const draft = await generateDraft(article.id, new FakeAIClient(), db);
+
+    const outlineRecipe = getPromptRecipeForOutline(article.id, outline.id, db);
+    const draftRecipe = getPromptRecipeForDraft(article.id, draft.id, db);
+
+    expect(outlineRecipe.upstreamTopicDiagnosis?.verdict).toBe("revise");
+    expect(outlineRecipe.upstreamTopicDiagnosis?.topicSnapshot).toBe("香港账户还能不能开");
+    expect(outlineRecipe.finalPrompt).toContain("上游选题诊断快照");
+    expect(draftRecipe.upstreamTopicDiagnosis?.riskSummary).toContain("资料解释");
+    expect(draftRecipe.finalPrompt).toContain("本阶段约束");
   });
 
   it("updates stage default prompts", () => {
