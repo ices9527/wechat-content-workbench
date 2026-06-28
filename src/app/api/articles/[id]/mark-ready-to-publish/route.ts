@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { zodOrJsonError } from "@/app/api/_utils/route-errors";
 import { ensureAppDataReady, markReadyToPublish } from "@/server/articles";
 
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -8,6 +9,6 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     const { id } = await params;
     return NextResponse.json(markReadyToPublish(id));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "标记待发布失败" }, { status: 400 });
+    return zodOrJsonError(error, "标记待发布失败");
   }
 }

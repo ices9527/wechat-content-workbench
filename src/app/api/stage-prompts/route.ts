@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ZodError } from "zod";
 
+import { zodOrJsonError } from "@/app/api/_utils/route-errors";
 import { ensureAppDataReady, listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "@/server/articles";
 
 export async function GET() {
@@ -14,9 +14,6 @@ export async function PATCH(request: NextRequest) {
     const input = updateStagePromptInputSchema.parse(await request.json());
     return NextResponse.json(updateStagePromptDefault(input));
   } catch (error) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: error.issues[0]?.message || "输入不合法" }, { status: 400 });
-    }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "保存默认提示词失败" }, { status: 400 });
+    return zodOrJsonError(error, "保存默认提示词失败");
   }
 }

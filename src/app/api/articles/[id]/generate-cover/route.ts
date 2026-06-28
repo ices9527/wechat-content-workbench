@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { zodOrJsonError } from "@/app/api/_utils/route-errors";
 import { ensureAppDataReady } from "@/server/articles";
 import { generateCoverAssets } from "@/server/publishing";
 
@@ -21,6 +22,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     return NextResponse.json(generateCoverAssets(id), { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "生成封面失败" }, { status: 400 });
+    return zodOrJsonError(error, "生成封面失败");
   }
 }

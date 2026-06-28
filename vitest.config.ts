@@ -8,7 +8,12 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    restoreMocks: true
+    restoreMocks: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      reportsDirectory: "./coverage"
+    }
   },
   resolve: {
     alias: {

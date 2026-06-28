@@ -4,6 +4,13 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { assertCanTransition, getNextAction, getStatusLabel, isPublishQueueStatus, type ArticleStatus } from "@/domain/status";
+import {
+  defaultStagePromptLabel,
+  requirementStageSchema,
+  stagePromptStageSchema,
+  type RequirementStage,
+  type StagePromptStage
+} from "@/domain/stages";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/ensure";
 import { LOCAL_USER_ID } from "@/db/seed";
@@ -37,7 +44,11 @@ import {
 
 import type { AIClient, GeneratedAngle, GeneratedTopicDiagnosis } from "./ai";
 import { getAIClient } from "./ai";
+import { requireArticle, requireDiagnosis, requireDraft, requireOutline } from "./article-records";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
+
+export { requirementStageSchema, stagePromptStageSchema };
+export type { RequirementStage, StagePromptStage };
 
 export const createArticleInputSchema = z.object({
   topic: z.string().trim().min(1, "主题不能为空"),
@@ -91,9 +102,6 @@ export const generateWithPromptInputSchema = z.object(promptControlInputShape);
 export const topicDiagnosisInputSchema = z.object({
   customInstruction: promptControlInputShape.customInstruction
 });
-
-export const requirementStageSchema = z.enum(["angle", "outline", "draft", "dbs", "pre_publish", "review"]);
-export const stagePromptStageSchema = requirementStageSchema;
 
 export const requirementTypeSchema = z.enum(["must", "avoid", "prefer", "check", "compliance"]);
 
@@ -152,8 +160,6 @@ export type SaveOutlineInput = z.infer<typeof saveOutlineInputSchema>;
 export type UpdateOutlineInput = z.infer<typeof updateOutlineInputSchema>;
 export type GenerateWithPromptInput = z.input<typeof generateWithPromptInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
-export type StagePromptStage = z.infer<typeof stagePromptStageSchema>;
-export type RequirementStage = z.infer<typeof requirementStageSchema>;
 export type CreateRequirementInput = z.infer<typeof createRequirementInputSchema>;
 export type UpdateRequirementInput = z.infer<typeof updateRequirementInputSchema>;
 export type UpdateStagePromptInput = z.infer<typeof updateStagePromptInputSchema>;
@@ -202,50 +208,6 @@ function toListItem(article: ArticleProject): ArticleListItem {
     statusLabel: getStatusLabel(status),
     nextAction: getNextAction(status)
   };
-}
-
-function requireArticle(id: string, db: WorkbenchDatabase): ArticleProject {
-  const article = db.select().from(articleProjects).where(eq(articleProjects.id, id)).get();
-  if (!article) {
-    throw new Error("文章不存在");
-  }
-  return article;
-}
-
-function requireDraft(articleId: string, draftVersionId: string, db: WorkbenchDatabase): DraftVersion {
-  const draft = db
-    .select()
-    .from(draftVersions)
-    .where(and(eq(draftVersions.id, draftVersionId), eq(draftVersions.articleId, articleId)))
-    .get();
-  if (!draft) {
-    throw new Error("文案版本不存在");
-  }
-  return draft;
-}
-
-function requireOutline(articleId: string, outlineVersionId: string, db: WorkbenchDatabase): OutlineVersion {
-  const outline = db
-    .select()
-    .from(outlineVersions)
-    .where(and(eq(outlineVersions.id, outlineVersionId), eq(outlineVersions.articleId, articleId)))
-    .get();
-  if (!outline) {
-    throw new Error("提纲版本不存在");
-  }
-  return outline;
-}
-
-function requireDiagnosis(articleId: string, diagnosisId: string, db: WorkbenchDatabase): ContentDiagnosis {
-  const diagnosis = db
-    .select()
-    .from(contentDiagnoses)
-    .where(and(eq(contentDiagnoses.id, diagnosisId), eq(contentDiagnoses.articleId, articleId)))
-    .get();
-  if (!diagnosis) {
-    throw new Error("诊断记录不存在");
-  }
-  return diagnosis;
 }
 
 function recordWorkflowEvent(
@@ -348,18 +310,6 @@ function recordAIInvocationRequirements(
 
 function nextVersionNo(rows: Array<{ versionNo: number }>): number {
   return rows.reduce((max, row) => Math.max(max, row.versionNo), 0) + 1;
-}
-
-function defaultStagePromptLabel(stage: StagePromptStage): string {
-  const labels: Record<StagePromptStage, string> = {
-    angle: "角度默认提示词",
-    outline: "主线提纲默认提示词",
-    draft: "Markdown 文案默认提示词",
-    dbs: "dbs-content 默认提示词",
-    pre_publish: "发布前默认提示词",
-    review: "复盘默认提示词"
-  };
-  return labels[stage];
 }
 
 function buildSelectedRequirementSummaryMarkdown(title: string, requirements: RequirementPreset[]): string {

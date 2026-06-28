@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ZodError } from "zod";
 
+import { zodOrJsonError } from "@/app/api/_utils/route-errors";
 import { createArticle, createArticleInputSchema, ensureAppDataReady, listArticles } from "@/server/articles";
 import type { ArticleStatus } from "@/domain/status";
 
@@ -19,9 +19,6 @@ export async function POST(request: NextRequest) {
     const article = createArticle(input);
     return NextResponse.json(article, { status: 201 });
   } catch (error) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: error.issues[0]?.message || "输入不合法" }, { status: 400 });
-    }
-    return NextResponse.json({ error: "创建文章失败" }, { status: 500 });
+    return zodOrJsonError(error, "创建文章失败", 500);
   }
 }

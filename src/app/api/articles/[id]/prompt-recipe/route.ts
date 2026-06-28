@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { jsonError, zodOrJsonError } from "@/app/api/_utils/route-errors";
 import {
   ensureAppDataReady,
   getPromptRecipeForDraft,
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const specifiedCount = [outlineVersionId, draftVersionId, invocationId].filter(Boolean).length;
 
     if (specifiedCount !== 1) {
-      return NextResponse.json({ error: "必须且只能指定一个版本或调用 ID" }, { status: 400 });
+      return jsonError(new Error("必须且只能指定一个版本或调用 ID"));
     }
 
     const recipe = outlineVersionId
@@ -29,6 +30,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     return NextResponse.json({ recipe });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "读取提示词配方失败" }, { status: 400 });
+    return zodOrJsonError(error, "读取提示词配方失败");
   }
 }

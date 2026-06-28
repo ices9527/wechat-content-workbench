@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ZodError } from "zod";
 
+import { zodOrJsonError } from "@/app/api/_utils/route-errors";
 import { createManualAngle, ensureAppDataReady, listAngles, manualAngleInputSchema } from "@/server/articles";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -17,9 +17,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const angle = createManualAngle(id, input);
     return NextResponse.json(angle, { status: 201 });
   } catch (error) {
-    if (error instanceof ZodError) {
-      return NextResponse.json({ error: error.issues[0]?.message || "输入不合法" }, { status: 400 });
-    }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "创建角度失败" }, { status: 400 });
+    return zodOrJsonError(error, "创建角度失败");
   }
 }
