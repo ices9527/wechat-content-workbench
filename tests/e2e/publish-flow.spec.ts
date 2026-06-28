@@ -12,6 +12,10 @@ test("runs the Sprint 4 publish package path", async ({ page }) => {
   await page.getByPlaceholder("手动创建角度标题").fill("手动角度：真正变化不是速度");
   await page.getByRole("button", { name: "手动创建角度" }).click();
   await page.getByRole("button", { name: "选择角度" }).click();
+  await expect(page.getByRole("tab", { name: /^内容研究/ })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: /^主线提纲/ }).click();
+  await expect(page.getByText("没有内容研究资料包时，仍可按旧流程生成主线提纲。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成主线和提纲" })).toBeEnabled();
   await page.getByRole("button", { name: "生成主线和提纲" }).click();
   await expect(page.getByLabel("Markdown 提纲")).toHaveValue(/## 一/);
   await page.getByRole("button", { name: "确认提纲" }).click();

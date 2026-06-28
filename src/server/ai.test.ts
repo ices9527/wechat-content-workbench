@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FakeAIClient,
   OpenAICompatibleClient,
+  normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
@@ -31,6 +32,63 @@ describe("fake AI client", () => {
     expect(topicDiagnosis.targetReaderCheck).toContain("目标读者");
     expect(outline.mainline).toContain("这篇文章");
     expect(draft.markdown).toContain("#");
+  });
+
+  it("generates stable content research", async () => {
+    const client = new FakeAIClient();
+    const research = await client.generateContentResearch();
+
+    expect(research.factsMarkdown).toContain("跨境支付");
+    expect(research.boundariesMarkdown).toContain("监管");
+    expect(research.summaryMarkdown).toContain("家庭");
+  });
+
+  it("normalizes content research responses with standard fields", () => {
+    const research = normalizeGeneratedContentResearch({
+      factsMarkdown: "- 事实一",
+      backgroundMarkdown: "- 背景一",
+      readerQuestionsMarkdown: "- 问题一",
+      boundariesMarkdown: "- 边界一",
+      writeableDirectionsMarkdown: "- 可写方向一",
+      avoidDirectionsMarkdown: "- 不建议方向一",
+      summaryMarkdown: "给提纲的摘要"
+    });
+
+    expect(research.factsMarkdown).toContain("事实一");
+    expect(research.summaryMarkdown).toContain("摘要");
+  });
+
+  it("normalizes content research responses with Chinese fields", () => {
+    const research = normalizeGeneratedContentResearch({
+      核心事实: "- 工具是生活支付工具",
+      关键背景: "- 热点容易被写浅",
+      读者真实问题: "- 我家是否用得上",
+      边界: "- 不能写成投资通道",
+      可写方向: "- 家庭现金流",
+      不建议写的方向: "- 只讲速度",
+      摘要: "后续提纲围绕家庭现金流展开"
+    });
+
+    expect(research.boundariesMarkdown).toContain("投资通道");
+    expect(research.writeableDirectionsMarkdown).toContain("家庭现金流");
+    expect(research.summaryMarkdown).toContain("后续提纲");
+  });
+
+  it("builds content research summary from structured object responses", () => {
+    const research = normalizeGeneratedContentResearch({
+      资料来源判断: ["不要编造来源", "只做内部研究"],
+      场景拆解: {
+        学费: "需要核验额度",
+        生活费: "需要说明用途边界"
+      }
+    });
+
+    expect(research.summaryMarkdown).toContain("## 资料来源判断");
+    expect(research.summaryMarkdown).toContain("## 场景拆解");
+  });
+
+  it("rejects empty content research responses", () => {
+    expect(() => normalizeGeneratedContentResearch({})).toThrow("AI 返回的研究资料包为空");
   });
 
   it("normalizes outline responses with Chinese field names", () => {

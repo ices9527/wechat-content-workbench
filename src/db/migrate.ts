@@ -45,12 +45,35 @@ const statements = [
     owner_id TEXT NOT NULL REFERENCES users(id),
     version_no INTEGER NOT NULL,
     source_invocation_id TEXT,
+    source_research_version_id TEXT,
     mainline TEXT NOT NULL,
     outline_markdown TEXT NOT NULL,
     created_by TEXT NOT NULL,
     accepted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS research_versions (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    version_no INTEGER NOT NULL,
+    source_angle_id TEXT,
+    source_invocation_id TEXT,
+    summary_markdown TEXT NOT NULL,
+    research_markdown TEXT NOT NULL,
+    facts_markdown TEXT,
+    background_markdown TEXT,
+    reader_questions_markdown TEXT,
+    boundaries_markdown TEXT,
+    writeable_directions_markdown TEXT,
+    avoid_directions_markdown TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS research_versions_article_version_index
+    ON research_versions(article_id, version_no)`,
+  `CREATE INDEX IF NOT EXISTS research_versions_source_invocation_index
+    ON research_versions(source_invocation_id)`,
   `CREATE TABLE IF NOT EXISTS draft_versions (
     id TEXT PRIMARY KEY,
     article_id TEXT NOT NULL REFERENCES article_projects(id),
@@ -241,6 +264,7 @@ const statements = [
 
 const columnMigrations = [
   { table: "outline_versions", column: "source_invocation_id", definition: "TEXT" },
+  { table: "outline_versions", column: "source_research_version_id", definition: "TEXT" },
   { table: "draft_versions", column: "source_invocation_id", definition: "TEXT" },
   { table: "ai_invocations", column: "custom_instruction", definition: "TEXT" },
   { table: "ai_invocations", column: "stage_prompt_label_snapshot", definition: "TEXT" },

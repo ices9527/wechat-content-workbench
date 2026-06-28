@@ -1,4 +1,4 @@
-import type { GeneratedDraft, GeneratedOutline, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
+import type { GeneratedContentResearch, GeneratedDraft, GeneratedOutline, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 
 function stringifyPromptValue(value: unknown): string {
   if (typeof value === "string") {
@@ -109,6 +109,52 @@ function topicDiagnosisObjectToMarkdown(json: Record<string, unknown>): string {
     "next_action",
     "推荐下一步",
     "下一步"
+  ]);
+  return Object.entries(json)
+    .map(([key, value]) => {
+      if (ignoredKeys.has(key)) {
+        return "";
+      }
+      const text = stringifyPromptValue(value);
+      return text ? `## ${key}\n${text}` : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function contentResearchObjectToMarkdown(json: Record<string, unknown>): string {
+  const ignoredKeys = new Set([
+    "factsMarkdown",
+    "facts_markdown",
+    "核心事实",
+    "事实",
+    "backgroundMarkdown",
+    "background_markdown",
+    "关键背景",
+    "背景",
+    "readerQuestionsMarkdown",
+    "reader_questions_markdown",
+    "读者问题",
+    "读者真实问题",
+    "boundariesMarkdown",
+    "boundaries_markdown",
+    "边界",
+    "表达边界",
+    "合规边界",
+    "writeableDirectionsMarkdown",
+    "writableDirectionsMarkdown",
+    "writeable_directions_markdown",
+    "writable_directions_markdown",
+    "可写方向",
+    "可以写的方向",
+    "avoidDirectionsMarkdown",
+    "avoid_directions_markdown",
+    "不建议写的方向",
+    "避免方向",
+    "summaryMarkdown",
+    "summary_markdown",
+    "摘要",
+    "材料摘要"
   ]);
   return Object.entries(json)
     .map(([key, value]) => {
@@ -241,4 +287,62 @@ export function normalizeGeneratedTopicDiagnosis(json: Record<string, unknown>):
     suggestionsMarkdown,
     nextAction
   };
+}
+
+export function normalizeGeneratedContentResearch(json: Record<string, unknown>): GeneratedContentResearch {
+  const factsMarkdown = firstPromptValue(json, ["factsMarkdown", "facts_markdown", "核心事实", "事实"]);
+  const backgroundMarkdown = firstPromptValue(json, ["backgroundMarkdown", "background_markdown", "关键背景", "背景"]);
+  const readerQuestionsMarkdown = firstPromptValue(json, [
+    "readerQuestionsMarkdown",
+    "reader_questions_markdown",
+    "readerProblemsMarkdown",
+    "读者问题",
+    "读者真实问题"
+  ]);
+  const boundariesMarkdown = firstPromptValue(json, [
+    "boundariesMarkdown",
+    "boundaries_markdown",
+    "complianceBoundariesMarkdown",
+    "边界",
+    "表达边界",
+    "合规边界"
+  ]);
+  const writeableDirectionsMarkdown = firstPromptValue(json, [
+    "writeableDirectionsMarkdown",
+    "writableDirectionsMarkdown",
+    "writeable_directions_markdown",
+    "writable_directions_markdown",
+    "可写方向",
+    "可以写的方向"
+  ]);
+  const avoidDirectionsMarkdown = firstPromptValue(json, [
+    "avoidDirectionsMarkdown",
+    "avoid_directions_markdown",
+    "directionsToAvoidMarkdown",
+    "不建议写的方向",
+    "避免方向"
+  ]);
+  const objectFallbackMarkdown = contentResearchObjectToMarkdown(json);
+  const summaryMarkdown =
+    firstPromptValue(json, ["summaryMarkdown", "summary_markdown", "materialsSummaryMarkdown", "摘要", "材料摘要"]) ||
+    objectFallbackMarkdown ||
+    [factsMarkdown, backgroundMarkdown, readerQuestionsMarkdown, boundariesMarkdown, writeableDirectionsMarkdown, avoidDirectionsMarkdown]
+      .filter(Boolean)
+      .join("\n\n");
+
+  const normalized = {
+    factsMarkdown,
+    backgroundMarkdown,
+    readerQuestionsMarkdown,
+    boundariesMarkdown,
+    writeableDirectionsMarkdown,
+    avoidDirectionsMarkdown,
+    summaryMarkdown
+  };
+
+  if (!Object.values(normalized).some((value) => value.trim().length > 0)) {
+    throw new Error("AI 返回的研究资料包为空");
+  }
+
+  return normalized;
 }

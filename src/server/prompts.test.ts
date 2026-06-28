@@ -8,7 +8,8 @@ describe("prompt templates", () => {
       topic: "跨境支付通",
       angleTitle: "速度不是重点",
       readerPain: "不知道怎么判断",
-      promise: "看懂背后变化"
+      promise: "看懂背后变化",
+      researchSummary: ""
     });
 
     expect(prompt).toContain("跨境支付通");
@@ -60,6 +61,38 @@ describe("prompt templates", () => {
     expect(prompt).toContain("不写正文");
     expect(prompt).toContain("verdict：只能是 pass、revise、hold、drop");
     expect(prompt).toContain("今天点开的理由判断");
+  });
+
+  it("renders content research as a research package prompt", () => {
+    const prompt = renderPrompt("content_research", {
+      topic: "跨境支付通",
+      targetReader: "跨境家庭",
+      coreProblem: "资金路径是否更可操作",
+      hotAnchor: "支付工具上线",
+      angleTitle: "速度只是表层",
+      readerPain: "只看到到账快",
+      promise: "看懂家庭现金流边界",
+      risk: "避免写成投资通道"
+    });
+
+    expect(prompt).toContain("内容研究资料包");
+    expect(prompt).toContain("不写正文");
+    expect(prompt).toContain("不生成主线提纲");
+    expect(prompt).toContain("factsMarkdown");
+    expect(prompt).toContain("summaryMarkdown");
+  });
+
+  it("renders outline prompt with optional research summary", () => {
+    const prompt = renderPrompt("generate_outline", {
+      topic: "跨境支付通",
+      angleTitle: "速度不是重点",
+      readerPain: "不知道怎么判断",
+      promise: "看懂背后变化",
+      researchSummary: "## 内容研究资料包摘要\n家庭现金流和边界是重点。"
+    });
+
+    expect(prompt).toContain("内容研究资料包摘要");
+    expect(prompt).toContain("家庭现金流和边界是重点");
   });
 
   it("renders revision prompt with diagnosis source", () => {

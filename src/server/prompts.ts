@@ -1,6 +1,7 @@
 export type PromptTask =
   | "generate_angles"
   | "topic_diagnosis"
+  | "content_research"
   | "generate_outline"
   | "generate_draft"
   | "dbs_content"
@@ -42,6 +43,34 @@ const templates: Record<PromptTask, string> = {
     "suggestionsMarkdown：Markdown 修改建议，给出下一步怎么补，不要写正文。",
     "nextAction：一句话下一步建议。"
   ].join("\n"),
+  content_research: [
+    "你是公众号内容研究助手。",
+    "请基于主题和已选角度生成一份内容研究资料包。",
+    "主题：{{topic}}",
+    "目标读者：{{targetReader}}",
+    "核心问题：{{coreProblem}}",
+    "热点锚点：{{hotAnchor}}",
+    "已选角度：{{angleTitle}}",
+    "读者痛点：{{readerPain}}",
+    "文章承诺：{{promise}}",
+    "风险提醒：{{risk}}",
+    "",
+    "重要边界：",
+    "- 不写正文。",
+    "- 不生成主线提纲。",
+    "- 不做标题党。",
+    "- 不联网检索，不编造具体数据来源。",
+    "- 只输出研究资料包，帮助后续主线提纲更有事实、边界和读者问题。",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "factsMarkdown：核心事实，用 Markdown 列出需要承接的事实判断。",
+    "backgroundMarkdown：关键背景，说明为什么这个问题现在值得讲。",
+    "readerQuestionsMarkdown：读者真实问题，必须贴近具体生活或决策场景。",
+    "boundariesMarkdown：合规、表达或事实边界，说明哪些话不能写满。",
+    "writeableDirectionsMarkdown：可写方向，说明后续提纲可以展开哪些方向。",
+    "avoidDirectionsMarkdown：不建议写的方向，说明哪些角度容易跑偏。",
+    "summaryMarkdown：给主线提纲使用的材料摘要，压缩成可直接进入提纲 prompt 的资料。"
+  ].join("\n"),
   generate_outline: [
     "你是公众号文章主线编辑。",
     "请根据文章主题和选中角度生成一句主线判断和 Markdown 提纲。",
@@ -49,6 +78,7 @@ const templates: Record<PromptTask, string> = {
     "角度：{{angleTitle}}",
     "读者痛点：{{readerPain}}",
     "文章承诺：{{promise}}",
+    "内容研究资料包摘要：{{researchSummary}}",
     "",
     "必须只输出 JSON，字段包括：",
     "mainline：一句话主线判断，不要写成标题或资料主题。",

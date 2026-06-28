@@ -18,6 +18,7 @@ import {
   draftVersions,
   outlineVersions,
   promptRunArtifacts,
+  researchVersions,
   topicDiagnoses,
   wechatDraftUploads,
   workflowEvents,
@@ -27,13 +28,14 @@ import {
   type DraftVersion,
   type OutlineVersion,
   type PromptRunArtifact,
+  type ResearchVersion,
   type RequirementPreset,
   type AIInvocationRequirement,
   type StagePromptDefault,
   type TopicDiagnosis
 } from "@/db/schema";
 
-import type { AIClient, GeneratedAngle, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
+import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline } from "./article-records";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
@@ -147,6 +149,15 @@ const promptControlInputShape = {
 };
 
 export const generateWithPromptInputSchema = z.object(promptControlInputShape);
+export const generateContentResearchInputSchema = z.object(promptControlInputShape);
+export const generateOutlineInputSchema = z.object({
+  ...promptControlInputShape,
+  researchVersionId: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || undefined)
+});
 export const topicDiagnosisInputSchema = z.object(promptControlInputShape);
 
 export const runDbsContentInputSchema = z.object({
@@ -172,6 +183,8 @@ export type UpdateDraftInput = z.infer<typeof updateDraftInputSchema>;
 export type SaveOutlineInput = z.infer<typeof saveOutlineInputSchema>;
 export type UpdateOutlineInput = z.infer<typeof updateOutlineInputSchema>;
 export type GenerateWithPromptInput = z.input<typeof generateWithPromptInputSchema>;
+export type GenerateContentResearchInput = z.input<typeof generateContentResearchInputSchema>;
+export type GenerateOutlineInput = z.input<typeof generateOutlineInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
 export type RunDbsContentInput = z.input<typeof runDbsContentInputSchema>;
 export type PrePublishCheckInput = z.input<typeof prePublishCheckInputSchema>;
@@ -397,6 +410,40 @@ function buildSelectedRequirementSummaryMarkdown(title: string, requirements: Re
   return ["", `## ${title}`, ...requirements.map((requirement) => `- ${requirement.label}：${requirement.promptFragment}`)].join("\n");
 }
 
+function buildResearchMarkdown(generated: GeneratedContentResearch): string {
+  return [
+    ["## 核心事实", generated.factsMarkdown],
+    ["## 关键背景", generated.backgroundMarkdown],
+    ["## 读者真实问题", generated.readerQuestionsMarkdown],
+    ["## 边界提醒", generated.boundariesMarkdown],
+    ["## 可写方向", generated.writeableDirectionsMarkdown],
+    ["## 不建议写的方向", generated.avoidDirectionsMarkdown],
+    ["## 给主线提纲的材料摘要", generated.summaryMarkdown]
+  ]
+    .map(([title, content]) => (content.trim() ? `${title}\n${content.trim()}` : ""))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function formatResearchForOutlinePrompt(research: ResearchVersion | null): string {
+  if (!research) {
+    return "";
+  }
+  return [
+    "## 内容研究资料包摘要",
+    research.summaryMarkdown,
+    research.boundariesMarkdown ? "\n## 资料包边界提醒" : "",
+    research.boundariesMarkdown || "",
+    research.writeableDirectionsMarkdown ? "\n## 资料包可写方向" : "",
+    research.writeableDirectionsMarkdown || "",
+    research.avoidDirectionsMarkdown ? "\n## 资料包不建议写的方向" : "",
+    research.avoidDirectionsMarkdown || ""
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 // Shared command helpers
 
 function requireFinalDraft(article: ArticleProject, db: WorkbenchDatabase): DraftVersion {
@@ -537,6 +584,15 @@ export function listOutlines(articleId: string, db: WorkbenchDatabase = getDatab
     .from(outlineVersions)
     .where(eq(outlineVersions.articleId, articleId))
     .orderBy(desc(outlineVersions.versionNo))
+    .all();
+}
+
+export function listResearchVersions(articleId: string, db: WorkbenchDatabase = getDatabase().db): ResearchVersion[] {
+  return db
+    .select()
+    .from(researchVersions)
+    .where(eq(researchVersions.articleId, articleId))
+    .orderBy(desc(researchVersions.versionNo))
     .all();
 }
 
@@ -860,15 +916,122 @@ export function selectAngle(articleId: string, angleId: string, db: WorkbenchDat
   return { ...angle, selected: true };
 }
 
+// Content research commands
+
+export async function generateContentResearch(
+  articleId: string,
+  input: GenerateContentResearchInput = {},
+  client: AIClient = getAIClient(),
+  db: WorkbenchDatabase = getDatabase().db
+): Promise<ResearchVersion> {
+  const parsed = generateContentResearchInputSchema.parse(input);
+  const article = requireArticle(articleId, db);
+  const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
+  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
+  if (!article.selectedAngleId) {
+    throw new Error("请先选择一个角度");
+  }
+  const angle = db
+    .select()
+    .from(angleCandidates)
+    .where(and(eq(angleCandidates.id, article.selectedAngleId), eq(angleCandidates.articleId, article.id)))
+    .get();
+  if (!angle) {
+    throw new Error("选中的角度不存在");
+  }
+  const prompt = buildLayeredPrompt(
+    [
+      renderPrompt("content_research", {
+        topic: article.topic,
+        targetReader: article.targetReader,
+        coreProblem: article.coreProblem,
+        hotAnchor: article.hotAnchor,
+        angleTitle: angle.angleTitle,
+        readerPain: angle.readerPain,
+        promise: angle.promise,
+        risk: angle.risk
+      }),
+      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "content_research")
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    {
+      customInstruction: parsed.customInstruction
+    }
+  );
+
+  try {
+    const generated = await client.generateContentResearch(prompt);
+    const researchMarkdown = buildResearchMarkdown(generated);
+    if (!researchMarkdown.trim() || !generated.summaryMarkdown.trim()) {
+      throw new Error("AI 返回的研究资料包为空");
+    }
+    const existing = listResearchVersions(article.id, db);
+    let research: ResearchVersion = {
+      id: randomUUID(),
+      articleId: article.id,
+      ownerId: article.ownerId,
+      versionNo: nextVersionNo(existing),
+      sourceAngleId: angle.id,
+      sourceInvocationId: null,
+      summaryMarkdown: generated.summaryMarkdown,
+      researchMarkdown,
+      factsMarkdown: generated.factsMarkdown || null,
+      backgroundMarkdown: generated.backgroundMarkdown || null,
+      readerQuestionsMarkdown: generated.readerQuestionsMarkdown || null,
+      boundariesMarkdown: generated.boundariesMarkdown || null,
+      writeableDirectionsMarkdown: generated.writeableDirectionsMarkdown || null,
+      avoidDirectionsMarkdown: generated.avoidDirectionsMarkdown || null,
+      createdBy: "ai",
+      createdAt: new Date().toISOString()
+    };
+
+    db.transaction(() => {
+      const invocationId = recordAIInvocation(db, {
+        article,
+        taskType: "content_research",
+        client,
+        prompt,
+        response: generated,
+        customInstruction: parsed.customInstruction,
+        upstreamContext,
+        status: "success"
+      });
+      research = { ...research, sourceInvocationId: invocationId };
+      db.insert(researchVersions).values(research).run();
+      db.update(articleProjects).set({ updatedAt: new Date().toISOString() }).where(eq(articleProjects.id, article.id)).run();
+      recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "generate_content_research", {
+        researchVersionId: research.id,
+        sourceAngleId: angle.id
+      });
+    });
+
+    return research;
+  } catch (error) {
+    recordFailedAIInvocation(db, {
+      article,
+      taskType: "content_research",
+      client,
+      prompt,
+      customInstruction: parsed.customInstruction,
+      upstreamContext,
+      error,
+      fallbackMessage: "AI 内容研究失败"
+    });
+    throw error;
+  }
+}
+
 // Outline commands
 
 export async function generateOutline(
   articleId: string,
   client: AIClient = getAIClient(),
   db: WorkbenchDatabase = getDatabase().db,
-  input: GenerateWithPromptInput = {}
+  input: GenerateOutlineInput = {}
 ): Promise<OutlineVersion> {
-  const parsed = generateWithPromptInputSchema.parse(input);
+  const parsed = generateOutlineInputSchema.parse(input);
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
   assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
@@ -880,6 +1043,16 @@ export async function generateOutline(
   if (!angle) {
     throw new Error("选中的角度不存在");
   }
+  const research = parsed.researchVersionId
+    ? db
+        .select()
+        .from(researchVersions)
+        .where(and(eq(researchVersions.id, parsed.researchVersionId), eq(researchVersions.articleId, article.id)))
+        .get()
+    : null;
+  if (parsed.researchVersionId && !research) {
+    throw new Error("研究资料包不存在");
+  }
   const stagePrompt = getStagePromptDefault("outline", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "outline", db);
   const prompt = buildLayeredPrompt(
@@ -888,7 +1061,8 @@ export async function generateOutline(
         topic: article.topic,
         angleTitle: angle.angleTitle,
         readerPain: angle.readerPain,
-        promise: angle.promise
+        promise: angle.promise,
+        researchSummary: formatResearchForOutlinePrompt(research || null)
       }),
       formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "outline")
     ]
@@ -913,6 +1087,7 @@ export async function generateOutline(
       ownerId: article.ownerId,
       versionNo: nextVersionNo(existing),
       sourceInvocationId: null,
+      sourceResearchVersionId: research?.id || null,
       mainline: generated.mainline,
       outlineMarkdown: generated.outlineMarkdown,
       createdBy: "ai",
@@ -934,7 +1109,10 @@ export async function generateOutline(
       });
       outline = { ...outline, sourceInvocationId: invocationId };
       db.insert(outlineVersions).values(outline).run();
-      transitionArticle(db, article, "outline_generated", "generate_outline", { outlineId: outline.id });
+      transitionArticle(db, article, "outline_generated", "generate_outline", {
+        outlineId: outline.id,
+        sourceResearchVersionId: research?.id || null
+      });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
     });
 
@@ -969,6 +1147,7 @@ export function saveOutlineVersion(
     ownerId: article.ownerId,
     versionNo: nextVersionNo(existing),
     sourceInvocationId: null,
+    sourceResearchVersionId: null,
     mainline: parsed.mainline,
     outlineMarkdown: parsed.outlineMarkdown,
     createdBy: "user",

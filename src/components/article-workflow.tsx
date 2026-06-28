@@ -12,6 +12,7 @@ import type {
   DraftVersion,
   OutlineVersion,
   PromptRunArtifact,
+  ResearchVersion,
   RequirementPreset,
   StagePromptDefault,
   TopicDiagnosis,
@@ -120,6 +121,7 @@ type WorkflowTabId =
   | "topic"
   | "topic-diagnosis"
   | "angles"
+  | "research"
   | "outline"
   | "draft"
   | "diagnosis"
@@ -131,6 +133,7 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "topic", label: "主题" },
   { id: "topic-diagnosis", label: "选题诊断" },
   { id: "angles", label: "角度" },
+  { id: "research", label: "内容研究" },
   { id: "outline", label: "主线提纲" },
   { id: "draft", label: "Markdown 文案" },
   { id: "diagnosis", label: "dbs-content" },
@@ -152,7 +155,10 @@ function defaultTabForStatus(status: ArticleStatus): WorkflowTabId {
   if (status === "angles_generated") {
     return "angles";
   }
-  if (status === "angle_selected" || status === "outline_generated") {
+  if (status === "angle_selected") {
+    return "research";
+  }
+  if (status === "outline_generated") {
     return "outline";
   }
   if (status === "outline_review" || status === "draft_generated") {
@@ -419,6 +425,14 @@ function AnglesPanel({ selectedAngle, children }: { selectedAngle: AngleCandidat
   );
 }
 
+function ResearchPanel({ count, children }: { count: number; children: ReactNode }) {
+  return (
+    <WorkflowPanel tabId="research" title="内容研究资料包" status={count > 0 ? `${count} 版` : "待生成"}>
+      {children}
+    </WorkflowPanel>
+  );
+}
+
 function OutlinePanel({ headActions, children }: { headActions: ReactNode; children: ReactNode }) {
   return (
     <WorkflowPanel tabId="outline" title="主线和提纲" headActions={headActions}>
@@ -499,6 +513,7 @@ export function ArticleWorkflow({
   article,
   angles,
   outlines,
+  researchVersions,
   drafts,
   diagnoses,
   topicDiagnoses,
@@ -511,6 +526,7 @@ export function ArticleWorkflow({
   article: ArticleListItem;
   angles: AngleCandidate[];
   outlines: OutlineVersion[];
+  researchVersions: ResearchVersion[];
   drafts: DraftVersion[];
   diagnoses: ContentDiagnosis[];
   topicDiagnoses: TopicDiagnosis[];
@@ -530,6 +546,7 @@ export function ArticleWorkflow({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkflowTabId>(initialTab);
   const latestOutline = outlines[0] || null;
+  const latestResearch = researchVersions[0] || null;
   const acceptedOutline = outlines.find((outline) => outline.accepted) || null;
   const latestDraft = drafts[0] || null;
   const finalDraft = drafts.find((draft) => draft.isFinal) || null;
@@ -537,6 +554,7 @@ export function ArticleWorkflow({
   const [mainline, setMainline] = useState(latestOutline?.mainline || "");
   const [outlineMarkdown, setOutlineMarkdown] = useState(latestOutline?.outlineMarkdown || "");
   const [selectedOutlineId, setSelectedOutlineId] = useState(latestOutline?.id || "");
+  const [selectedResearchId, setSelectedResearchId] = useState(latestResearch?.id || "");
   const [draftMarkdown, setDraftMarkdown] = useState(latestDraft?.markdown || "");
   const [selectedDraftId, setSelectedDraftId] = useState(latestDraft?.id || "");
   const stagePromptKey = useMemo(
@@ -581,6 +599,7 @@ export function ArticleWorkflow({
   );
   const [customInstructions, setCustomInstructions] = useState<Record<RequirementStage, string>>(() => createStageRecord(() => ""));
   const [topicDiagnosisCustomInstruction, setTopicDiagnosisCustomInstruction] = useState("");
+  const [researchCustomInstruction, setResearchCustomInstruction] = useState("");
   const [selectedRequirementIdsByStage, setSelectedRequirementIdsByStage] = useState<Record<RequirementStage, string[]>>(() =>
     selectedRequirementIdsFromKeys(requirementKeys)
   );
@@ -632,6 +651,8 @@ export function ArticleWorkflow({
   const fullscreenEditorRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedAngle = useMemo(() => angles.find((angle) => angle.selected), [angles]);
+  const researchById = useMemo(() => new Map(researchVersions.map((research) => [research.id, research])), [researchVersions]);
+  const selectedResearch = selectedResearchId ? researchById.get(selectedResearchId) || null : latestResearch;
   const outlineById = useMemo(() => new Map(outlines.map((outline) => [outline.id, outline])), [outlines]);
   const selectedOutline = selectedOutlineId ? outlineById.get(selectedOutlineId) || null : latestOutline;
   const draftById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft])), [drafts]);
@@ -669,6 +690,9 @@ export function ArticleWorkflow({
     }
     if (tabId === "angles") {
       return selectedAngle ? "已选" : angles.length > 0 ? `${angles.length} 个` : "待做";
+    }
+    if (tabId === "research") {
+      return latestResearch ? `r${latestResearch.versionNo}` : selectedAngle ? "待生成" : "待选角度";
     }
     if (tabId === "outline") {
       return acceptedOutline ? "已确认" : latestOutline ? "待确认" : "待做";
@@ -719,6 +743,15 @@ export function ArticleWorkflow({
       return latestOutline?.id || "";
     });
   }, [latestOutline?.id, outlines]);
+
+  useEffect(() => {
+    setSelectedResearchId((current) => {
+      if (current && researchVersions.some((research) => research.id === current)) {
+        return current;
+      }
+      return latestResearch?.id || "";
+    });
+  }, [latestResearch?.id, researchVersions]);
 
   useEffect(() => {
     const outline = selectedOutlineId ? outlineById.get(selectedOutlineId) || latestOutline : latestOutline;
@@ -859,6 +892,16 @@ export function ArticleWorkflow({
 
   function getOutlineOptionLabel(outline: OutlineVersion): string {
     return outline.accepted ? `v${outline.versionNo} · 已确认` : `v${outline.versionNo}`;
+  }
+
+  function getResearchOptionLabel(research: ResearchVersion): string {
+    return `r${research.versionNo} · ${formatTime(research.createdAt)}`;
+  }
+
+  function selectResearchVersion(researchId: string) {
+    if (researchById.has(researchId)) {
+      setSelectedResearchId(researchId);
+    }
   }
 
   function loadOutlineIntoEditor(outline: OutlineVersion) {
@@ -1103,7 +1146,7 @@ export function ArticleWorkflow({
                         postJson(`/api/articles/${article.id}/select-angle`, {
                           angleId: angle.id
                         }),
-                      "outline"
+                      "research"
                     )
                   }
                   type="button"
@@ -1114,6 +1157,89 @@ export function ArticleWorkflow({
             ))}
           </div>
           </AnglesPanel>
+        ) : null}
+
+        {activeTab === "research" ? (
+          <ResearchPanel count={researchVersions.length}>
+            {topicDiagnosisBlocksDownstream && topicDiagnosisWarning ? <p className="error">{topicDiagnosisWarning}</p> : null}
+
+            {selectedAngle ? (
+              <>
+                <section className="mini-card selected-angle-summary">
+                  <div className="mini-card-head">
+                    <h3>{selectedAngle.angleTitle}</h3>
+                    <span className="source-pill">当前角度</span>
+                  </div>
+                  <p>{selectedAngle.readerPain || "未填写读者痛点"}</p>
+                  <p>{selectedAngle.promise || "未填写文章承诺"}</p>
+                  <p>{selectedAngle.risk || "未填写风险提醒"}</p>
+                </section>
+
+                <label className="field prompt-field">
+                  <span className="label">对当前研究的补充要求</span>
+                  <textarea
+                    className="textarea prompt-textarea"
+                    placeholder="例如：重点研究家庭现金流场景，不要写成政策资料罗列"
+                    value={researchCustomInstruction}
+                    onChange={(event) => setResearchCustomInstruction(event.target.value)}
+                  />
+                </label>
+
+                <div className="action-row">
+                  <button
+                    className="button"
+                    disabled={pending !== null || topicDiagnosisBlocksDownstream}
+                    onClick={() =>
+                      runAction("generate-content-research", async () => {
+                        const research = await postJson<ResearchVersion>(`/api/articles/${article.id}/generate-content-research`, {
+                          customInstruction: researchCustomInstruction
+                        });
+                        setSelectedResearchId(research.id);
+                        setNotice(`已生成内容研究资料包 r${research.versionNo}`);
+                      })
+                    }
+                    type="button"
+                  >
+                    {pending === "generate-content-research" ? "生成中" : "生成内容研究资料包"}
+                  </button>
+                </div>
+
+                {researchVersions.length > 0 ? (
+                  <div className="version-block">
+                    <label className="field compact-field">
+                      <span className="label">研究资料包版本</span>
+                      <select
+                        className="input"
+                        disabled={pending !== null}
+                        onChange={(event) => selectResearchVersion(event.target.value)}
+                        value={selectedResearchId}
+                      >
+                        {researchVersions.map((research) => (
+                          <option key={research.id} value={research.id}>
+                            {getResearchOptionLabel(research)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
+
+                {selectedResearch ? (
+                  <section className="research-preview">
+                    <div className="mini-card-head">
+                      <h3>当前资料包 r{selectedResearch.versionNo}</h3>
+                      <span className="source-pill">{selectedResearch.createdBy === "ai" ? "AI" : "手动"}</span>
+                    </div>
+                    <MarkdownPreview markdown={selectedResearch.researchMarkdown} />
+                  </section>
+                ) : (
+                  <p className="subtle">还没有内容研究资料包。生成后，主线提纲可以引用它。</p>
+                )}
+              </>
+            ) : (
+              <p className="subtle">请先选择角度，再生成内容研究资料包。</p>
+            )}
+          </ResearchPanel>
         ) : null}
 
         {activeTab === "outline" ? (
@@ -1153,6 +1279,27 @@ export function ArticleWorkflow({
             }
           >
           {topicDiagnosisBlocksDownstream && topicDiagnosisWarning ? <p className="error">{topicDiagnosisWarning}</p> : null}
+
+          {researchVersions.length > 0 ? (
+            <label className="field compact-field">
+              <span className="label">引用内容研究资料包</span>
+              <select
+                className="input"
+                disabled={pending !== null}
+                onChange={(event) => setSelectedResearchId(event.target.value)}
+                value={selectedResearchId}
+              >
+                <option value="">不引用资料包</option>
+                {researchVersions.map((research) => (
+                  <option key={research.id} value={research.id}>
+                    {getResearchOptionLabel(research)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="subtle">没有内容研究资料包时，仍可按旧流程生成主线提纲。</p>
+          )}
 
           <StagePromptDialog
             title="主线提纲提示词设置"
@@ -1196,7 +1343,8 @@ export function ArticleWorkflow({
                 runAction("generate-outline", async () => {
                   const outline = await postJson<OutlineVersion>(`/api/articles/${article.id}/generate-outline`, {
                     customInstruction: outlineCustomInstruction,
-                    selectedRequirementIds: selectedOutlineRequirementIds
+                    selectedRequirementIds: selectedOutlineRequirementIds,
+                    researchVersionId: selectedResearchId || undefined
                   });
                   setSelectedOutlineId(outline.id);
                   setMainline(outline.mainline);
@@ -1211,6 +1359,14 @@ export function ArticleWorkflow({
 
           {selectedOutline ? (
             <div className="editor-grid">
+              {selectedOutline.sourceResearchVersionId ? (
+                <p className="subtle">
+                  引用资料包：
+                  {researchById.get(selectedOutline.sourceResearchVersionId)
+                    ? `r${researchById.get(selectedOutline.sourceResearchVersionId)?.versionNo}`
+                    : selectedOutline.sourceResearchVersionId}
+                </p>
+              ) : null}
               <label className="field">
                 <span className="label">主线判断</span>
                 <textarea className="textarea" value={mainline} onChange={(event) => setMainline(event.target.value)} />

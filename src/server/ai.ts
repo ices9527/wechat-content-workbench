@@ -1,8 +1,18 @@
 import { readAppConfig } from "@/config/env";
 
-import { normalizeGeneratedDraft, normalizeGeneratedOutline, normalizeGeneratedTopicDiagnosis } from "./ai-normalizers";
+import {
+  normalizeGeneratedContentResearch,
+  normalizeGeneratedDraft,
+  normalizeGeneratedOutline,
+  normalizeGeneratedTopicDiagnosis
+} from "./ai-normalizers";
 
-export { normalizeGeneratedDraft, normalizeGeneratedOutline, normalizeGeneratedTopicDiagnosis } from "./ai-normalizers";
+export {
+  normalizeGeneratedContentResearch,
+  normalizeGeneratedDraft,
+  normalizeGeneratedOutline,
+  normalizeGeneratedTopicDiagnosis
+} from "./ai-normalizers";
 
 export type GeneratedAngle = {
   angleTitle: string;
@@ -43,6 +53,16 @@ export type GeneratedTopicDiagnosis = {
   nextAction: string;
 };
 
+export type GeneratedContentResearch = {
+  factsMarkdown: string;
+  backgroundMarkdown: string;
+  readerQuestionsMarkdown: string;
+  boundariesMarkdown: string;
+  writeableDirectionsMarkdown: string;
+  avoidDirectionsMarkdown: string;
+  summaryMarkdown: string;
+};
+
 export type GeneratedPromptArtifact = {
   summaryMarkdown: string;
 };
@@ -52,6 +72,7 @@ export type AIClient = {
   baseUrl?: string;
   generateAngles(prompt: string): Promise<GeneratedAngle[]>;
   diagnoseTopic(prompt: string): Promise<GeneratedTopicDiagnosis>;
+  generateContentResearch(prompt: string): Promise<GeneratedContentResearch>;
   generateOutline(prompt: string): Promise<GeneratedOutline>;
   generateDraft(prompt: string): Promise<GeneratedDraft>;
   diagnoseContent(prompt: string): Promise<GeneratedDiagnosis>;
@@ -145,6 +166,44 @@ export class FakeAIClient implements AIClient {
         "- 后续角度优先检查生活场景、额度边界和用途边界。"
       ].join("\n"),
       nextAction: "先补一句读者场景，再生成角度。"
+    };
+  }
+
+  async generateContentResearch(): Promise<GeneratedContentResearch> {
+    return {
+      factsMarkdown: [
+        "- 跨境支付工具首先改变的是生活资金安排的摩擦，而不是投资路径。",
+        "- 家庭读者需要同时核验使用场景、身份条件、额度和合规边界。",
+        "- 支付效率可以降低安排成本，但不能替代资金来源和用途解释。"
+      ].join("\n"),
+      backgroundMarkdown: [
+        "- 热点容易被写成到账速度变化。",
+        "- 对已经有跨境生活安排的家庭，真正问题是资金路径是否更稳定、更可解释。"
+      ].join("\n"),
+      readerQuestionsMarkdown: [
+        "- 这件事和我家的学费、生活费、备用金安排有没有关系？",
+        "- 便利是不是代表规则放松？",
+        "- 使用前需要核验哪些边界？"
+      ].join("\n"),
+      boundariesMarkdown: [
+        "- 不写成跨境资金自由流动。",
+        "- 不暗示可以绕开监管或额度限制。",
+        "- 不承诺具体到账、开户、收益或审批结果。"
+      ].join("\n"),
+      writeableDirectionsMarkdown: [
+        "- 从家庭现金流安排解释工具意义。",
+        "- 从使用场景、额度边界、合规责任三个层次展开。",
+        "- 把热点翻译成读者可以自查的问题。"
+      ].join("\n"),
+      avoidDirectionsMarkdown: [
+        "- 避免只罗列政策或工具功能。",
+        "- 避免把支付工具写成投资通道。",
+        "- 避免把速度当成唯一主线。"
+      ].join("\n"),
+      summaryMarkdown: [
+        "这篇文章应把热点从“到账速度”转回“家庭跨境生活资金路径”。",
+        "后续提纲要围绕使用场景、额度和合规边界、家庭现金流安排展开，提醒读者先核验边界再使用工具。"
+      ].join("\n")
     };
   }
 
@@ -314,6 +373,11 @@ export class OpenAICompatibleClient implements AIClient {
   async diagnoseTopic(prompt: string): Promise<GeneratedTopicDiagnosis> {
     const json = await this.completeJson(prompt);
     return normalizeGeneratedTopicDiagnosis(json);
+  }
+
+  async generateContentResearch(prompt: string): Promise<GeneratedContentResearch> {
+    const json = await this.completeJson(prompt);
+    return normalizeGeneratedContentResearch(json);
   }
 
   async generateOutline(prompt: string): Promise<GeneratedOutline> {

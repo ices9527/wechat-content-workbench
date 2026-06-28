@@ -44,10 +44,30 @@ export const outlineVersions = sqliteTable("outline_versions", {
   ownerId: text("owner_id").notNull().references(() => users.id),
   versionNo: integer("version_no").notNull(),
   sourceInvocationId: text("source_invocation_id"),
+  sourceResearchVersionId: text("source_research_version_id"),
   mainline: text("mainline").notNull(),
   outlineMarkdown: text("outline_markdown").notNull(),
   createdBy: text("created_by").notNull(),
   accepted: integer("accepted", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+});
+
+export const researchVersions = sqliteTable("research_versions", {
+  id: text("id").primaryKey(),
+  articleId: text("article_id").notNull().references(() => articleProjects.id),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  versionNo: integer("version_no").notNull(),
+  sourceAngleId: text("source_angle_id"),
+  sourceInvocationId: text("source_invocation_id"),
+  summaryMarkdown: text("summary_markdown").notNull(),
+  researchMarkdown: text("research_markdown").notNull(),
+  factsMarkdown: text("facts_markdown"),
+  backgroundMarkdown: text("background_markdown"),
+  readerQuestionsMarkdown: text("reader_questions_markdown"),
+  boundariesMarkdown: text("boundaries_markdown"),
+  writeableDirectionsMarkdown: text("writeable_directions_markdown"),
+  avoidDirectionsMarkdown: text("avoid_directions_markdown"),
+  createdBy: text("created_by").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
 });
 
@@ -249,6 +269,7 @@ export type ArticleProject = typeof articleProjects.$inferSelect;
 export type NewArticleProject = typeof articleProjects.$inferInsert;
 export type AngleCandidate = typeof angleCandidates.$inferSelect;
 export type OutlineVersion = typeof outlineVersions.$inferSelect;
+export type ResearchVersion = typeof researchVersions.$inferSelect;
 export type DraftVersion = typeof draftVersions.$inferSelect;
 export type ContentDiagnosis = typeof contentDiagnoses.$inferSelect;
 export type TopicDiagnosis = typeof topicDiagnoses.$inferSelect;

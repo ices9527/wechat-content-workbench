@@ -24,7 +24,25 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await page.getByRole("button", { name: "选择角度" }).click();
   await expect(page.locator(".status", { hasText: "已选角度" }).first()).toBeVisible();
 
+  const researchPanel = page.locator("#workflow-panel-research");
+  await expect(page.getByRole("tab", { name: /^内容研究/ })).toHaveAttribute("aria-selected", "true");
+  await researchPanel.getByPlaceholder("例如：重点研究家庭现金流场景，不要写成政策资料罗列").fill("重点研究家庭现金流和合规边界。");
+  await researchPanel.getByRole("button", { name: "生成内容研究资料包" }).click();
+  await expect(researchPanel.getByText("当前资料包 r1")).toBeVisible({ timeout: actionTimeout });
+  await expect(researchPanel.getByText("核心事实")).toBeVisible();
+  await expect(researchPanel.getByLabel("研究资料包版本").locator("option")).toHaveCount(1);
+  await researchPanel.getByPlaceholder("例如：重点研究家庭现金流场景，不要写成政策资料罗列").fill("第二版重点研究读者真实问题。");
+  await researchPanel.getByRole("button", { name: "生成内容研究资料包" }).click();
+  await expect(researchPanel.getByText("当前资料包 r2")).toBeVisible({ timeout: actionTimeout });
+  await expect(researchPanel.getByLabel("研究资料包版本").locator("option")).toHaveCount(2);
+  await researchPanel.getByLabel("研究资料包版本").selectOption({ index: 1 });
+  await expect(researchPanel.getByText("当前资料包 r1")).toBeVisible();
+  await researchPanel.getByLabel("研究资料包版本").selectOption({ index: 0 });
+  await expect(researchPanel.getByText("当前资料包 r2")).toBeVisible();
+
+  await page.getByRole("tab", { name: /^主线提纲/ }).click();
   const outlinePanel = page.locator("#workflow-panel-outline");
+  await expect(outlinePanel.getByLabel("引用内容研究资料包")).toHaveValue(/.+/);
   await outlinePanel.getByRole("button", { name: "打开主线提纲提示词设置" }).click();
   const outlinePromptDialog = page.getByRole("dialog", { name: "主线提纲提示词设置" });
   await expect(outlinePromptDialog.getByText("主线一句话判断").first()).toBeVisible();
@@ -35,10 +53,13 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await page.getByRole("button", { name: "生成主线和提纲" }).click();
   await expect(page.getByLabel("主线判断")).toHaveValue(/这篇文章/, { timeout: actionTimeout });
   await expect(page.getByLabel("Markdown 提纲")).toHaveValue(/## 一/, { timeout: actionTimeout });
+  await expect(outlinePanel.getByText("引用资料包：r2")).toBeVisible();
   await outlinePanel.getByRole("button", { name: "查看提纲提示词配方" }).click();
   const outlineRecipeDialog = page.getByRole("dialog", { name: "提示词配方" });
   await expect(outlineRecipeDialog.getByRole("heading", { name: "默认提示词" })).toBeVisible();
   await expect(outlineRecipeDialog.getByText("最终提示词")).toBeVisible();
+  await outlineRecipeDialog.getByText("最终提示词").click();
+  await expect(outlineRecipeDialog.getByText("内容研究资料包摘要")).toBeVisible();
   await outlineRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
   await expect(outlineRecipeDialog).toHaveCount(0);
 

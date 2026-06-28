@@ -75,13 +75,17 @@ export function toUpstreamContextSnapshot(context: TopicDiagnosisContext | null)
   return context ? { topicDiagnosis: context } : null;
 }
 
-export function formatTopicDiagnosisContextForPrompt(context: TopicDiagnosisContext | null, stage: "angle" | "outline" | "draft"): string {
+export function formatTopicDiagnosisContextForPrompt(
+  context: TopicDiagnosisContext | null,
+  stage: "angle" | "content_research" | "outline" | "draft"
+): string {
   if (!context) {
     return "";
   }
 
   const stageInstruction = {
     angle: "生成角度时必须承接诊断中的真实读者、真实问题和点开理由；如果结论为 revise，要优先补强诊断指出的薄弱处。",
+    content_research: "生成内容研究资料包时必须承接诊断中的真实问题和主要风险，只整理事实、边界、读者问题和可写方向，不写正文或提纲。",
     outline: "生成主线和提纲时必须回应诊断中的真实问题，处理主要风险，不要绕开诊断中的边界。",
     draft: "生成文案时必须承接诊断中的目标读者和真实问题，处理主要风险，不要写成诊断中已经提示的错误方向。"
   }[stage];

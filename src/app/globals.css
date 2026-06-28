@@ -345,6 +345,10 @@ h1 {
   gap: 7px;
 }
 
+.compact-field {
+  max-width: 520px;
+}
+
 .label {
   color: var(--muted);
   font-size: 13px;
@@ -527,7 +531,7 @@ h1 {
 
 .workflow-tabs {
   display: grid;
-  grid-template-columns: repeat(9, minmax(112px, 1fr));
+  grid-template-columns: repeat(10, minmax(112px, 1fr));
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -1085,6 +1089,19 @@ h1 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.selected-angle-summary,
+.research-preview {
+  margin-bottom: 16px;
+}
+
+.research-preview {
+  background: #fff;
+}
+
+.version-block {
+  margin-bottom: 16px;
 }
 
 .source-pill {
