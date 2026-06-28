@@ -15,6 +15,7 @@ import {
   getPromptRecipeForDraft,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
+  getPromptRecipeForTopicDiagnosis,
   listPromptRunArtifacts,
   listRequirementPresets,
   markFinalDraft,
@@ -101,6 +102,26 @@ describe("article prompt recipe service", () => {
     expect(outlineRecipe.finalPrompt).toContain("上游选题诊断快照");
     expect(draftRecipe.upstreamTopicDiagnosis?.riskSummary).toContain("资料解释");
     expect(draftRecipe.finalPrompt).toContain("本阶段约束");
+  });
+
+  it("links topic diagnosis records to their prompt recipes", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+
+    const diagnosis = await runTopicDiagnosis(
+      article.id,
+      { customInstruction: "重点检查今天点开的理由。" },
+      new FakeAIClient(),
+      db
+    );
+    const recipe = getPromptRecipeForTopicDiagnosis(article.id, diagnosis.id, db);
+
+    expect(diagnosis.sourceInvocationId).toBeTruthy();
+    expect(recipe.invocationId).toBe(diagnosis.sourceInvocationId);
+    expect(recipe.taskType).toBe("topic_diagnosis");
+    expect(recipe.customInstruction).toBe("重点检查今天点开的理由。");
+    expect(recipe.finalPrompt).toContain("只判断这个选题是否值得进入公众号生产线");
+    expect(recipe.finalPrompt).toContain("重点检查今天点开的理由。");
   });
 
   it("updates stage default prompts", () => {

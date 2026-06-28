@@ -9,7 +9,7 @@ import {
   type DraftVersion
 } from "@/db/schema";
 
-import { requireArticle, requireDraft, requireOutline } from "./article-records";
+import { requireArticle, requireDraft, requireOutline, requireTopicDiagnosis } from "./article-records";
 import { type TopicDiagnosisContext, type UpstreamContextSnapshot } from "./topic-diagnosis-context";
 
 export type PromptRecipeRequirement = {
@@ -184,6 +184,19 @@ export function getPromptRecipeForOutline(
     return emptyPromptRecipe(article.id, "这个提纲版本没有绑定 AI 提示词记录，可能是人工保存或旧版本数据。");
   }
   return requireInvocationRecipe(article.id, outline.sourceInvocationId, db);
+}
+
+export function getPromptRecipeForTopicDiagnosis(
+  articleId: string,
+  topicDiagnosisId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): PromptRecipe {
+  const article = requireArticle(articleId, db);
+  const diagnosis = requireTopicDiagnosis(article.id, topicDiagnosisId, db);
+  if (!diagnosis.sourceInvocationId) {
+    return emptyPromptRecipe(article.id, "这个选题诊断没有绑定 AI 提示词记录，可能是旧版本数据。");
+  }
+  return requireInvocationRecipe(article.id, diagnosis.sourceInvocationId, db);
 }
 
 export function getPromptRecipeForDraft(

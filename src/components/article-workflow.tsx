@@ -248,7 +248,8 @@ function TopicDiagnosisPanel({
   customInstruction,
   pending,
   onCustomInstructionChange,
-  onRunDiagnosis
+  onRunDiagnosis,
+  onOpenPromptRecipe
 }: {
   latestTopicDiagnosis: TopicDiagnosis | null;
   topicDiagnoses: TopicDiagnosis[];
@@ -256,6 +257,7 @@ function TopicDiagnosisPanel({
   pending: string | null;
   onCustomInstructionChange: (value: string) => void;
   onRunDiagnosis: () => void;
+  onOpenPromptRecipe: (topicDiagnosisId: string) => void;
 }) {
   return (
     <WorkflowPanel
@@ -284,7 +286,21 @@ function TopicDiagnosisPanel({
           <section className={`topic-diagnosis-result verdict-${latestTopicDiagnosis.verdict}`}>
             <div className="mini-card-head">
               <h3>最新诊断</h3>
-              <span className="source-pill">{formatTime(latestTopicDiagnosis.createdAt)}</span>
+              <div className="inline-actions">
+                <span className="source-pill">{formatTime(latestTopicDiagnosis.createdAt)}</span>
+                {latestTopicDiagnosis.sourceInvocationId ? (
+                  <button
+                    aria-label="查看最新选题诊断提示词配方"
+                    className="icon-action"
+                    disabled={pending !== null}
+                    onClick={() => onOpenPromptRecipe(latestTopicDiagnosis.id)}
+                    title="查看提示词配方"
+                    type="button"
+                  >
+                    <ScrollText aria-hidden="true" size={16} />
+                  </button>
+                ) : null}
+              </div>
             </div>
             <div className="topic-verdict-line">
               <strong>{formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict)}</strong>
@@ -315,14 +331,45 @@ function TopicDiagnosisPanel({
           {topicDiagnoses.length > 1 ? (
             <section className="diagnosis-list">
               <h3>历史诊断</h3>
-              {topicDiagnoses.slice(1, 5).map((diagnosis) => (
-                <article className="mini-card" key={diagnosis.id}>
-                  <div className="mini-card-head">
-                    <h3>{formatTopicDiagnosisVerdict(diagnosis.verdict)}</h3>
+              {topicDiagnoses.slice(1).map((diagnosis) => (
+                <details className="mini-card topic-diagnosis-history" key={diagnosis.id}>
+                  <summary>
+                    <span>{formatTopicDiagnosisVerdict(diagnosis.verdict)}</span>
                     <span className="source-pill">{formatTime(diagnosis.createdAt)}</span>
-                  </div>
+                  </summary>
                   <p>{diagnosis.nextAction || diagnosis.riskSummary || "未记录摘要"}</p>
-                </article>
+                  <dl className="detail-grid compact">
+                    <div className="detail-item">
+                      <dt>主题快照</dt>
+                      <dd>{diagnosis.topicSnapshot}</dd>
+                    </div>
+                    <div className="detail-item">
+                      <dt>目标读者快照</dt>
+                      <dd>{diagnosis.targetReaderSnapshot || "未填写"}</dd>
+                    </div>
+                    <div className="detail-item">
+                      <dt>核心问题快照</dt>
+                      <dd>{diagnosis.coreProblemSnapshot || "未填写"}</dd>
+                    </div>
+                    <div className="detail-item">
+                      <dt>热点锚点快照</dt>
+                      <dd>{diagnosis.hotAnchorSnapshot || "未填写"}</dd>
+                    </div>
+                  </dl>
+                  {diagnosis.customInstructionSnapshot ? (
+                    <p className="subtle">本次要求：{diagnosis.customInstructionSnapshot}</p>
+                  ) : null}
+                  {diagnosis.sourceInvocationId ? (
+                    <button
+                      className="button secondary"
+                      disabled={pending !== null}
+                      onClick={() => onOpenPromptRecipe(diagnosis.id)}
+                      type="button"
+                    >
+                      提示词配方
+                    </button>
+                  ) : null}
+                </details>
               ))}
             </section>
           ) : null}
@@ -850,11 +897,18 @@ export function ArticleWorkflow({
     });
   }
 
-  async function openPromptRecipe(kind: "outline" | "draft" | "invocation", targetId: string | null) {
+  async function openPromptRecipe(kind: "outline" | "draft" | "topic-diagnosis" | "invocation", targetId: string | null) {
     if (!targetId) {
       return;
     }
-    const queryKey = kind === "outline" ? "outlineVersionId" : kind === "draft" ? "draftVersionId" : "invocationId";
+    const queryKey =
+      kind === "outline"
+        ? "outlineVersionId"
+        : kind === "draft"
+          ? "draftVersionId"
+          : kind === "topic-diagnosis"
+            ? "topicDiagnosisId"
+            : "invocationId";
     setPending(`prompt-recipe-${kind}`);
     setError(null);
     setNotice(null);
@@ -917,6 +971,7 @@ export function ArticleWorkflow({
                 setNotice("已完成选题诊断");
               })
             }
+            onOpenPromptRecipe={(topicDiagnosisId) => void openPromptRecipe("topic-diagnosis", topicDiagnosisId)}
           />
         ) : null}
 

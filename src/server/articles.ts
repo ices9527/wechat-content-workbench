@@ -60,7 +60,12 @@ export {
   updateRequirementPreset
 } from "./requirements";
 export { getStagePromptDefault, listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "./stage-prompts";
-export { getPromptRecipeForDraft, getPromptRecipeForInvocation, getPromptRecipeForOutline } from "./prompt-recipes";
+export {
+  getPromptRecipeForDraft,
+  getPromptRecipeForInvocation,
+  getPromptRecipeForOutline,
+  getPromptRecipeForTopicDiagnosis
+} from "./prompt-recipes";
 export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";

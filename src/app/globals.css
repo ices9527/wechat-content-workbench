@@ -1034,6 +1034,12 @@ h1 {
   gap: 14px;
 }
 
+.inline-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .topic-diagnosis-result {
   display: grid;
   gap: 12px;
@@ -1080,6 +1086,20 @@ h1 {
 
 .topic-risk {
   margin: 0;
+}
+
+.topic-diagnosis-history {
+  display: grid;
+  gap: 10px;
+}
+
+.topic-diagnosis-history summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 720;
 }
 
 .editor-grid {

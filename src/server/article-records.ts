@@ -6,10 +6,12 @@ import {
   contentDiagnoses,
   draftVersions,
   outlineVersions,
+  topicDiagnoses,
   type ArticleProject,
   type ContentDiagnosis,
   type DraftVersion,
-  type OutlineVersion
+  type OutlineVersion,
+  type TopicDiagnosis
 } from "@/db/schema";
 
 export function requireArticle(id: string, db: WorkbenchDatabase): ArticleProject {
@@ -52,6 +54,18 @@ export function requireDiagnosis(articleId: string, diagnosisId: string, db: Wor
     .get();
   if (!diagnosis) {
     throw new Error("诊断记录不存在");
+  }
+  return diagnosis;
+}
+
+export function requireTopicDiagnosis(articleId: string, topicDiagnosisId: string, db: WorkbenchDatabase): TopicDiagnosis {
+  const diagnosis = db
+    .select()
+    .from(topicDiagnoses)
+    .where(and(eq(topicDiagnoses.id, topicDiagnosisId), eq(topicDiagnoses.articleId, articleId)))
+    .get();
+  if (!diagnosis) {
+    throw new Error("选题诊断记录不存在");
   }
   return diagnosis;
 }
