@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { zodOrJsonError } from "@/app/api/_utils/route-errors";
-import { ensureAppDataReady, listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "@/server/articles";
+import { ensureAppDataReady } from "@/server/articles";
+import { listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "@/server/stage-prompts";
 
 export async function GET() {
   ensureAppDataReady();

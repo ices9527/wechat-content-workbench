@@ -1,7 +1,8 @@
 "use client";
 
-import { Maximize2, ScrollText, Settings2, X } from "lucide-react";
+import { Maximize2, ScrollText, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -17,8 +18,13 @@ import type {
   WechatDraftUpload
 } from "@/db/schema";
 import type { ArticleStatus } from "@/domain/status";
-import type { ArticleListItem, PromptRecipe, RequirementStage } from "@/server/articles";
+import type { RequirementStage } from "@/domain/stages";
+import type { ArticleListItem } from "@/server/articles";
+import type { PromptRecipe } from "@/server/prompt-recipes";
 import { MarkdownPreview } from "./markdown-preview";
+import { PromptRecipeDialog } from "./prompts/prompt-recipe-dialog";
+import { STAGE_PROMPT_UI } from "./prompts/prompt-ui";
+import { StagePromptDialog } from "./prompts/stage-prompt-dialog";
 
 // API helpers
 
@@ -130,60 +136,6 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
 
 const PROMPT_STAGES: RequirementStage[] = ["angle", "outline", "draft", "dbs", "pre_publish", "review"];
 
-const STAGE_PROMPT_UI: Record<
-  RequirementStage,
-  {
-    eyebrow: string;
-    title: string;
-    defaultPromptLabel: string;
-    customPlaceholder: string;
-    savedNotice: string;
-  }
-> = {
-  angle: {
-    eyebrow: "Angle Prompt",
-    title: "角度提示词设置",
-    defaultPromptLabel: "角度默认提示词",
-    customPlaceholder: "例如：只生成能落到家庭跨境资金安排的角度，不要宏大趋势角度",
-    savedNotice: "已保存角度默认提示词"
-  },
-  outline: {
-    eyebrow: "Outline Prompt",
-    title: "主线提纲提示词设置",
-    defaultPromptLabel: "主线提纲默认提示词",
-    customPlaceholder: "例如：不要强调到账速度，强调家庭现金流安排",
-    savedNotice: "已保存主线提纲默认提示词"
-  },
-  draft: {
-    eyebrow: "Draft Prompt",
-    title: "Markdown 文案提示词设置",
-    defaultPromptLabel: "Markdown 文案默认提示词",
-    customPlaceholder: "例如：开头不要用热点追问，先从家庭生活场景进入",
-    savedNotice: "已保存 Markdown 文案默认提示词"
-  },
-  dbs: {
-    eyebrow: "DBS Prompt",
-    title: "dbs-content 提示词设置",
-    defaultPromptLabel: "dbs-content 默认提示词",
-    customPlaceholder: "例如：这次重点检查标题承诺、首屏判断和 AI 味，不要先改正文",
-    savedNotice: "已保存 dbs-content 默认提示词"
-  },
-  pre_publish: {
-    eyebrow: "Pre-publish Prompt",
-    title: "发布前检查提示词设置",
-    defaultPromptLabel: "发布前默认提示词",
-    customPlaceholder: "例如：重点检查首屏、标题点开理由、转发理由和预期阅读来源",
-    savedNotice: "已保存发布前默认提示词"
-  },
-  review: {
-    eyebrow: "Review Prompt",
-    title: "复盘提示词设置",
-    defaultPromptLabel: "复盘默认提示词",
-    customPlaceholder: "例如：先判断是不是触达问题，再判断标题和正文，不要直接归因文案差",
-    savedNotice: "已保存复盘默认提示词"
-  }
-};
-
 function isWorkflowTabId(value: string | null): value is WorkflowTabId {
   return WORKFLOW_TABS.some((tab) => tab.id === value);
 }
@@ -227,492 +179,210 @@ function canMarkFinalDraft(status: ArticleStatus): boolean {
   return !FINAL_DRAFT_LOCKED_STATUSES.has(status);
 }
 
-// Prompt configuration components
+// Panel components
 
-function RequirementSelector({
+function WorkflowPanel({
+  tabId,
   title,
-  stage,
-  requirements,
-  selectedIds,
-  onChange,
-  pending,
-  onCreate,
-  onUpdate,
-  onDelete
+  status,
+  headActions,
+  className,
+  children
 }: {
+  tabId: WorkflowTabId;
   title: string;
-  stage: RequirementStage;
-  requirements: RequirementPreset[];
-  selectedIds: string[];
-  onChange: (ids: string[]) => void;
-  pending: boolean;
-  onCreate: (input: {
-    stage: RequirementStage;
-    category: string;
-    type: string;
-    label: string;
-    description: string;
-    promptFragment: string;
-    defaultEnabled: boolean;
-    priority: number;
-  }) => Promise<void>;
-  onUpdate: (id: string, input: Record<string, unknown>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  status?: ReactNode;
+  headActions?: ReactNode;
+  className?: string;
+  children: ReactNode;
 }) {
-  const [query, setQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [selectedOnly, setSelectedOnly] = useState(false);
-  const activeRequirements = useMemo(
-    () => requirements.filter((requirement) => requirement.enabled && !requirement.archivedAt),
-    [requirements]
-  );
-  const categories = useMemo(
-    () => Array.from(new Set(activeRequirements.map((requirement) => requirement.category))).sort((first, second) => first.localeCompare(second)),
-    [activeRequirements]
-  );
-  const types = useMemo(
-    () => Array.from(new Set(activeRequirements.map((requirement) => requirement.type))).sort((first, second) => first.localeCompare(second)),
-    [activeRequirements]
-  );
-  const filteredRequirements = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    return activeRequirements.filter((requirement) => {
-      if (categoryFilter !== "all" && requirement.category !== categoryFilter) {
-        return false;
-      }
-      if (typeFilter !== "all" && requirement.type !== typeFilter) {
-        return false;
-      }
-      if (selectedOnly && !selectedIds.includes(requirement.id)) {
-        return false;
-      }
-      if (!normalizedQuery) {
-        return true;
-      }
-      const searchable = [
-        requirement.label,
-        requirement.description,
-        requirement.promptFragment,
-        requirement.category,
-        requirement.type
-      ]
-        .join("\n")
-        .toLocaleLowerCase();
-      return searchable.includes(normalizedQuery);
-    });
-  }, [activeRequirements, categoryFilter, query, selectedIds, selectedOnly, typeFilter]);
-  const grouped = useMemo(() => {
-    const groups = new Map<string, RequirementPreset[]>();
-    for (const requirement of filteredRequirements) {
-      const current = groups.get(requirement.category) || [];
-      current.push(requirement);
-      groups.set(requirement.category, current);
-    }
-    return Array.from(groups.entries());
-  }, [filteredRequirements]);
-
-  function toggleRequirement(requirementId: string, checked: boolean) {
-    if (checked) {
-      onChange(Array.from(new Set([...selectedIds, requirementId])));
-      return;
-    }
-    onChange(selectedIds.filter((id) => id !== requirementId));
-  }
-
   return (
-    <div className="requirement-selector">
-      <div className="requirement-selector-head">
-        <strong>{title}</strong>
-        <span>
-          {filteredRequirements.length} / {activeRequirements.length} 条可用
-        </span>
+    <section
+      aria-labelledby={`workflow-tab-${tabId}`}
+      className={className ? `panel ${className}` : "panel"}
+      id={`workflow-panel-${tabId}`}
+      role="tabpanel"
+      tabIndex={0}
+    >
+      <div className="panel-head">
+        <h2 className="panel-title">{title}</h2>
+        {headActions ? <div className="panel-head-actions">{headActions}</div> : status ? <span className="status">{status}</span> : null}
       </div>
-      <div className="requirement-selector-body">
-        <div className="requirement-selector-toolbar">
-          <input
-            aria-label="搜索提示词"
-            className="input"
-            placeholder="搜索提示词"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <select
-            aria-label="按分类筛选提示词"
-            className="input"
-            value={categoryFilter}
-            onChange={(event) => setCategoryFilter(event.target.value)}
-          >
-            <option value="all">全部分类</option>
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="按类型筛选提示词"
-            className="input"
-            value={typeFilter}
-            onChange={(event) => setTypeFilter(event.target.value)}
-          >
-            <option value="all">全部类型</option>
-            {types.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-          <label className="check-field requirement-selected-only">
-            <input checked={selectedOnly} onChange={(event) => setSelectedOnly(event.target.checked)} type="checkbox" />
-            <span>只看已选</span>
-          </label>
+      <div className="panel-body">{children}</div>
+    </section>
+  );
+}
+
+function TopicPanel({ article }: { article: ArticleListItem }) {
+  return (
+    <WorkflowPanel tabId="topic" title="主题" status={article.statusLabel}>
+      <dl className="detail-grid">
+        <div className="detail-item">
+          <dt>主题</dt>
+          <dd>{article.topic}</dd>
         </div>
+        <div className="detail-item">
+          <dt>目标读者</dt>
+          <dd>{article.targetReader || "未填写"}</dd>
+        </div>
+        <div className="detail-item">
+          <dt>核心问题</dt>
+          <dd>{article.coreProblem || "未填写"}</dd>
+        </div>
+        <div className="detail-item">
+          <dt>热点锚点</dt>
+          <dd>{article.hotAnchor || "未填写"}</dd>
+        </div>
+      </dl>
+    </WorkflowPanel>
+  );
+}
 
-        {activeRequirements.length === 0 ? (
-          <p className="subtle">暂无可选提示词。</p>
-        ) : filteredRequirements.length > 0 ? (
-          grouped.map(([category, items]) => (
-            <div className="requirement-group" key={category}>
-              <p>{category}</p>
-              <div className="requirement-options">
-                {items.map((requirement) => (
-                  <label className="requirement-option" key={requirement.id}>
-                    <input
-                      checked={selectedIds.includes(requirement.id)}
-                      onChange={(event) => toggleRequirement(requirement.id, event.target.checked)}
-                      type="checkbox"
-                    />
-                    <span>
-                      <strong>{requirement.label}</strong>
-                      <small>{requirement.description}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
+function TopicDiagnosisPanel({
+  latestTopicDiagnosis,
+  topicDiagnoses,
+  customInstruction,
+  pending,
+  onCustomInstructionChange,
+  onRunDiagnosis
+}: {
+  latestTopicDiagnosis: TopicDiagnosis | null;
+  topicDiagnoses: TopicDiagnosis[];
+  customInstruction: string;
+  pending: string | null;
+  onCustomInstructionChange: (value: string) => void;
+  onRunDiagnosis: () => void;
+}) {
+  return (
+    <WorkflowPanel
+      tabId="topic-diagnosis"
+      title="选题诊断"
+      status={latestTopicDiagnosis ? formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict) : "待诊断"}
+    >
+      <label className="field prompt-field">
+        <span className="label">对当前选题的要求</span>
+        <textarea
+          className="textarea prompt-textarea"
+          placeholder="例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户"
+          value={customInstruction}
+          onChange={(event) => onCustomInstructionChange(event.target.value)}
+        />
+      </label>
+
+      <div className="action-row">
+        <button className="button" disabled={pending !== null} onClick={onRunDiagnosis} type="button">
+          {pending === "run-topic-diagnosis" ? "诊断中" : "运行 DBS 选题诊断"}
+        </button>
+      </div>
+
+      {latestTopicDiagnosis ? (
+        <div className="topic-diagnosis-stack">
+          <section className={`topic-diagnosis-result verdict-${latestTopicDiagnosis.verdict}`}>
+            <div className="mini-card-head">
+              <h3>最新诊断</h3>
+              <span className="source-pill">{formatTime(latestTopicDiagnosis.createdAt)}</span>
             </div>
-          ))
-        ) : (
-          <p className="subtle">没有匹配的可选提示词。</p>
-        )}
+            <div className="topic-verdict-line">
+              <strong>{formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict)}</strong>
+              <span>{latestTopicDiagnosis.nextAction || "未记录下一步建议"}</span>
+            </div>
+            <dl className="detail-grid compact">
+              <div className="detail-item">
+                <dt>目标读者</dt>
+                <dd>{latestTopicDiagnosis.targetReaderCheck || "未记录"}</dd>
+              </div>
+              <div className="detail-item">
+                <dt>真实问题</dt>
+                <dd>{latestTopicDiagnosis.readerProblemCheck || "未记录"}</dd>
+              </div>
+              <div className="detail-item">
+                <dt>点开理由</dt>
+                <dd>{latestTopicDiagnosis.timelinessCheck || "未记录"}</dd>
+              </div>
+              <div className="detail-item">
+                <dt>行动边界</dt>
+                <dd>{latestTopicDiagnosis.actionabilityCheck || "未记录"}</dd>
+              </div>
+            </dl>
+            {latestTopicDiagnosis.riskSummary ? <p className="topic-risk">风险：{latestTopicDiagnosis.riskSummary}</p> : null}
+            {latestTopicDiagnosis.suggestionsMarkdown ? <MarkdownPreview markdown={latestTopicDiagnosis.suggestionsMarkdown} /> : null}
+          </section>
 
-        <details className="requirement-manager-inline">
-          <summary>管理可选提示词</summary>
-          <div className="requirement-manager-body">
-            <form
-              className="requirement-edit-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const formData = new FormData(event.currentTarget);
-                void onCreate({
-                  stage,
-                  category: String(formData.get("category") || "自定义"),
-                  type: String(formData.get("type") || "prefer"),
-                  label: String(formData.get("label") || ""),
-                  description: String(formData.get("description") || ""),
-                  promptFragment: String(formData.get("promptFragment") || ""),
-                  defaultEnabled: formData.get("defaultEnabled") === "on",
-                  priority: Number(formData.get("priority") || 500)
-                });
-                event.currentTarget.reset();
-              }}
-            >
-              <input className="input" name="label" placeholder="标签" required />
-              <input className="input" name="category" placeholder="分类" defaultValue="自定义" required />
-              <select className="input" name="type" defaultValue="prefer" aria-label="可选提示词类型">
-                <option value="must">must</option>
-                <option value="avoid">avoid</option>
-                <option value="prefer">prefer</option>
-                <option value="check">check</option>
-                <option value="compliance">compliance</option>
-              </select>
-              <input className="input" name="priority" type="number" min="0" max="9999" defaultValue="500" aria-label="排序" />
-              <input className="input span-2" name="description" placeholder="说明" />
-              <textarea className="textarea prompt-textarea span-2" name="promptFragment" placeholder="提示词片段" required />
-              <label className="check-field">
-                <input name="defaultEnabled" type="checkbox" />
-                <span>默认勾选</span>
-              </label>
-              <button className="button secondary" disabled={pending} type="submit">
-                新增
-              </button>
-            </form>
-
-            <div className="requirement-manager-list">
-              {requirements.map((requirement) => (
-                <details className="requirement-edit-item" key={requirement.id}>
-                  <summary>
-                    <span>{requirement.label}</span>
-                    <small>{requirement.archivedAt ? "已归档" : requirement.enabled ? "启用" : "停用"}</small>
-                  </summary>
-                  <form
-                    className="requirement-edit-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const formData = new FormData(event.currentTarget);
-                      void onUpdate(requirement.id, {
-                        stage,
-                        category: String(formData.get("category") || requirement.category),
-                        type: String(formData.get("type") || requirement.type),
-                        label: String(formData.get("label") || requirement.label),
-                        description: String(formData.get("description") || requirement.description),
-                        promptFragment: String(formData.get("promptFragment") || requirement.promptFragment),
-                        defaultEnabled: formData.get("defaultEnabled") === "on",
-                        priority: Number(formData.get("priority") || requirement.priority)
-                      });
-                    }}
-                  >
-                    <input className="input" name="label" defaultValue={requirement.label} required />
-                    <input className="input" name="category" defaultValue={requirement.category} required />
-                    <select className="input" name="type" defaultValue={requirement.type} aria-label="可选提示词类型">
-                      <option value="must">must</option>
-                      <option value="avoid">avoid</option>
-                      <option value="prefer">prefer</option>
-                      <option value="check">check</option>
-                      <option value="compliance">compliance</option>
-                    </select>
-                    <input className="input" name="priority" type="number" min="0" max="9999" defaultValue={requirement.priority} aria-label="排序" />
-                    <input className="input span-2" name="description" defaultValue={requirement.description} />
-                    <textarea className="textarea prompt-textarea span-2" name="promptFragment" defaultValue={requirement.promptFragment} required />
-                    <label className="check-field">
-                      <input name="defaultEnabled" type="checkbox" defaultChecked={requirement.defaultEnabled} />
-                      <span>默认勾选</span>
-                    </label>
-                    <div className="action-row compact">
-                      <button className="button secondary" disabled={pending} type="submit">
-                        保存
-                      </button>
-                      <button
-                        className="button secondary"
-                        disabled={pending}
-                        onClick={() => void onUpdate(requirement.id, { enabled: !requirement.enabled, archived: false })}
-                        type="button"
-                      >
-                        {requirement.enabled ? "停用" : "恢复"}
-                      </button>
-                      <button
-                        className="button secondary"
-                        disabled={pending}
-                        onClick={() => void onUpdate(requirement.id, { enabled: false, archived: true })}
-                        type="button"
-                      >
-                        归档
-                      </button>
-                      <button className="button secondary" disabled={pending} onClick={() => void onDelete(requirement.id)} type="button">
-                        删除
-                      </button>
-                    </div>
-                  </form>
-                </details>
+          {topicDiagnoses.length > 1 ? (
+            <section className="diagnosis-list">
+              <h3>历史诊断</h3>
+              {topicDiagnoses.slice(1, 5).map((diagnosis) => (
+                <article className="mini-card" key={diagnosis.id}>
+                  <div className="mini-card-head">
+                    <h3>{formatTopicDiagnosisVerdict(diagnosis.verdict)}</h3>
+                    <span className="source-pill">{formatTime(diagnosis.createdAt)}</span>
+                  </div>
+                  <p>{diagnosis.nextAction || diagnosis.riskSummary || "未记录摘要"}</p>
+                </article>
               ))}
-            </div>
-          </div>
-        </details>
-      </div>
-    </div>
+            </section>
+          ) : null}
+        </div>
+      ) : (
+        <p className="subtle">还没有选题诊断记录。</p>
+      )}
+    </WorkflowPanel>
   );
 }
 
-function StagePromptDialog({
-  title,
-  stage,
-  defaultPromptLabel,
-  defaultPrompt,
-  onDefaultPromptChange,
-  onSaveDefaultPrompt,
-  requirements,
-  selectedIds,
-  onSelectedIdsChange,
-  pending,
-  onCreate,
-  onUpdate,
-  onDelete
-}: {
-  title: string;
-  stage: RequirementStage;
-  defaultPromptLabel: string;
-  defaultPrompt: string;
-  onDefaultPromptChange: (value: string) => void;
-  onSaveDefaultPrompt: () => Promise<void>;
-  requirements: RequirementPreset[];
-  selectedIds: string[];
-  onSelectedIdsChange: (ids: string[]) => void;
-  pending: boolean;
-  onCreate: (input: {
-    stage: RequirementStage;
-    category: string;
-    type: string;
-    label: string;
-    description: string;
-    promptFragment: string;
-    defaultEnabled: boolean;
-    priority: number;
-  }) => Promise<void>;
-  onUpdate: (id: string, input: Record<string, unknown>) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const stageUi = STAGE_PROMPT_UI[stage];
-  const activeCount = requirements.filter((requirement) => requirement.enabled && !requirement.archivedAt).length;
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
-
+function AnglesPanel({ selectedAngle, children }: { selectedAngle: AngleCandidate | undefined; children: ReactNode }) {
   return (
-    <>
-      <button
-        aria-label={`打开${title}`}
-        className="prompt-config-trigger"
-        onClick={() => setOpen(true)}
-        type="button"
-      >
-        <Settings2 aria-hidden="true" size={17} />
-        <span>
-          <strong>提示词设置</strong>
-          <small>
-            已选 {selectedIds.length} / 可用 {activeCount}
-          </small>
-        </span>
-      </button>
-
-      {open ? (
-        <div aria-label={title} aria-modal="true" className="fullscreen-overlay" onClick={() => setOpen(false)} role="dialog">
-          <section className="fullscreen-shell prompt-config-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="fullscreen-head">
-              <div>
-                <p className="eyebrow">{stageUi.eyebrow}</p>
-                <h2>{title}</h2>
-              </div>
-              <button className="icon-action" onClick={() => setOpen(false)} title="关闭" type="button" aria-label="关闭提示词设置">
-                <X aria-hidden="true" size={18} />
-              </button>
-            </div>
-
-            <div className="fullscreen-body prompt-config-body">
-              <section className="prompt-config-section">
-                <div className="prompt-config-section-head">
-                  <h3>默认提示词</h3>
-                  <button className="button secondary" disabled={pending} onClick={onSaveDefaultPrompt} type="button">
-                    保存默认提示词
-                  </button>
-                </div>
-                <label className="field">
-                  <span className="label">{defaultPromptLabel}</span>
-                  <textarea
-                    className="textarea prompt-textarea"
-                    value={defaultPrompt}
-                    onChange={(event) => onDefaultPromptChange(event.target.value)}
-                  />
-                </label>
-              </section>
-
-              <RequirementSelector
-                title="可选提示词"
-                stage={stage}
-                requirements={requirements}
-                selectedIds={selectedIds}
-                onChange={onSelectedIdsChange}
-                pending={pending}
-                onCreate={onCreate}
-                onUpdate={onUpdate}
-                onDelete={onDelete}
-              />
-            </div>
-          </section>
-        </div>
-      ) : null}
-    </>
+    <WorkflowPanel tabId="angles" title="角度" status={selectedAngle ? "已选择" : null}>
+      {children}
+    </WorkflowPanel>
   );
 }
 
-function PromptRecipeDialog({ recipe, onClose }: { recipe: PromptRecipe; onClose: () => void }) {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
+function OutlinePanel({ headActions, children }: { headActions: ReactNode; children: ReactNode }) {
   return (
-    <div aria-label="提示词配方" aria-modal="true" className="fullscreen-overlay" onClick={onClose} role="dialog">
-      <section className="fullscreen-shell prompt-recipe-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="fullscreen-head">
-          <div>
-            <p className="eyebrow">{recipe.taskType || "Prompt Recipe"}</p>
-            <h2>提示词配方</h2>
-          </div>
-          <button aria-label="关闭提示词配方" className="icon-action" onClick={onClose} title="关闭" type="button">
-            <X aria-hidden="true" size={18} />
-          </button>
-        </div>
+    <WorkflowPanel tabId="outline" title="主线和提纲" headActions={headActions}>
+      {children}
+    </WorkflowPanel>
+  );
+}
 
-        <div className="fullscreen-body prompt-recipe-body">
-          {recipe.emptyReason ? <p className="notice">{recipe.emptyReason}</p> : null}
+function DraftPanel({ headActions, children }: { headActions: ReactNode; children: ReactNode }) {
+  return (
+    <WorkflowPanel tabId="draft" title="Markdown 文案" headActions={headActions}>
+      {children}
+    </WorkflowPanel>
+  );
+}
 
-          <div className="prompt-recipe-meta">
-            <span>{recipe.createdAt ? formatTime(recipe.createdAt) : "无生成时间"}</span>
-            <span>{recipe.model || "无模型记录"}</span>
-            <span>{recipe.status || "无状态记录"}</span>
-          </div>
+function DiagnosisPanel({ count, children }: { count: number; children: ReactNode }) {
+  return (
+    <WorkflowPanel tabId="diagnosis" title="dbs-content 诊断" status={count > 0 ? `${count} 次` : null} className="diagnosis-panel">
+      {children}
+    </WorkflowPanel>
+  );
+}
 
-          <section className="prompt-recipe-section">
-            <h3>默认提示词</h3>
-            {recipe.stageDefaultPrompt ? (
-              <div className="prompt-recipe-card">
-                <strong>{recipe.stageDefaultPrompt.label}</strong>
-                <pre>{recipe.stageDefaultPrompt.prompt}</pre>
-              </div>
-            ) : (
-              <p className="subtle">没有默认提示词快照。</p>
-            )}
-          </section>
+function FinalPanel({ finalDraft, children }: { finalDraft: DraftVersion | null; children: ReactNode }) {
+  return (
+    <WorkflowPanel tabId="final" title="版本链和最终稿" status={finalDraft ? `最终稿 v${finalDraft.versionNo}` : null}>
+      {children}
+    </WorkflowPanel>
+  );
+}
 
-          <section className="prompt-recipe-section">
-            <h3>可选提示词</h3>
-            {recipe.selectedRequirements.length > 0 ? (
-              <div className="prompt-recipe-list">
-                {recipe.selectedRequirements.map((requirement) => (
-                  <details className="prompt-recipe-card" key={requirement.id}>
-                    <summary>
-                      <strong>{requirement.label}</strong>
-                      <small>{requirement.stableKey}</small>
-                    </summary>
-                    <pre>{requirement.promptFragment}</pre>
-                  </details>
-                ))}
-              </div>
-            ) : (
-              <p className="subtle">没有可选提示词快照。</p>
-            )}
-          </section>
+function PublishPanel({ latestUpload, children }: { latestUpload: WechatDraftUpload | null; children: ReactNode }) {
+  return (
+    <WorkflowPanel tabId="publish" title="发布包" status={latestUpload?.status === "success" ? "已上传草稿箱" : null}>
+      {children}
+    </WorkflowPanel>
+  );
+}
 
-          <section className="prompt-recipe-section">
-            <h3>对当前文章的要求</h3>
-            {recipe.customInstruction ? <pre className="prompt-recipe-card">{recipe.customInstruction}</pre> : <p className="subtle">没有本次要求。</p>}
-          </section>
-
-          <section className="prompt-recipe-section">
-            <details>
-              <summary>最终提示词</summary>
-              {recipe.finalPrompt ? <pre className="prompt-recipe-final">{recipe.finalPrompt}</pre> : <p className="subtle">没有最终提示词记录。</p>}
-            </details>
-          </section>
-        </div>
-      </section>
-    </div>
+function ReviewPanel({ status, children }: { status: string; children: ReactNode }) {
+  return (
+    <WorkflowPanel tabId="review" title="复盘" status={status}>
+      {children}
+    </WorkflowPanel>
   );
 }
 
@@ -1221,154 +891,28 @@ export function ArticleWorkflow({
       </div>
 
       <div className="workflow-tab-panels">
-        {activeTab === "topic" ? (
-          <section
-            aria-labelledby="workflow-tab-topic"
-            className="panel"
-            id="workflow-panel-topic"
-            role="tabpanel"
-            tabIndex={0}
-          >
-            <div className="panel-head">
-              <h2 className="panel-title">主题</h2>
-              <span className="status">{article.statusLabel}</span>
-            </div>
-            <div className="panel-body">
-              <dl className="detail-grid">
-                <div className="detail-item">
-                  <dt>主题</dt>
-                  <dd>{article.topic}</dd>
-                </div>
-                <div className="detail-item">
-                  <dt>目标读者</dt>
-                  <dd>{article.targetReader || "未填写"}</dd>
-                </div>
-                <div className="detail-item">
-                  <dt>核心问题</dt>
-                  <dd>{article.coreProblem || "未填写"}</dd>
-                </div>
-                <div className="detail-item">
-                  <dt>热点锚点</dt>
-                  <dd>{article.hotAnchor || "未填写"}</dd>
-                </div>
-              </dl>
-            </div>
-          </section>
-        ) : null}
+        {activeTab === "topic" ? <TopicPanel article={article} /> : null}
 
         {activeTab === "topic-diagnosis" ? (
-          <section
-            aria-labelledby="workflow-tab-topic-diagnosis"
-            className="panel"
-            id="workflow-panel-topic-diagnosis"
-            role="tabpanel"
-            tabIndex={0}
-          >
-            <div className="panel-head">
-              <h2 className="panel-title">选题诊断</h2>
-              <span className="status">{latestTopicDiagnosis ? formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict) : "待诊断"}</span>
-            </div>
-            <div className="panel-body">
-              <label className="field prompt-field">
-                <span className="label">对当前选题的要求</span>
-                <textarea
-                  className="textarea prompt-textarea"
-                  placeholder="例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户"
-                  value={topicDiagnosisCustomInstruction}
-                  onChange={(event) => setTopicDiagnosisCustomInstruction(event.target.value)}
-                />
-              </label>
-
-              <div className="action-row">
-                <button
-                  className="button"
-                  disabled={pending !== null}
-                  onClick={() =>
-                    runAction("run-topic-diagnosis", async () => {
-                      await postJson<{ diagnosis: TopicDiagnosis }>(`/api/articles/${article.id}/run-topic-diagnosis`, {
-                        customInstruction: topicDiagnosisCustomInstruction
-                      });
-                      setNotice("已完成选题诊断");
-                    })
-                  }
-                  type="button"
-                >
-                  {pending === "run-topic-diagnosis" ? "诊断中" : "运行 DBS 选题诊断"}
-                </button>
-              </div>
-
-              {latestTopicDiagnosis ? (
-                <div className="topic-diagnosis-stack">
-                  <section className={`topic-diagnosis-result verdict-${latestTopicDiagnosis.verdict}`}>
-                    <div className="mini-card-head">
-                      <h3>最新诊断</h3>
-                      <span className="source-pill">{formatTime(latestTopicDiagnosis.createdAt)}</span>
-                    </div>
-                    <div className="topic-verdict-line">
-                      <strong>{formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict)}</strong>
-                      <span>{latestTopicDiagnosis.nextAction || "未记录下一步建议"}</span>
-                    </div>
-                    <dl className="detail-grid compact">
-                      <div className="detail-item">
-                        <dt>目标读者</dt>
-                        <dd>{latestTopicDiagnosis.targetReaderCheck || "未记录"}</dd>
-                      </div>
-                      <div className="detail-item">
-                        <dt>真实问题</dt>
-                        <dd>{latestTopicDiagnosis.readerProblemCheck || "未记录"}</dd>
-                      </div>
-                      <div className="detail-item">
-                        <dt>点开理由</dt>
-                        <dd>{latestTopicDiagnosis.timelinessCheck || "未记录"}</dd>
-                      </div>
-                      <div className="detail-item">
-                        <dt>行动边界</dt>
-                        <dd>{latestTopicDiagnosis.actionabilityCheck || "未记录"}</dd>
-                      </div>
-                    </dl>
-                    {latestTopicDiagnosis.riskSummary ? (
-                      <p className="topic-risk">风险：{latestTopicDiagnosis.riskSummary}</p>
-                    ) : null}
-                    {latestTopicDiagnosis.suggestionsMarkdown ? (
-                      <MarkdownPreview markdown={latestTopicDiagnosis.suggestionsMarkdown} />
-                    ) : null}
-                  </section>
-
-                  {topicDiagnoses.length > 1 ? (
-                    <section className="diagnosis-list">
-                      <h3>历史诊断</h3>
-                      {topicDiagnoses.slice(1, 5).map((diagnosis) => (
-                        <article className="mini-card" key={diagnosis.id}>
-                          <div className="mini-card-head">
-                            <h3>{formatTopicDiagnosisVerdict(diagnosis.verdict)}</h3>
-                            <span className="source-pill">{formatTime(diagnosis.createdAt)}</span>
-                          </div>
-                          <p>{diagnosis.nextAction || diagnosis.riskSummary || "未记录摘要"}</p>
-                        </article>
-                      ))}
-                    </section>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="subtle">还没有选题诊断记录。</p>
-              )}
-            </div>
-          </section>
+          <TopicDiagnosisPanel
+            latestTopicDiagnosis={latestTopicDiagnosis}
+            topicDiagnoses={topicDiagnoses}
+            customInstruction={topicDiagnosisCustomInstruction}
+            pending={pending}
+            onCustomInstructionChange={setTopicDiagnosisCustomInstruction}
+            onRunDiagnosis={() =>
+              runAction("run-topic-diagnosis", async () => {
+                await postJson<{ diagnosis: TopicDiagnosis }>(`/api/articles/${article.id}/run-topic-diagnosis`, {
+                  customInstruction: topicDiagnosisCustomInstruction
+                });
+                setNotice("已完成选题诊断");
+              })
+            }
+          />
         ) : null}
 
         {activeTab === "angles" ? (
-          <section
-            aria-labelledby="workflow-tab-angles"
-            className="panel"
-            id="workflow-panel-angles"
-            role="tabpanel"
-            tabIndex={0}
-          >
-        <div className="panel-head">
-          <h2 className="panel-title">角度</h2>
-          {selectedAngle ? <span className="status">已选择</span> : null}
-        </div>
-        <div className="panel-body">
+          <AnglesPanel selectedAngle={selectedAngle}>
           {topicDiagnosisWarning ? (
             <p className={latestTopicDiagnosis?.verdict === "drop" ? "error" : "notice"}>{topicDiagnosisWarning}</p>
           ) : null}
@@ -1465,22 +1009,13 @@ export function ArticleWorkflow({
               </article>
             ))}
           </div>
-        </div>
-          </section>
+          </AnglesPanel>
         ) : null}
 
         {activeTab === "outline" ? (
-          <section
-            aria-labelledby="workflow-tab-outline"
-            className="panel"
-            id="workflow-panel-outline"
-            role="tabpanel"
-            tabIndex={0}
-          >
-        <div className="panel-head">
-          <h2 className="panel-title">主线和提纲</h2>
-          <div className="panel-head-actions">
-            {outlines.length > 0 ? (
+          <OutlinePanel
+            headActions={
+              outlines.length > 0 ? (
               <>
                 <label className="version-switcher">
                   <span className="sr-only">切换提纲版本</span>
@@ -1510,10 +1045,9 @@ export function ArticleWorkflow({
               </>
             ) : acceptedOutline ? (
               <span className="status">已确认</span>
-            ) : null}
-          </div>
-        </div>
-        <div className="panel-body">
+            ) : null
+            }
+          >
           <StagePromptDialog
             title="主线提纲提示词设置"
             stage="outline"
@@ -1641,22 +1175,13 @@ export function ArticleWorkflow({
           ) : (
             <p className="subtle">选择角度后生成主线和提纲。</p>
           )}
-        </div>
-          </section>
+          </OutlinePanel>
         ) : null}
 
         {activeTab === "draft" ? (
-          <section
-            aria-labelledby="workflow-tab-draft"
-            className="panel"
-            id="workflow-panel-draft"
-            role="tabpanel"
-            tabIndex={0}
-          >
-        <div className="panel-head">
-          <h2 className="panel-title">Markdown 文案</h2>
-          <div className="panel-head-actions">
-            {latestDraft ? (
+          <DraftPanel
+            headActions={
+              latestDraft ? (
               <>
                 <label className="version-switcher">
                   <span className="sr-only">切换文案版本</span>
@@ -1684,10 +1209,9 @@ export function ArticleWorkflow({
                   <ScrollText aria-hidden="true" size={16} />
                 </button>
               </>
-            ) : null}
-          </div>
-        </div>
-        <div className="panel-body">
+            ) : null
+            }
+          >
           <StagePromptDialog
             title="Markdown 文案提示词设置"
             stage="draft"
@@ -1826,8 +1350,7 @@ export function ArticleWorkflow({
           ) : (
             <p className="subtle">确认提纲后生成 Markdown 初稿。</p>
           )}
-        </div>
-          </section>
+          </DraftPanel>
         ) : null}
 
       {fullscreenPane ? (
@@ -1869,18 +1392,7 @@ export function ArticleWorkflow({
       {promptRecipe ? <PromptRecipeDialog recipe={promptRecipe} onClose={() => setPromptRecipe(null)} /> : null}
 
         {activeTab === "diagnosis" ? (
-          <section
-            aria-labelledby="workflow-tab-diagnosis"
-            className="panel diagnosis-panel"
-            id="workflow-panel-diagnosis"
-            role="tabpanel"
-            tabIndex={0}
-          >
-        <div className="panel-head">
-          <h2 className="panel-title">dbs-content 诊断</h2>
-          {diagnoses.length > 0 ? <span className="status">{diagnoses.length} 次</span> : null}
-        </div>
-        <div className="panel-body">
+          <DiagnosisPanel count={diagnoses.length}>
           <StagePromptDialog
             title={STAGE_PROMPT_UI.dbs.title}
             stage="dbs"
@@ -2018,23 +1530,11 @@ export function ArticleWorkflow({
           ) : (
             <p className="subtle">生成文案后运行 dbs-content。</p>
           )}
-        </div>
-          </section>
+          </DiagnosisPanel>
         ) : null}
 
         {activeTab === "final" ? (
-          <section
-            aria-labelledby="workflow-tab-final"
-            className="panel"
-            id="workflow-panel-final"
-            role="tabpanel"
-            tabIndex={0}
-          >
-        <div className="panel-head">
-          <h2 className="panel-title">版本链和最终稿</h2>
-          {finalDraft ? <span className="status">最终稿 v{finalDraft.versionNo}</span> : null}
-        </div>
-        <div className="panel-body">
+          <FinalPanel finalDraft={finalDraft}>
           {finalDraft ? (
             <div className="action-row">
               <button
@@ -2108,23 +1608,11 @@ export function ArticleWorkflow({
           ) : (
             <p className="subtle">暂无文案版本。</p>
           )}
-        </div>
-          </section>
+          </FinalPanel>
         ) : null}
 
         {activeTab === "publish" ? (
-          <section
-            aria-labelledby="workflow-tab-publish"
-            className="panel"
-            id="workflow-panel-publish"
-            role="tabpanel"
-            tabIndex={0}
-          >
-        <div className="panel-head">
-          <h2 className="panel-title">发布包</h2>
-          {latestUpload?.status === "success" ? <span className="status">已上传草稿箱</span> : null}
-        </div>
-        <div className="panel-body">
+          <PublishPanel latestUpload={latestUpload}>
           <StagePromptDialog
             title={STAGE_PROMPT_UI.pre_publish.title}
             stage="pre_publish"
@@ -2301,23 +1789,11 @@ export function ArticleWorkflow({
               ))}
             </div>
           ) : null}
-        </div>
-          </section>
+          </PublishPanel>
         ) : null}
 
         {activeTab === "review" ? (
-          <section
-            aria-labelledby="workflow-tab-review"
-            className="panel"
-            id="workflow-panel-review"
-            role="tabpanel"
-            tabIndex={0}
-          >
-            <div className="panel-head">
-              <h2 className="panel-title">复盘</h2>
-              <span className="status">{getTabMeta("review")}</span>
-            </div>
-            <div className="panel-body">
+          <ReviewPanel status={getTabMeta("review")}>
               <StagePromptDialog
                 title={STAGE_PROMPT_UI.review.title}
                 stage="review"
@@ -2415,8 +1891,7 @@ export function ArticleWorkflow({
                   <p className="subtle">发布后回填浏览量、点赞、转发、推荐、评论和归因。</p>
                 </div>
               </div>
-            </div>
-          </section>
+          </ReviewPanel>
         ) : null}
       </div>
     </div>

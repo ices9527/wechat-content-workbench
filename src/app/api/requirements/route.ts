@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { jsonError, zodOrJsonError } from "@/app/api/_utils/route-errors";
+import { requirementStageSchema } from "@/domain/stages";
+import { ensureAppDataReady } from "@/server/articles";
 import {
   createRequirementInputSchema,
   createRequirementPreset,
   deleteRequirementPreset,
-  ensureAppDataReady,
   listRequirementPresets,
-  requirementStageSchema,
   updateRequirementInputSchema,
   updateRequirementPreset
-} from "@/server/articles";
+} from "@/server/requirements";
 
 export async function GET(request: NextRequest) {
   ensureAppDataReady();

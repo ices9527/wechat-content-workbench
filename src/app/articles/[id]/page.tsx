@@ -9,10 +9,10 @@ import {
   listDrafts,
   listOutlines,
   listPromptRunArtifacts,
-  listRequirementPresets,
-  listStagePromptDefaults,
   listTopicDiagnoses
 } from "@/server/articles";
+import { listRequirementPresets } from "@/server/requirements";
+import { listStagePromptDefaults } from "@/server/stage-prompts";
 import { listArticleAssets, listWechatDraftUploads } from "@/server/publishing";
 import { ArticleWorkflow } from "@/components/article-workflow";
 
