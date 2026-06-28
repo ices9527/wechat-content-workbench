@@ -4,7 +4,14 @@ import { describe, expect, it } from "vitest";
 import { aiInvocationRequirements, aiInvocations, requirementPresets, topicDiagnoses, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
-import { createArticleWithDraft, FailingTopicDiagnosisClient, FakeAIClient, HoldTopicDiagnosisClient } from "./articles-test-utils";
+import {
+  createArticleWithDraft,
+  DropTopicDiagnosisClient,
+  FailingTopicDiagnosisClient,
+  FakeAIClient,
+  HoldTopicDiagnosisClient,
+  PassTopicDiagnosisClient
+} from "./articles-test-utils";
 import {
   createArticle,
   createRequirementPreset,
@@ -148,6 +155,61 @@ describe("article service basics", () => {
     expect(diagnosedItem?.latestTopicDiagnosis?.verdictLabel).toBe("暂缓");
     expect(diagnosedItem?.latestTopicDiagnosis?.riskSummary).toContain("资料解释");
     expect(missingItem?.latestTopicDiagnosis).toBeNull();
+  });
+
+  it("filters article lists by latest topic diagnosis verdict", async () => {
+    const { db } = createTestDatabase();
+    const passedArticle = createArticle({ topic: "香港账户路径" }, db);
+    const heldArticle = createArticle({ topic: "还需要补题的账户文章" }, db);
+    const droppedArticle = createArticle({ topic: "不值得继续写的主题" }, db);
+    const missingArticle = createArticle({ topic: "还没有诊断的主题" }, db);
+
+    await runTopicDiagnosis(passedArticle.id, {}, new PassTopicDiagnosisClient(), db);
+    await runTopicDiagnosis(heldArticle.id, {}, new FakeAIClient(), db);
+    await runTopicDiagnosis(heldArticle.id, { customInstruction: "强制暂缓。" }, new HoldTopicDiagnosisClient(), db);
+    await runTopicDiagnosis(droppedArticle.id, {}, new DropTopicDiagnosisClient(), db);
+
+    expect(listArticles({ topicDiagnosis: "pass" }, db).map((article) => article.id)).toEqual([passedArticle.id]);
+    expect(listArticles({ topicDiagnosis: "hold" }, db).map((article) => article.id)).toEqual([heldArticle.id]);
+    expect(listArticles({ topicDiagnosis: "drop" }, db).map((article) => article.id)).toEqual([droppedArticle.id]);
+    expect(listArticles({ topicDiagnosis: "missing" }, db).map((article) => article.id)).toEqual([missingArticle.id]);
+  });
+
+  it("searches article lists by topic, target reader, core problem and hot anchor", () => {
+    const { db } = createTestDatabase();
+    const topicArticle = createArticle({ topic: "香港账户还能不能开" }, db);
+    const readerArticle = createArticle({ topic: "教育金安排", targetReader: "跨境家庭和香港身份家长" }, db);
+    const problemArticle = createArticle({ topic: "现金流规划", coreProblem: "资金路径是否能解释清楚" }, db);
+    const anchorArticle = createArticle({ topic: "政策解读", hotAnchor: "跨境支付通新规" }, db);
+
+    expect(listArticles({ query: "账户" }, db).map((article) => article.id)).toEqual([topicArticle.id]);
+    expect(listArticles({ query: "身份家长" }, db).map((article) => article.id)).toEqual([readerArticle.id]);
+    expect(listArticles({ query: "资金路径" }, db).map((article) => article.id)).toEqual([problemArticle.id]);
+    expect(listArticles({ query: "支付通" }, db).map((article) => article.id)).toEqual([anchorArticle.id]);
+  });
+
+  it("combines article status, topic diagnosis and keyword filters", async () => {
+    const { db } = createTestDatabase();
+    const matchingArticle = createArticle(
+      {
+        topic: "香港账户还能不能开",
+        targetReader: "跨境家庭",
+        coreProblem: "资金路径是否能解释清楚"
+      },
+      db
+    );
+    const wrongVerdictArticle = createArticle({ topic: "香港账户暂缓选题", coreProblem: "资金路径是否能解释清楚" }, db);
+    const wrongKeywordArticle = createArticle({ topic: "教育金现金流", coreProblem: "另一个问题" }, db);
+
+    await runTopicDiagnosis(matchingArticle.id, {}, new FakeAIClient(), db);
+    await runTopicDiagnosis(wrongVerdictArticle.id, {}, new HoldTopicDiagnosisClient(), db);
+    await runTopicDiagnosis(wrongKeywordArticle.id, {}, new FakeAIClient(), db);
+
+    const articles = listArticles({ status: "topic_diagnosed", topicDiagnosis: "revise", query: "资金路径" }, db);
+
+    expect(articles).toHaveLength(1);
+    expect(articles[0].id).toBe(matchingArticle.id);
+    expect(listArticles({ status: "draft_generated", topicDiagnosis: "revise", query: "不存在" }, db)).toHaveLength(0);
   });
 
   it("runs topic diagnosis and records the invocation", async () => {

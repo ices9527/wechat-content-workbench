@@ -92,6 +92,55 @@ test("shows topic diagnosis status in the article library", async ({ page }) => 
   await expectNoRuntimeErrorOverlay(page);
 });
 
+test("filters the article library by diagnosis, workflow status and keyword", async ({ page }) => {
+  await page.goto("/");
+
+  const stamp = Date.now();
+  const diagnosedTopic = `Sprint10CE diagnosed ${stamp}`;
+  const diagnosedProblem = `Sprint10CE 资金路径 ${stamp}`;
+  await page.getByLabel("主题").fill(diagnosedTopic);
+  await page.getByLabel("目标读者").fill("正在安排香港账户和跨境资金的家庭");
+  await page.getByLabel("核心问题").fill(diagnosedProblem);
+  await page.getByRole("button", { name: "新建文章" }).click();
+  await page.waitForURL(/\/articles\//);
+
+  const topicDiagnosisPanel = page.locator("#workflow-panel-topic-diagnosis");
+  await topicDiagnosisPanel.getByPlaceholder("例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户").fill("重点检查是否有今天点开的理由。");
+  await topicDiagnosisPanel.getByRole("button", { name: "运行 DBS 选题诊断" }).click();
+  await expect(page.getByText("已完成选题诊断")).toBeVisible({ timeout: actionTimeout });
+
+  await page.goto("/");
+  const undiagnosedTopic = `Sprint10CE undiagnosed ${stamp}`;
+  await page.getByLabel("主题").fill(undiagnosedTopic);
+  await page.getByLabel("目标读者").fill("还没有诊断的读者");
+  await page.getByLabel("核心问题").fill(`Sprint10CE 未诊断问题 ${stamp}`);
+  await page.getByRole("button", { name: "新建文章" }).click();
+  await page.waitForURL(/\/articles\//);
+
+  await page.goto("/");
+  await page.getByLabel("选题诊断").selectOption("missing");
+  await page.getByLabel("搜索文章").fill(undiagnosedTopic);
+  await page.getByRole("button", { name: "筛选" }).click();
+  const undiagnosedRow = page.locator(".article-row", { hasText: undiagnosedTopic });
+  await expect(undiagnosedRow).toBeVisible();
+  await expect(undiagnosedRow.locator(".topic-diagnosis-badge")).toContainText("未诊断");
+  await expect(page.locator(".article-row", { hasText: diagnosedTopic })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "清除" }).click();
+  await page.getByLabel("选题诊断").selectOption("revise");
+  await page.getByLabel("流程状态").selectOption("topic_diagnosed");
+  await page.getByLabel("搜索文章").fill(diagnosedProblem);
+  await page.getByRole("button", { name: "筛选" }).click();
+  const diagnosedRow = page.locator(".article-row", { hasText: diagnosedTopic });
+  await expect(diagnosedRow).toBeVisible();
+  await expect(diagnosedRow.locator(".topic-diagnosis-badge")).toContainText("修改后通过");
+  await expect(page.locator(".article-row", { hasText: undiagnosedTopic })).toHaveCount(0);
+
+  await diagnosedRow.click();
+  await expect(page.getByRole("heading", { name: diagnosedTopic })).toBeVisible();
+  await expectNoRuntimeErrorOverlay(page);
+});
+
 test("shows topic diagnosis history snapshots and prompt recipes", async ({ page }) => {
   await page.goto("/");
 

@@ -1,12 +1,39 @@
+import { ArticleLibraryFilters, type ArticleLibraryFilterValues } from "@/components/article-library-filters";
 import { ArticleList } from "@/components/article-list";
 import { NewArticleForm } from "@/components/new-article-form";
-import { ensureAppDataReady, listArticles } from "@/server/articles";
+import { ARTICLE_STATUSES, type ArticleStatus } from "@/domain/status";
+import { ensureAppDataReady, listArticles, TOPIC_DIAGNOSIS_FILTER_VALUES, type TopicDiagnosisFilter } from "@/server/articles";
 
 export const dynamic = "force-dynamic";
 
-export default function WorkbenchPage() {
+type WorkbenchSearchParams = Record<string, string | string[] | undefined>;
+
+function firstSearchParamValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] || "" : value || "";
+}
+
+function parseArticleStatus(value: string): ArticleStatus | "" {
+  return ARTICLE_STATUSES.includes(value as ArticleStatus) ? (value as ArticleStatus) : "";
+}
+
+function parseTopicDiagnosisFilter(value: string): TopicDiagnosisFilter | "" {
+  return TOPIC_DIAGNOSIS_FILTER_VALUES.includes(value as TopicDiagnosisFilter) ? (value as TopicDiagnosisFilter) : "";
+}
+
+export default async function WorkbenchPage({ searchParams }: { searchParams?: Promise<WorkbenchSearchParams> }) {
   ensureAppDataReady();
-  const articles = listArticles();
+  const params = (await searchParams) || {};
+  const filters: ArticleLibraryFilterValues = {
+    query: firstSearchParamValue(params.q).trim(),
+    status: parseArticleStatus(firstSearchParamValue(params.status)),
+    topicDiagnosis: parseTopicDiagnosisFilter(firstSearchParamValue(params.topicDiagnosis))
+  };
+  const articles = listArticles({
+    query: filters.query,
+    status: filters.status || undefined,
+    topicDiagnosis: filters.topicDiagnosis || undefined
+  });
+  const hasActiveFilters = Boolean(filters.query || filters.status || filters.topicDiagnosis);
 
   return (
     <>
@@ -24,7 +51,10 @@ export default function WorkbenchPage() {
             <h2 className="panel-title">文章生产线</h2>
             <span className="subtle">{articles.length} 篇文章</span>
           </div>
-          <ArticleList articles={articles} />
+          <div className="panel-body article-library-body">
+            <ArticleLibraryFilters filters={filters} />
+          </div>
+          <ArticleList articles={articles} emptyText={hasActiveFilters ? "没有匹配的文章。可以调整搜索词或筛选条件。" : undefined} />
         </section>
 
         <aside className="panel" aria-label="新建文章">

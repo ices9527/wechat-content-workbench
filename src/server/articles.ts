@@ -33,7 +33,7 @@ import {
   type TopicDiagnosis
 } from "@/db/schema";
 
-import type { AIClient, GeneratedAngle, GeneratedTopicDiagnosis } from "./ai";
+import type { AIClient, GeneratedAngle, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline } from "./article-records";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
@@ -92,6 +92,24 @@ export type ArticleListItem = ArticleProject & {
 
 export type ArticleListTopicDiagnosis = Pick<TopicDiagnosis, "id" | "verdict" | "riskSummary" | "createdAt"> & {
   verdictLabel: string;
+};
+
+export const TOPIC_DIAGNOSIS_FILTER_VALUES = ["missing", "pass", "revise", "hold", "drop"] as const;
+export type TopicDiagnosisFilter = (typeof TOPIC_DIAGNOSIS_FILTER_VALUES)[number];
+
+export const TOPIC_DIAGNOSIS_FILTER_LABELS: Record<TopicDiagnosisFilter, string> = {
+  missing: "未诊断",
+  pass: "通过",
+  revise: "修改后通过",
+  hold: "暂缓",
+  drop: "放弃"
+};
+
+export type ArticleListFilters = {
+  status?: ArticleStatus;
+  publishQueueOnly?: boolean;
+  topicDiagnosis?: TopicDiagnosisFilter;
+  query?: string;
 };
 
 export const manualAngleInputSchema = z.object({
@@ -168,19 +186,7 @@ function titleFromTopic(topic: string): string {
 }
 
 function formatTopicDiagnosisVerdict(verdict: string): string {
-  if (verdict === "pass") {
-    return "通过";
-  }
-  if (verdict === "revise") {
-    return "修改后通过";
-  }
-  if (verdict === "hold") {
-    return "暂缓";
-  }
-  if (verdict === "drop") {
-    return "放弃";
-  }
-  return verdict;
+  return TOPIC_DIAGNOSIS_FILTER_LABELS[verdict as TopicDiagnosisVerdict] || verdict;
 }
 
 function toListItem(article: ArticleProject, latestTopicDiagnosis: TopicDiagnosis | null = null): ArticleListItem {
@@ -199,6 +205,29 @@ function toListItem(article: ArticleProject, latestTopicDiagnosis: TopicDiagnosi
         }
       : null
   };
+}
+
+function normalizeArticleSearchQuery(query: string | undefined): string {
+  return (query || "").trim().toLowerCase();
+}
+
+function matchesArticleSearchQuery(article: ArticleListItem, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  return [article.topic, article.targetReader, article.coreProblem, article.hotAnchor].some((value) =>
+    (value || "").toLowerCase().includes(query)
+  );
+}
+
+function matchesTopicDiagnosisFilter(article: ArticleListItem, filter: TopicDiagnosisFilter | undefined): boolean {
+  if (!filter) {
+    return true;
+  }
+  if (filter === "missing") {
+    return article.latestTopicDiagnosis === null;
+  }
+  return article.latestTopicDiagnosis?.verdict === filter;
 }
 
 function getLatestTopicDiagnosesForArticles(articleIds: string[], db: WorkbenchDatabase): Map<string, TopicDiagnosis> {
@@ -444,7 +473,7 @@ export function createArticle(input: CreateArticleInput, db: WorkbenchDatabase =
 }
 
 export function listArticles(
-  filters: { status?: ArticleStatus; publishQueueOnly?: boolean } = {},
+  filters: ArticleListFilters = {},
   db: WorkbenchDatabase = getDatabase().db
 ): ArticleListItem[] {
   let rows: ArticleProject[];
@@ -477,7 +506,11 @@ export function listArticles(
     rows.map((article) => article.id),
     db
   );
-  return rows.map((article) => toListItem(article, latestTopicDiagnoses.get(article.id) || null));
+  const query = normalizeArticleSearchQuery(filters.query);
+  return rows
+    .map((article) => toListItem(article, latestTopicDiagnoses.get(article.id) || null))
+    .filter((article) => matchesTopicDiagnosisFilter(article, filters.topicDiagnosis))
+    .filter((article) => matchesArticleSearchQuery(article, query));
 }
 
 export function getArticle(id: string, db: WorkbenchDatabase = getDatabase().db): ArticleListItem | null {

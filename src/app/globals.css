@@ -175,6 +175,30 @@ h1 {
   flex-direction: column;
 }
 
+.article-library-body {
+  border-bottom: 1px solid var(--line);
+}
+
+.article-filter-form {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(140px, 170px) minmax(140px, 170px);
+  gap: 12px;
+  align-items: end;
+  min-width: 0;
+}
+
+.article-filter-query {
+  min-width: 0;
+}
+
+.article-filter-actions {
+  display: inline-flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+}
+
 .article-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 140px 150px 220px;
@@ -1491,6 +1515,14 @@ h1 {
 
   .article-row {
     grid-template-columns: 1fr;
+  }
+
+  .article-filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .article-filter-actions {
+    justify-content: flex-start;
   }
 
   .inline-form,

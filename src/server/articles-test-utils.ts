@@ -23,6 +23,21 @@ export class FailingTopicDiagnosisClient extends FakeAIClient {
   }
 }
 
+export class PassTopicDiagnosisClient extends FakeAIClient {
+  async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
+    return {
+      verdict: "pass",
+      targetReaderCheck: "目标读者具体。",
+      readerProblemCheck: "真实问题成立。",
+      timelinessCheck: "今天有明确点开理由。",
+      actionabilityCheck: "可以进入后续内容生产。",
+      riskSummary: "选题可以继续推进。",
+      suggestionsMarkdown: "## 通过\n- 保持当前边界。",
+      nextAction: "进入角度生成。"
+    };
+  }
+}
+
 export class HoldTopicDiagnosisClient extends FakeAIClient {
   async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
     return {
@@ -34,6 +49,21 @@ export class HoldTopicDiagnosisClient extends FakeAIClient {
       riskSummary: "继续写容易变成资料解释。",
       suggestionsMarkdown: "## 暂缓建议\n- 先补清楚读者为什么今天要看。",
       nextAction: "修改主题或重新运行选题诊断。"
+    };
+  }
+}
+
+export class DropTopicDiagnosisClient extends FakeAIClient {
+  async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
+    return {
+      verdict: "drop",
+      targetReaderCheck: "目标读者不成立。",
+      readerProblemCheck: "真实问题不成立。",
+      timelinessCheck: "没有今天点开的理由。",
+      actionabilityCheck: "不适合进入生产线。",
+      riskSummary: "继续写会变成空泛解释。",
+      suggestionsMarkdown: "## 放弃建议\n- 换一个更具体的选题。",
+      nextAction: "放弃当前选题。"
     };
   }
 }
