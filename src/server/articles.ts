@@ -37,7 +37,7 @@ import {
 
 import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 import { getAIClient } from "./ai";
-import { requireArticle, requireDiagnosis, requireDraft, requireOutline } from "./article-records";
+import { requireArticle, requireDiagnosis, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
@@ -151,6 +151,11 @@ const promptControlInputShape = {
 
 export const generateWithPromptInputSchema = z.object(promptControlInputShape);
 export const generateContentResearchInputSchema = z.object(promptControlInputShape);
+export const saveManualResearchInputSchema = z.object({
+  sourceResearchVersionId: z.string().trim().min(1, "必须指定研究资料包版本"),
+  summaryMarkdown: z.string().trim().min(1, "材料摘要不能为空"),
+  researchMarkdown: z.string().trim().min(1, "研究资料包不能为空")
+});
 export const generateOutlineInputSchema = z.object({
   ...promptControlInputShape,
   researchVersionId: z
@@ -185,6 +190,7 @@ export type SaveOutlineInput = z.infer<typeof saveOutlineInputSchema>;
 export type UpdateOutlineInput = z.infer<typeof updateOutlineInputSchema>;
 export type GenerateWithPromptInput = z.input<typeof generateWithPromptInputSchema>;
 export type GenerateContentResearchInput = z.input<typeof generateContentResearchInputSchema>;
+export type SaveManualResearchInput = z.input<typeof saveManualResearchInputSchema>;
 export type GenerateOutlineInput = z.input<typeof generateOutlineInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
 export type RunDbsContentInput = z.input<typeof runDbsContentInputSchema>;
@@ -1029,6 +1035,47 @@ export async function generateContentResearch(
     });
     throw error;
   }
+}
+
+export function saveManualResearchVersion(
+  articleId: string,
+  input: SaveManualResearchInput,
+  db: WorkbenchDatabase = getDatabase().db
+): ResearchVersion {
+  const parsed = saveManualResearchInputSchema.parse(input);
+  const article = requireArticle(articleId, db);
+  const sourceResearch = requireResearchVersion(article.id, parsed.sourceResearchVersionId, db);
+  const existing = listResearchVersions(article.id, db);
+  const research: ResearchVersion = {
+    id: randomUUID(),
+    articleId: article.id,
+    ownerId: article.ownerId,
+    versionNo: nextVersionNo(existing),
+    sourceAngleId: sourceResearch.sourceAngleId,
+    sourceInvocationId: null,
+    summaryMarkdown: parsed.summaryMarkdown,
+    researchMarkdown: parsed.researchMarkdown,
+    factsMarkdown: null,
+    backgroundMarkdown: null,
+    readerQuestionsMarkdown: null,
+    boundariesMarkdown: null,
+    writeableDirectionsMarkdown: null,
+    avoidDirectionsMarkdown: null,
+    createdBy: "user",
+    createdAt: new Date().toISOString()
+  };
+
+  db.transaction(() => {
+    db.insert(researchVersions).values(research).run();
+    db.update(articleProjects).set({ updatedAt: new Date().toISOString() }).where(eq(articleProjects.id, article.id)).run();
+    recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "save_manual_research_version", {
+      researchVersionId: research.id,
+      sourceResearchVersionId: sourceResearch.id,
+      sourceAngleId: research.sourceAngleId
+    });
+  });
+
+  return research;
 }
 
 // Outline commands

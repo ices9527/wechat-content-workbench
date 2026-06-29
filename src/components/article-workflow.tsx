@@ -601,6 +601,9 @@ export function ArticleWorkflow({
   const [customInstructions, setCustomInstructions] = useState<Record<RequirementStage, string>>(() => createStageRecord(() => ""));
   const [topicDiagnosisCustomInstruction, setTopicDiagnosisCustomInstruction] = useState("");
   const [researchCustomInstruction, setResearchCustomInstruction] = useState("");
+  const [researchEditorSourceId, setResearchEditorSourceId] = useState("");
+  const [researchEditorMarkdown, setResearchEditorMarkdown] = useState("");
+  const [researchSummaryMarkdown, setResearchSummaryMarkdown] = useState("");
   const [selectedRequirementIdsByStage, setSelectedRequirementIdsByStage] = useState<Record<RequirementStage, string[]>>(() =>
     selectedRequirementIdsFromKeys(requirementKeys)
   );
@@ -907,6 +910,14 @@ export function ArticleWorkflow({
     if (researchById.has(researchId)) {
       setSelectedResearchId(researchId);
     }
+  }
+
+  function loadResearchIntoEditor(research: ResearchVersion) {
+    setResearchEditorSourceId(research.id);
+    setResearchEditorMarkdown(research.researchMarkdown);
+    setResearchSummaryMarkdown(research.summaryMarkdown);
+    setError(null);
+    setNotice(`已载入资料包 r${research.versionNo}`);
   }
 
   function loadOutlineIntoEditor(outline: OutlineVersion) {
@@ -1256,6 +1267,14 @@ export function ArticleWorkflow({
                       <h3>当前资料包 r{selectedResearch.versionNo}</h3>
                       <div className="mini-card-actions">
                         <span className="source-pill">{selectedResearch.createdBy === "ai" ? "AI" : "手动"}</span>
+                        <button
+                          className="button secondary compact-button"
+                          disabled={pending !== null}
+                          onClick={() => loadResearchIntoEditor(selectedResearch)}
+                          type="button"
+                        >
+                          载入编辑器
+                        </button>
                         {selectedResearch.sourceInvocationId ? (
                           <button
                             aria-label="查看研究资料包提示词配方"
@@ -1275,6 +1294,62 @@ export function ArticleWorkflow({
                 ) : (
                   <p className="subtle">还没有内容研究资料包。生成后，主线提纲可以引用它。</p>
                 )}
+
+                {selectedResearch ? (
+                  <section className="manual-research-editor">
+                    <h3>人工修正资料包</h3>
+                    <label className="field prompt-field">
+                      <span className="label">给主线提纲的材料摘要</span>
+                      <textarea
+                        className="textarea prompt-textarea"
+                        placeholder="例如：这篇文章应从家庭现金流和路径边界展开。"
+                        value={researchSummaryMarkdown}
+                        onChange={(event) => setResearchSummaryMarkdown(event.target.value)}
+                      />
+                    </label>
+                    <label className="field prompt-field">
+                      <span className="label">研究资料包 Markdown</span>
+                      <textarea
+                        className="textarea markdown-textarea"
+                        placeholder="先载入当前资料包，再进行人工修正。"
+                        value={researchEditorMarkdown}
+                        onChange={(event) => setResearchEditorMarkdown(event.target.value)}
+                      />
+                    </label>
+                    <div className="action-row">
+                      <button
+                        className="button secondary"
+                        disabled={pending !== null}
+                        onClick={() => loadResearchIntoEditor(selectedResearch)}
+                        type="button"
+                      >
+                        载入当前资料包
+                      </button>
+                      <button
+                        className="button"
+                        disabled={pending !== null || !researchEditorSourceId}
+                        onClick={() =>
+                          runAction("save-manual-research", async () => {
+                            const research = await postJson<ResearchVersion>(`/api/articles/${article.id}/research-versions`, {
+                              sourceResearchVersionId: researchEditorSourceId,
+                              summaryMarkdown: researchSummaryMarkdown,
+                              researchMarkdown: researchEditorMarkdown
+                            });
+                            setSelectedResearchId(research.id);
+                            setResearchEditorSourceId(research.id);
+                            setResearchSummaryMarkdown(research.summaryMarkdown);
+                            setResearchEditorMarkdown(research.researchMarkdown);
+                            setNotice(`已另存为人工资料包 r${research.versionNo}`);
+                          })
+                        }
+                        type="button"
+                      >
+                        另存人工版本
+                      </button>
+                    </div>
+                    {!researchEditorSourceId ? <p className="subtle">先载入一个资料包，再另存人工版本。</p> : null}
+                  </section>
+                ) : null}
               </>
             ) : (
               <p className="subtle">请先选择角度，再生成内容研究资料包。</p>

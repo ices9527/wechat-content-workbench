@@ -13,6 +13,7 @@ import {
   generateOutline,
   listRequirementPresets,
   listResearchVersions,
+  saveManualResearchVersion,
   selectAngle,
   updateStagePromptDefault
 } from "./articles";
@@ -87,6 +88,78 @@ describe("article content research service", () => {
     expect(versions).toHaveLength(2);
     expect(versions[0].versionNo).toBe(2);
     expect(versions[1].versionNo).toBe(1);
+  });
+
+  it("saves manual research edits as a new user version", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是表层" }, db);
+    selectAngle(article.id, angle.id, db);
+    const aiResearch = await generateContentResearch(article.id, {}, new FakeAIClient(), db);
+
+    const manualResearch = saveManualResearchVersion(
+      article.id,
+      {
+        sourceResearchVersionId: aiResearch.id,
+        summaryMarkdown: "人工摘要：家庭现金流优先。",
+        researchMarkdown: "## 人工修正资料包\n\n把资料包改成更适合提纲使用。"
+      },
+      db
+    );
+    const versions = listResearchVersions(article.id, db);
+
+    expect(manualResearch.versionNo).toBe(2);
+    expect(manualResearch.createdBy).toBe("user");
+    expect(manualResearch.sourceInvocationId).toBeNull();
+    expect(manualResearch.sourceAngleId).toBe(angle.id);
+    expect(manualResearch.summaryMarkdown).toContain("人工摘要");
+    expect(manualResearch.researchMarkdown).toContain("人工修正资料包");
+    expect(versions).toHaveLength(2);
+    expect(versions[0].id).toBe(manualResearch.id);
+    expect(versions[1].id).toBe(aiResearch.id);
+    expect(versions[1].researchMarkdown).toBe(aiResearch.researchMarkdown);
+  });
+
+  it("rejects empty manual research edits", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是表层" }, db);
+    selectAngle(article.id, angle.id, db);
+    const aiResearch = await generateContentResearch(article.id, {}, new FakeAIClient(), db);
+
+    expect(() =>
+      saveManualResearchVersion(
+        article.id,
+        {
+          sourceResearchVersionId: aiResearch.id,
+          summaryMarkdown: "",
+          researchMarkdown: "## 人工资料包"
+        },
+        db
+      )
+    ).toThrow("材料摘要不能为空");
+    expect(listResearchVersions(article.id, db)).toHaveLength(1);
+  });
+
+  it("rejects manual research edits from another article", async () => {
+    const { db } = createTestDatabase();
+    const first = createArticle({ topic: "第一篇" }, db);
+    const firstAngle = createManualAngle(first.id, { angleTitle: "第一角度" }, db);
+    selectAngle(first.id, firstAngle.id, db);
+    const firstResearch = await generateContentResearch(first.id, {}, new FakeAIClient(), db);
+    const second = createArticle({ topic: "第二篇" }, db);
+
+    expect(() =>
+      saveManualResearchVersion(
+        second.id,
+        {
+          sourceResearchVersionId: firstResearch.id,
+          summaryMarkdown: "人工摘要",
+          researchMarkdown: "## 人工资料包"
+        },
+        db
+      )
+    ).toThrow("研究资料包不存在");
   });
 
   it("includes research stage prompts and selected requirement snapshots", async () => {

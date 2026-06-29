@@ -435,6 +435,12 @@ h1 {
   color: var(--text);
 }
 
+.button.compact-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -642,6 +648,10 @@ h1 {
 
 .prompt-textarea {
   min-height: 92px;
+}
+
+.markdown-textarea {
+  min-height: 280px;
 }
 
 .prompt-save-button {
@@ -1083,6 +1093,12 @@ h1 {
   align-items: flex-start;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.manual-research-editor {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 16px;
 }
 
 .mini-card h3 {
