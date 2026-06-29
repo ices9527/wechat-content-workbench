@@ -10,6 +10,8 @@ function formatTime(value: string): string {
 }
 
 export function PromptRecipeDialog({ recipe, onClose }: { recipe: PromptRecipe; onClose: () => void }) {
+  const customInstructionHeading = recipe.taskType === "ai_style_check" ? "对当前检查的要求" : "对当前文章的要求";
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -88,7 +90,7 @@ export function PromptRecipeDialog({ recipe, onClose }: { recipe: PromptRecipe; 
           </section>
 
           <section className="prompt-recipe-section">
-            <h3>对当前文章的要求</h3>
+            <h3>{customInstructionHeading}</h3>
             {recipe.customInstruction ? <pre className="prompt-recipe-card">{recipe.customInstruction}</pre> : <p className="subtle">没有本次要求。</p>}
           </section>
 

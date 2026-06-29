@@ -65,6 +65,7 @@ export {
 } from "./requirements";
 export { getStagePromptDefault, listStagePromptDefaults, updateStagePromptDefault, updateStagePromptInputSchema } from "./stage-prompts";
 export {
+  getPromptRecipeForAIStyleCheck,
   getPromptRecipeForDraft,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,

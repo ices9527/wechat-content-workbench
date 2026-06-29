@@ -20,6 +20,7 @@ import {
   generateDraft,
   generateContentResearch,
   generateOutline,
+  getPromptRecipeForAIStyleCheck,
   getPromptRecipeForDraft,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
@@ -31,6 +32,7 @@ import {
   markReadyToPublish,
   reviseFromDiagnosis,
   runDbsContent,
+  runAIStyleCheck,
   runPrePublishCheck,
   runReviewCheck,
   runTopicDiagnosis,
@@ -363,6 +365,36 @@ describe("article prompt recipe service", () => {
     expect(recipe.selectedRequirements.map((item) => item.label)).toContain(requirement.label);
     expect(recipe.customInstruction).toBe("只检查标题承诺和首屏判断。");
     expect(recipe.finalPrompt).toContain(requirement.promptFragment);
+  });
+
+  it("links AI style checks to their prompt recipes", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    const requirement = listRequirementPresets({ stage: "ai_style_check" }, db).find((item) => item.stableKey === "AICLEAN-003");
+    if (!requirement) {
+      throw new Error("测试缺少文案清洁检查可选提示词");
+    }
+
+    const check = await runAIStyleCheck(
+      article.id,
+      {
+        draftVersionId: draft.id,
+        customInstruction: "重点检查不是而是和重复判断。",
+        selectedRequirementIds: [requirement.id]
+      },
+      new FakeAIClient(),
+      db
+    );
+    const recipe = getPromptRecipeForAIStyleCheck(article.id, check.id, db);
+
+    expect(check.sourceInvocationId).toBeTruthy();
+    expect(recipe.invocationId).toBe(check.sourceInvocationId);
+    expect(recipe.taskType).toBe("ai_style_check");
+    expect(recipe.stageDefaultPrompt?.prompt).toContain("只检查表达层面的水分");
+    expect(recipe.selectedRequirements.map((item) => item.label)).toContain(requirement.label);
+    expect(recipe.customInstruction).toBe("重点检查不是而是和重复判断。");
+    expect(recipe.finalPrompt).toContain(requirement.promptFragment);
+    expect(recipe.finalPrompt).toContain("重点检查不是而是和重复判断。");
   });
 
   it("creates prompt artifacts for pre-publish and review checks", async () => {

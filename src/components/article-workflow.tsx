@@ -136,6 +136,10 @@ function formatAIStyleCheckVerdict(verdict: string | null | undefined): string {
   return AI_STYLE_CHECK_VERDICT_LABELS[verdict] || verdict;
 }
 
+function isHighRiskAIStyleCheck(check: AIStyleCheck | null | undefined): boolean {
+  return check?.cleanlinessVerdict === "needs_cleanup" || check?.cleanlinessVerdict === "heavy_slop";
+}
+
 function parseAIStyleCheckIssues(issuesJson: string): AIStyleCheckIssueView[] {
   try {
     const parsed = JSON.parse(issuesJson) as unknown;
@@ -661,7 +665,17 @@ function ReviewPanel({ status, children }: { status: string; children: ReactNode
   );
 }
 
-function AIStyleCheckResultCard({ check, draftLabel, compact = false }: { check: AIStyleCheck; draftLabel: string; compact?: boolean }) {
+function AIStyleCheckResultCard({
+  check,
+  draftLabel,
+  compact = false,
+  onOpenRecipe
+}: {
+  check: AIStyleCheck;
+  draftLabel: string;
+  compact?: boolean;
+  onOpenRecipe?: (check: AIStyleCheck) => void;
+}) {
   const issues = parseAIStyleCheckIssues(check.issuesJson);
   const issueTypeSummary =
     issues.length > 0
@@ -684,7 +698,19 @@ function AIStyleCheckResultCard({ check, draftLabel, compact = false }: { check:
             {draftLabel} · {formatTime(check.createdAt)}
           </p>
         </div>
-        <strong>{check.issueCount} 个问题</strong>
+        <div className="mini-card-actions ai-style-check-card-actions">
+          <strong>{check.issueCount} 个问题</strong>
+          {onOpenRecipe ? (
+            <button
+              aria-label="查看文案清洁检查提示词配方"
+              className="button secondary compact-button"
+              onClick={() => onOpenRecipe(check)}
+              type="button"
+            >
+              提示词配方
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="ai-style-check-summary">
         <p>
@@ -905,6 +931,7 @@ export function ArticleWorkflow({
   const [notice, setNotice] = useState<string | null>(null);
   const [fullscreenPane, setFullscreenPane] = useState<"editor" | "preview" | null>(null);
   const [promptRecipe, setPromptRecipe] = useState<PromptRecipe | null>(null);
+  const [selectedAIStyleCheckDetailId, setSelectedAIStyleCheckDetailId] = useState("");
   const activeArticleIdRef = useRef(article.id);
   const draftEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const fullscreenEditorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -926,6 +953,9 @@ export function ArticleWorkflow({
     [aiStyleCheckList, selectedDraftId]
   );
   const latestSelectedDraftAIStyleCheck = selectedDraftAIStyleChecks[0] || null;
+  const selectedAIStyleCheckDetail = selectedAIStyleCheckDetailId
+    ? aiStyleCheckList.find((check) => check.id === selectedAIStyleCheckDetailId) || null
+    : null;
   const htmlAssets = assets.filter((asset) => asset.assetType === "html");
   const coverAssets = assets.filter((asset) => asset.assetType === "cover");
   const latestUpload = uploads[0] || null;
@@ -1094,6 +1124,19 @@ export function ArticleWorkflow({
     setPromptRecipe(null);
   }, [article.id]);
 
+  useEffect(() => {
+    if (!selectedAIStyleCheckDetailId) {
+      return;
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedAIStyleCheckDetailId("");
+      }
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [selectedAIStyleCheckDetailId]);
+
   async function runAction(label: string, action: () => Promise<void>, nextTab?: WorkflowTabId) {
     setPending(label);
     setError(null);
@@ -1133,6 +1176,24 @@ export function ArticleWorkflow({
   function getDraftLabel(draftVersionId: string): string {
     const draft = draftById.get(draftVersionId);
     return draft ? `v${draft.versionNo}` : "未知版本";
+  }
+
+  function getAIStyleChecksForDraft(draftVersionId: string): AIStyleCheck[] {
+    return aiStyleCheckList.filter((check) => check.draftVersionId === draftVersionId);
+  }
+
+  function getLatestAIStyleCheckForDraft(draftVersionId: string): AIStyleCheck | null {
+    return getAIStyleChecksForDraft(draftVersionId)[0] || null;
+  }
+
+  function getAIStyleCheckStatusCopy(check: AIStyleCheck | null): string {
+    if (!check) {
+      return "未运行文案清洁检查";
+    }
+    if (isHighRiskAIStyleCheck(check)) {
+      return `有高风险表达水分：${formatAIStyleCheckVerdict(check.cleanlinessVerdict)}`;
+    }
+    return `已检查：${formatAIStyleCheckVerdict(check.cleanlinessVerdict)}`;
   }
 
   function handleCoverFile(event: ChangeEvent<HTMLInputElement>) {
@@ -1251,7 +1312,10 @@ export function ArticleWorkflow({
     });
   }
 
-  async function openPromptRecipe(kind: "outline" | "draft" | "topic-diagnosis" | "research" | "invocation", targetId: string | null) {
+  async function openPromptRecipe(
+    kind: "outline" | "draft" | "topic-diagnosis" | "research" | "ai-style-check" | "invocation",
+    targetId: string | null
+  ) {
     if (!targetId) {
       return;
     }
@@ -1264,7 +1328,9 @@ export function ArticleWorkflow({
             ? "topicDiagnosisId"
             : kind === "research"
               ? "researchVersionId"
-              : "invocationId";
+              : kind === "ai-style-check"
+                ? "aiStyleCheckId"
+                : "invocationId";
     setPending(`prompt-recipe-${kind}`);
     setError(null);
     setNotice(null);
@@ -1994,7 +2060,11 @@ export function ArticleWorkflow({
 
               {latestSelectedDraftAIStyleCheck ? (
                 <div className="ai-style-check-results">
-                  <AIStyleCheckResultCard check={latestSelectedDraftAIStyleCheck} draftLabel={getDraftLabel(latestSelectedDraftAIStyleCheck.draftVersionId)} />
+                  <AIStyleCheckResultCard
+                    check={latestSelectedDraftAIStyleCheck}
+                    draftLabel={getDraftLabel(latestSelectedDraftAIStyleCheck.draftVersionId)}
+                    onOpenRecipe={(check) => void openPromptRecipe("ai-style-check", check.id)}
+                  />
                   {selectedDraftAIStyleChecks.length > 1 ? (
                     <details className="ai-style-check-history">
                       <summary>
@@ -2003,7 +2073,13 @@ export function ArticleWorkflow({
                       </summary>
                       <div className="ai-style-check-history-list">
                         {selectedDraftAIStyleChecks.slice(1).map((check) => (
-                          <AIStyleCheckResultCard compact check={check} draftLabel={getDraftLabel(check.draftVersionId)} key={check.id} />
+                          <AIStyleCheckResultCard
+                            compact
+                            check={check}
+                            draftLabel={getDraftLabel(check.draftVersionId)}
+                            key={check.id}
+                            onOpenRecipe={(historyCheck) => void openPromptRecipe("ai-style-check", historyCheck.id)}
+                          />
                         ))}
                       </div>
                     </details>
@@ -2141,6 +2217,41 @@ export function ArticleWorkflow({
       ) : null}
 
       {promptRecipe ? <PromptRecipeDialog recipe={promptRecipe} onClose={() => setPromptRecipe(null)} /> : null}
+
+      {selectedAIStyleCheckDetail ? (
+        <div
+          aria-label="文案清洁检查详情"
+          aria-modal="true"
+          className="fullscreen-overlay"
+          onClick={() => setSelectedAIStyleCheckDetailId("")}
+          role="dialog"
+        >
+          <section className="fullscreen-shell ai-style-check-detail-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="fullscreen-head">
+              <div>
+                <p className="eyebrow">AI Style Check</p>
+                <h2>文案清洁检查详情</h2>
+              </div>
+              <button
+                aria-label="关闭文案清洁检查详情"
+                className="icon-action"
+                onClick={() => setSelectedAIStyleCheckDetailId("")}
+                title="关闭"
+                type="button"
+              >
+                <X size={18} aria-hidden />
+              </button>
+            </div>
+            <div className="fullscreen-body ai-style-check-detail-body">
+              <AIStyleCheckResultCard
+                check={selectedAIStyleCheckDetail}
+                draftLabel={getDraftLabel(selectedAIStyleCheckDetail.draftVersionId)}
+                onOpenRecipe={(check) => void openPromptRecipe("ai-style-check", check.id)}
+              />
+            </div>
+          </section>
+        </div>
+      ) : null}
 
         {activeTab === "diagnosis" ? (
           <DiagnosisPanel count={diagnoses.length}>
@@ -2318,6 +2429,48 @@ export function ArticleWorkflow({
                   </div>
                   <p>{draft.draftType === "revision" ? "修改稿" : draft.draftType === "initial" ? "初稿" : "保存稿"}</p>
                   <p>{draft.sourceDiagnosisId ? `来源诊断：${diagnoses.find((item) => item.id === draft.sourceDiagnosisId) ? "已关联" : "未载入"}` : "无诊断来源"}</p>
+                  {(() => {
+                    const latestCheck = getLatestAIStyleCheckForDraft(draft.id);
+                    return (
+                      <div
+                        className={
+                          latestCheck
+                            ? isHighRiskAIStyleCheck(latestCheck)
+                              ? "ai-style-check-status high-risk"
+                              : "ai-style-check-status checked"
+                            : "ai-style-check-status missing"
+                        }
+                      >
+                        <p>
+                          <span>文案清洁检查</span>
+                          <strong>{getAIStyleCheckStatusCopy(latestCheck)}</strong>
+                        </p>
+                        {latestCheck ? (
+                          <>
+                            <p>
+                              {formatTime(latestCheck.createdAt)} · {latestCheck.issueCount} 个问题
+                            </p>
+                            <div className="action-row compact">
+                              <button className="button secondary compact-button" onClick={() => setSelectedAIStyleCheckDetailId(latestCheck.id)} type="button">
+                                查看检查详情
+                              </button>
+                              <button
+                                aria-label="查看文案清洁检查提示词配方"
+                                className="button secondary compact-button"
+                                disabled={pending !== null}
+                                onClick={() => void openPromptRecipe("ai-style-check", latestCheck.id)}
+                                type="button"
+                              >
+                                提示词配方
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <p>未检查时仍可人工标记最终稿。</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <p>{formatTime(draft.createdAt)}</p>
                   <div className="action-row compact">
                     <button className="button secondary" onClick={() => loadDraftIntoEditor(draft)} type="button">

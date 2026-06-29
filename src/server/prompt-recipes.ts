@@ -4,6 +4,7 @@ import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import {
   aiInvocationRequirements,
   aiInvocations,
+  aiStyleChecks,
   type AIInvocation,
   type AIInvocationRequirement,
   type DraftVersion
@@ -223,4 +224,25 @@ export function getPromptRecipeForDraft(
     return emptyPromptRecipe(article.id, "这个文案版本没有绑定 AI 提示词记录，可能是人工保存或旧版本数据。");
   }
   return requireInvocationRecipe(article.id, draft.sourceInvocationId, db);
+}
+
+export function getPromptRecipeForAIStyleCheck(
+  articleId: string,
+  aiStyleCheckId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): PromptRecipe {
+  const article = requireArticle(articleId, db);
+  const check = db
+    .select()
+    .from(aiStyleChecks)
+    .where(and(eq(aiStyleChecks.id, aiStyleCheckId), eq(aiStyleChecks.articleId, article.id)))
+    .get();
+
+  if (!check) {
+    return emptyPromptRecipe(article.id, "没有找到对应的文案清洁检查记录。");
+  }
+  if (!check.sourceInvocationId) {
+    return emptyPromptRecipe(article.id, "这个文案清洁检查没有绑定 AI 提示词记录，可能是旧版本数据。");
+  }
+  return requireInvocationRecipe(article.id, check.sourceInvocationId, db);
 }

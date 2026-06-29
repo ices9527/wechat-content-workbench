@@ -191,6 +191,14 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(aiStyleSection.getByText("ai_cliche").first()).toBeVisible();
   await expect(aiStyleSection.getByText("真正重要的不是几秒到账，而是生活资金的路径变得更低摩擦。")).toBeVisible();
   await expect(aiStyleSection.getByText("少用“不是……而是……”结构")).toBeVisible();
+  await aiStyleSection.getByRole("button", { name: "查看文案清洁检查提示词配方" }).click();
+  const aiStyleRecipeDialog = page.getByRole("dialog", { name: "提示词配方" });
+  await expect(aiStyleRecipeDialog.getByText("ai_style_check")).toBeVisible();
+  await expect(aiStyleRecipeDialog.locator(".prompt-recipe-card", { hasText: "重点检查不是而是和重复判断。" }).first()).toBeVisible();
+  await aiStyleRecipeDialog.getByText("最终提示词").click();
+  await expect(aiStyleRecipeDialog.locator(".prompt-recipe-final", { hasText: "只检查表达层面的水分" })).toBeVisible();
+  await aiStyleRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
+  await expect(aiStyleRecipeDialog).toHaveCount(0);
 
   await page.getByRole("tab", { name: /^dbs-content/ }).click();
   await expect(page).toHaveURL(/tab=diagnosis/);
@@ -242,6 +250,23 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
 
   await page.getByRole("tab", { name: /^人工检查/ }).click();
   const initialDraftCard = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v1" }) });
+  const savedDraftCard = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v2" }) });
+  await expect(initialDraftCard.getByText("有高风险表达水分：需要清理")).toBeVisible();
+  await expect(initialDraftCard.getByText(/2 个问题/)).toBeVisible();
+  await expect(savedDraftCard.getByText("未运行文案清洁检查")).toBeVisible();
+  await initialDraftCard.getByRole("button", { name: "查看检查详情" }).click();
+  const checkDetailDialog = page.getByRole("dialog", { name: "文案清洁检查详情" });
+  await expect(checkDetailDialog.getByText("真正重要的不是几秒到账，而是生活资金的路径变得更低摩擦。")).toBeVisible();
+  await checkDetailDialog.getByRole("button", { name: "关闭文案清洁检查详情" }).click();
+  await expect(checkDetailDialog).toHaveCount(0);
+  await initialDraftCard.getByRole("button", { name: "查看文案清洁检查提示词配方" }).click();
+  const finalTabRecipeDialog = page.getByRole("dialog", { name: "提示词配方" });
+  await expect(finalTabRecipeDialog.getByText("ai_style_check")).toBeVisible();
+  await expect(finalTabRecipeDialog.locator(".prompt-recipe-card", { hasText: "重点检查不是而是和重复判断。" }).first()).toBeVisible();
+  await finalTabRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
+  await expect(finalTabRecipeDialog).toHaveCount(0);
+  await initialDraftCard.getByRole("button", { name: "标记最终稿" }).click();
+  await expect(page.getByText("已标记最终稿 v1")).toBeVisible({ timeout: actionTimeout });
   await initialDraftCard.getByRole("button", { name: "载入编辑器" }).click();
   await expect(page.getByText("已载入文案 v1 到编辑器")).toBeVisible();
   await expect(editor).toHaveValue(/跨境支付通火了/);

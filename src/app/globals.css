@@ -1345,6 +1345,56 @@ h1 {
   color: var(--accent);
 }
 
+.ai-style-check-card-actions {
+  align-items: center;
+}
+
+.ai-style-check-status {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 10px 11px;
+}
+
+.ai-style-check-status p {
+  margin: 0;
+}
+
+.ai-style-check-status span {
+  display: block;
+  color: var(--quiet);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.ai-style-check-status strong {
+  color: var(--accent);
+}
+
+.ai-style-check-status.high-risk {
+  border-color: #e5c7bd;
+  background: #fff7f3;
+}
+
+.ai-style-check-status.high-risk strong {
+  color: #9f2d20;
+}
+
+.ai-style-check-status.missing {
+  background: #fffdf7;
+}
+
+.ai-style-check-detail-modal {
+  max-width: min(980px, calc(100vw - 40px));
+}
+
+.ai-style-check-detail-body {
+  display: grid;
+  gap: 12px;
+}
+
 .ai-style-check-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
