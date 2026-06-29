@@ -356,6 +356,7 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(illustrationPanel.getByText("配图 1")).toBeVisible();
   const firstIllustrationItem = illustrationPanel.locator(".illustration-plan-item").first();
   await expect(firstIllustrationItem.getByLabel("图片类型")).toHaveValue("流程示意图");
+  await firstIllustrationItem.getByLabel("插入位置").fill("放在“速度只是入口”之后");
   await firstIllustrationItem.getByLabel("图片作用").fill("人工修改：帮助读者先看懂资金路径边界。");
   await illustrationPanel.locator(".illustration-plan-item").nth(1).getByRole("button", { name: "删除配图 2" }).click();
   await expect(illustrationPanel.locator(".illustration-plan-item")).toHaveCount(1);
@@ -402,6 +403,17 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   const publishPanel = page.locator("#workflow-panel-publish");
   await publishPanel.getByRole("button", { name: "生成公众号 HTML" }).click();
   await expect(page.getByText(/已生成公众号 HTML/)).toBeVisible({ timeout: actionTimeout });
+  await expect(publishPanel.getByText("正文配图需要人工处理")).toBeVisible({ timeout: actionTimeout });
+  await expect(publishPanel.getByRole("alert").getByText("正文配图使用本地资产引用")).toBeVisible();
+  await expect(publishPanel.getByText("正文配图：1 张已生成")).toBeVisible();
+  await expect(publishPanel.getByText("正文配图处理：需要人工处理")).toBeVisible();
+  await expect(publishPanel.frameLocator('iframe[title="公众号 HTML 预览"]').locator(".wechat-inline-illustration img")).toBeVisible({
+    timeout: actionTimeout
+  });
+  await publishPanel.getByRole("button", { name: "生成默认封面" }).click();
+  await expect(page.getByText("已生成封面 2 张")).toBeVisible({ timeout: actionTimeout });
+  await publishPanel.getByRole("button", { name: "上传公众号草稿箱" }).click();
+  await expect(page.getByText("发布包存在正文配图处理提示")).toBeVisible({ timeout: actionTimeout });
   await publishPanel.getByRole("button", { name: "检查发布 HTML 文案" }).click();
   await expect(page.getByText("已完成发布 HTML 文案清洁检查")).toBeVisible({ timeout: actionTimeout });
   await expect(publishPanel.getByText("最新发布 HTML 文案清洁检查")).toBeVisible();

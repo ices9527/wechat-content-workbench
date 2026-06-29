@@ -1220,7 +1220,9 @@ export function ArticleWorkflow({
     ? aiStyleCheckList.find((check) => check.id === selectedAIStyleCheckDetailId) || null
     : null;
   const htmlAssets = assets.filter((asset) => asset.assetType === "html");
+  const latestHtmlAsset = htmlAssets[0] || null;
   const coverAssets = assets.filter((asset) => asset.assetType === "cover");
+  const readyInlineIllustrationAssets = assets.filter((asset) => asset.assetType === "inline_illustration" && asset.status === "ready");
   const inlineIllustrationAssetsByItem = useMemo(() => {
     const grouped = new Map<string, ArticleAsset[]>();
     for (const asset of assets) {
@@ -3272,6 +3274,30 @@ export function ArticleWorkflow({
             </button>
           </div>
 
+          {latestHtmlAsset?.errorMessage ? (
+            <div className="publish-warning" role="alert">
+              <strong>正文配图需要人工处理</strong>
+              <p>{latestHtmlAsset.errorMessage}</p>
+            </div>
+          ) : null}
+
+          {latestHtmlAsset ? (
+            <section className="html-preview-card" aria-label="公众号 HTML 预览">
+              <div className="html-preview-head">
+                <div>
+                  <h3>公众号 HTML 预览</h3>
+                  <p>{latestHtmlAsset.errorMessage ? "包含正文配图处理提示" : "可用于发布前检查"}</p>
+                </div>
+                <span className="source-pill">{latestHtmlAsset.variant || "html"}</span>
+              </div>
+              <iframe
+                className="html-preview-frame"
+                src={`/api/articles/${article.id}/assets/${latestHtmlAsset.id}/file`}
+                title="公众号 HTML 预览"
+              />
+            </section>
+          ) : null}
+
           {latestPrePublishArtifact ? (
             <section className="prompt-artifact">
               <div className="prompt-artifact-head">
@@ -3319,6 +3345,10 @@ export function ArticleWorkflow({
               <h3>发布检查</h3>
               <p className={finalDraft ? "check-item done" : "check-item"}>最终稿：{finalDraft ? `v${finalDraft.versionNo}` : "未标记"}</p>
               <p className={htmlAssets.length > 0 ? "check-item done" : "check-item"}>HTML：{htmlAssets.length} 个</p>
+              <p className={readyInlineIllustrationAssets.length > 0 ? "check-item done" : "check-item"}>
+                正文配图：{readyInlineIllustrationAssets.length > 0 ? `${readyInlineIllustrationAssets.length} 张已生成` : "未生成"}
+              </p>
+              {latestHtmlAsset?.errorMessage ? <p className="check-item warning">正文配图处理：需要人工处理</p> : null}
               <p className={coverAssets.some((asset) => asset.variant === "wechat_21_9") ? "check-item done" : "check-item"}>
                 21:9 封面：{coverAssets.filter((asset) => asset.variant === "wechat_21_9").length} 个
               </p>
@@ -3338,6 +3368,7 @@ export function ArticleWorkflow({
                     <span>{asset.assetType}</span>
                     <span>{asset.variant || "default"}</span>
                     <span>{asset.path}</span>
+                    {asset.errorMessage ? <span className="asset-warning">{asset.errorMessage}</span> : null}
                   </div>
                 ))
               ) : (

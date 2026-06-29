@@ -48,6 +48,8 @@ export type InlineIllustrationAssetFile = {
   contentType: string;
 };
 
+export type ArticleAssetFile = InlineIllustrationAssetFile;
+
 function defaultAssetRoot(): string {
   return path.join(process.cwd(), "data", "assets");
 }
@@ -292,6 +294,38 @@ export function requireInlineIllustrationAssetFile(
   }
   if (!fs.existsSync(asset.path)) {
     throw new Error("正文配图文件不存在");
+  }
+
+  return {
+    asset,
+    content: fs.readFileSync(asset.path),
+    contentType: asset.mimeType || "application/octet-stream"
+  };
+}
+
+export function requireArticleAssetFile(
+  articleId: string,
+  assetId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): ArticleAssetFile {
+  const article = requireArticle(articleId, db);
+  const asset = db
+    .select()
+    .from(articleAssets)
+    .where(and(eq(articleAssets.id, assetId), eq(articleAssets.articleId, article.id)))
+    .get();
+
+  if (!asset) {
+    throw new Error("资产不存在");
+  }
+  if (asset.assetType !== "inline_illustration" && asset.assetType !== "html") {
+    throw new Error("资产类型不支持预览");
+  }
+  if (asset.status !== "ready") {
+    throw new Error("资产尚未生成成功");
+  }
+  if (!fs.existsSync(asset.path)) {
+    throw new Error("资产文件不存在");
   }
 
   return {

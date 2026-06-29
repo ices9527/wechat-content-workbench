@@ -1870,6 +1870,65 @@ h1 {
   font-weight: 700;
 }
 
+.check-item.warning {
+  color: #9f4b12;
+  font-weight: 700;
+}
+
+.publish-warning,
+.html-preview-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+  padding: 14px;
+}
+
+.publish-warning {
+  border-color: #e0b67b;
+  background: #fff7e8;
+  color: #7d3f0e;
+}
+
+.publish-warning strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.publish-warning p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.html-preview-card {
+  display: grid;
+  gap: 12px;
+}
+
+.html-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.html-preview-head h3,
+.html-preview-head p {
+  margin: 0;
+}
+
+.html-preview-head p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.html-preview-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .asset-row {
   display: grid;
   grid-template-columns: 110px 140px minmax(0, 1fr);
@@ -1890,6 +1949,12 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-warning {
+  grid-column: 1 / -1;
+  color: #9f4b12;
+  white-space: pre-wrap !important;
 }
 
 .upload-list {

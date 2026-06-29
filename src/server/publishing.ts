@@ -10,6 +10,7 @@ import {
   articleAssets,
   articleProjects,
   draftVersions,
+  illustrationPlans,
   wechatDraftUploads,
   workflowEvents,
   type ArticleAsset,
@@ -17,6 +18,8 @@ import {
   type DraftVersion,
   type WechatDraftUpload
 } from "@/db/schema";
+
+import { parseIllustrationPlanPayload, type IllustrationPlanItem } from "./illustration-plans";
 
 export type AssetRootOptions = {
   assetRoot?: string;
@@ -50,6 +53,25 @@ export class FakeWechatDraftClient implements WechatDraftClient {
     };
   }
 }
+
+type InlineIllustrationHtmlInput = {
+  articleId: string;
+  item: IllustrationPlanItem;
+  asset: ArticleAsset;
+};
+
+type InlineIllustrationCollection = {
+  illustrations: InlineIllustrationHtmlInput[];
+  warnings: string[];
+};
+
+type WechatHtmlRenderResult = {
+  html: string;
+  warnings: string[];
+  insertedAssetIds: string[];
+};
+
+const LOCAL_INLINE_ILLUSTRATION_WARNING = "正文配图使用本地资产引用，草稿箱上传前需要人工处理。";
 
 function defaultAssetRoot(): string {
   return path.join(process.cwd(), "data", "assets");
@@ -136,17 +158,85 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-export function markdownToWechatHtml(markdown: string): string {
+function normalizeAnchor(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function extractPositionAnchor(position: string): string {
+  const quoted = position.match(/[“"]([^”"]+)[”"]/) || position.match(/《([^》]+)》/);
+  return normalizeAnchor(quoted?.[1] || position);
+}
+
+function getPositionPlacement(position: string): "before" | "after" {
+  return /前|之前/.test(position) ? "before" : "after";
+}
+
+function getMarkdownLineAnchor(line: string): string | null {
+  if (line.startsWith("# ")) {
+    return normalizeAnchor(line.slice(2));
+  }
+  if (line.startsWith("## ")) {
+    return normalizeAnchor(line.slice(3));
+  }
+  if (line.startsWith("- ")) {
+    return normalizeAnchor(line.slice(2));
+  }
+  return normalizeAnchor(line) || null;
+}
+
+function renderInlineIllustrationFigure(input: InlineIllustrationHtmlInput): string {
+  const src = `/api/articles/${input.articleId}/assets/${input.asset.id}/file`;
+  const alt = input.item.purpose || input.item.imageType || "正文配图";
+  const caption = input.item.purpose || input.item.imageType;
+
+  return [
+    `<figure class="wechat-inline-illustration" data-plan-item-id="${escapeHtml(input.item.itemId)}" data-asset-id="${escapeHtml(input.asset.id)}" style="margin:24px 0;text-align:center;">`,
+    `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;border-radius:8px;" />`,
+    caption ? `<figcaption style="font-size:13px;color:#777;margin-top:8px;">${escapeHtml(caption)}</figcaption>` : "",
+    "</figure>"
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderWechatHtml(markdown: string, inlineIllustrations: InlineIllustrationHtmlInput[] = []): WechatHtmlRenderResult {
   const lines = markdown.split(/\r?\n/);
   const html: string[] = [
     '<article class="wechat-article" style="font-size:16px;line-height:1.8;color:#222;">'
   ];
   let inList = false;
+  const beforeAnchors = new Map<string, InlineIllustrationHtmlInput[]>();
+  const afterAnchors = new Map<string, InlineIllustrationHtmlInput[]>();
+  const unmatchedItemIds = new Set(inlineIllustrations.map((input) => input.item.itemId));
+  const insertedAssetIds: string[] = [];
+
+  for (const illustration of inlineIllustrations) {
+    const anchor = extractPositionAnchor(illustration.item.position);
+    if (!anchor) {
+      continue;
+    }
+    const target = getPositionPlacement(illustration.item.position) === "before" ? beforeAnchors : afterAnchors;
+    const current = target.get(anchor) || [];
+    current.push(illustration);
+    target.set(anchor, current);
+  }
 
   function closeList() {
     if (inList) {
       html.push("</ul>");
       inList = false;
+    }
+  }
+
+  function insertIllustrations(items: InlineIllustrationHtmlInput[] | undefined) {
+    if (!items || items.length === 0) {
+      return;
+    }
+    closeList();
+    for (const item of items) {
+      html.push(renderInlineIllustrationFigure(item));
+      unmatchedItemIds.delete(item.item.itemId);
+      insertedAssetIds.push(item.asset.id);
     }
   }
 
@@ -156,14 +246,24 @@ export function markdownToWechatHtml(markdown: string): string {
       closeList();
       continue;
     }
+    const anchor = getMarkdownLineAnchor(line);
+    if (anchor) {
+      insertIllustrations(beforeAnchors.get(anchor));
+    }
     if (line.startsWith("# ")) {
       closeList();
       html.push(`<h1 style="font-size:24px;line-height:1.35;margin:0 0 18px;">${escapeHtml(line.slice(2))}</h1>`);
+      if (anchor) {
+        insertIllustrations(afterAnchors.get(anchor));
+      }
       continue;
     }
     if (line.startsWith("## ")) {
       closeList();
       html.push(`<h2 style="font-size:18px;line-height:1.45;margin:28px 0 12px;">${escapeHtml(line.slice(3))}</h2>`);
+      if (anchor) {
+        insertIllustrations(afterAnchors.get(anchor));
+      }
       continue;
     }
     if (line.startsWith("- ")) {
@@ -172,14 +272,31 @@ export function markdownToWechatHtml(markdown: string): string {
         inList = true;
       }
       html.push(`<li style="margin:6px 0;">${escapeHtml(line.slice(2))}</li>`);
+      if (anchor) {
+        insertIllustrations(afterAnchors.get(anchor));
+      }
       continue;
     }
     closeList();
     html.push(`<p style="margin:0 0 14px;">${escapeHtml(line)}</p>`);
+    if (anchor) {
+      insertIllustrations(afterAnchors.get(anchor));
+    }
   }
   closeList();
   html.push("</article>");
-  return html.join("\n");
+  const warnings = inlineIllustrations
+    .filter((input) => unmatchedItemIds.has(input.item.itemId))
+    .map((input) => `未匹配插入位置：${input.item.position}`);
+  return {
+    html: html.join("\n"),
+    warnings,
+    insertedAssetIds
+  };
+}
+
+export function markdownToWechatHtml(markdown: string): string {
+  return renderWechatHtml(markdown).html;
 }
 
 export function listArticleAssets(articleId: string, db: WorkbenchDatabase = getDatabase().db): ArticleAsset[] {
@@ -200,6 +317,51 @@ export function listWechatDraftUploads(articleId: string, db: WorkbenchDatabase 
     .all();
 }
 
+function collectConfirmedInlineIllustrations(
+  article: ArticleProject,
+  draft: DraftVersion,
+  db: WorkbenchDatabase
+): InlineIllustrationCollection {
+  const plan = db
+    .select()
+    .from(illustrationPlans)
+    .where(
+      and(
+        eq(illustrationPlans.articleId, article.id),
+        eq(illustrationPlans.finalDraftVersionId, draft.id),
+        eq(illustrationPlans.status, "confirmed")
+      )
+    )
+    .orderBy(desc(illustrationPlans.createdAt))
+    .get();
+  if (!plan) {
+    return { illustrations: [], warnings: [] };
+  }
+
+  const assets = listArticleAssets(article.id, db);
+  const warnings: string[] = [];
+  const illustrations = parseIllustrationPlanPayload(plan.planJson).items.flatMap((item) => {
+    const asset = assets.find(
+      (candidate) =>
+        candidate.assetType === "inline_illustration" &&
+        candidate.status === "ready" &&
+        candidate.draftVersionId === draft.id &&
+        candidate.sourcePlanId === plan.id &&
+        candidate.sourcePlanItemId === item.itemId
+    );
+    if (!asset) {
+      return [];
+    }
+    if (!fs.existsSync(asset.path)) {
+      warnings.push(`正文配图文件不存在，未插入：${item.position}`);
+      return [];
+    }
+    return [{ articleId: article.id, item, asset }];
+  });
+
+  return { illustrations, warnings };
+}
+
 export function renderWechatHtmlAsset(
   articleId: string,
   db: WorkbenchDatabase = getDatabase().db,
@@ -210,7 +372,13 @@ export function renderWechatHtmlAsset(
   if (!["ready_to_publish", "publish_package_generated", "cover_generated", "uploaded_to_draft_box"].includes(article.status)) {
     throw new Error("请先标记待发布");
   }
-  const html = markdownToWechatHtml(draft.markdown);
+  const inlineIllustrations = collectConfirmedInlineIllustrations(article, draft, db);
+  const rendered = renderWechatHtml(draft.markdown, inlineIllustrations.illustrations);
+  const warnings = [...inlineIllustrations.warnings, ...rendered.warnings];
+  if (rendered.insertedAssetIds.length > 0) {
+    warnings.unshift(LOCAL_INLINE_ILLUSTRATION_WARNING);
+  }
+  const html = rendered.html;
   const relativePath = path.join("articles", article.id, "html", `draft-v${draft.versionNo}.html`);
   const filePath = path.join(options.assetRoot || defaultAssetRoot(), relativePath);
   const now = new Date().toISOString();
@@ -229,7 +397,7 @@ export function renderWechatHtmlAsset(
     source: "markdown_final_draft",
     promptSnapshot: null,
     provider: null,
-    errorMessage: null,
+    errorMessage: warnings.length > 0 ? warnings.join("\n") : null,
     width: null,
     height: null,
     generatedAt: now,
@@ -242,12 +410,16 @@ export function renderWechatHtmlAsset(
     if (article.status === "ready_to_publish") {
       transitionArticle(db, article, "publish_package_generated", "render_html", {
         draftVersionId: draft.id,
-        assetId: asset.id
+        assetId: asset.id,
+        inlineIllustrationAssetIds: rendered.insertedAssetIds,
+        warnings
       });
     } else {
       recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "render_html", {
         draftVersionId: draft.id,
-        assetId: asset.id
+        assetId: asset.id,
+        inlineIllustrationAssetIds: rendered.insertedAssetIds,
+        warnings
       });
     }
   });
@@ -405,6 +577,9 @@ export async function uploadWechatDraft(
   const cover11 = latestAsset(article.id, (asset) => asset.assetType === "cover" && asset.variant === "wechat_1_1", db);
   if (!htmlAsset || !cover21 || !cover11) {
     throw new Error("上传前必须具备 HTML 和 21:9、1:1 封面");
+  }
+  if (htmlAsset.errorMessage) {
+    throw new Error(`发布包存在正文配图处理提示：${htmlAsset.errorMessage}`);
   }
 
   const baseUpload = {
