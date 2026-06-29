@@ -11,6 +11,7 @@ import { LOCAL_USER_ID } from "@/db/seed";
 import {
   aiInvocations,
   aiInvocationRequirements,
+  aiStyleChecks,
   angleCandidates,
   articleAssets,
   articleProjects,
@@ -31,6 +32,7 @@ import {
   type ResearchVersion,
   type RequirementPreset,
   type AIInvocationRequirement,
+  type AIStyleCheck,
   type StagePromptDefault,
   type TopicDiagnosis
 } from "@/db/schema";
@@ -171,6 +173,11 @@ export const runDbsContentInputSchema = z.object({
   ...promptControlInputShape
 });
 
+export const runAIStyleCheckInputSchema = z.object({
+  draftVersionId: z.string().trim().min(1, "必须指定文案版本"),
+  ...promptControlInputShape
+});
+
 export const prePublishCheckInputSchema = z.object(promptControlInputShape);
 
 export const reviewCheckInputSchema = z.object(promptControlInputShape);
@@ -194,6 +201,7 @@ export type SaveManualResearchInput = z.input<typeof saveManualResearchInputSche
 export type GenerateOutlineInput = z.input<typeof generateOutlineInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
 export type RunDbsContentInput = z.input<typeof runDbsContentInputSchema>;
+export type RunAIStyleCheckInput = z.input<typeof runAIStyleCheckInputSchema>;
 export type PrePublishCheckInput = z.input<typeof prePublishCheckInputSchema>;
 export type ReviewCheckInput = z.input<typeof reviewCheckInputSchema>;
 export type ReviseFromDiagnosisInput = z.infer<typeof reviseFromDiagnosisInputSchema>;
@@ -618,6 +626,15 @@ export function listDiagnoses(articleId: string, db: WorkbenchDatabase = getData
     .from(contentDiagnoses)
     .where(eq(contentDiagnoses.articleId, articleId))
     .orderBy(desc(contentDiagnoses.createdAt))
+    .all();
+}
+
+export function listAIStyleChecks(articleId: string, db: WorkbenchDatabase = getDatabase().db): AIStyleCheck[] {
+  return db
+    .select()
+    .from(aiStyleChecks)
+    .where(eq(aiStyleChecks.articleId, articleId))
+    .orderBy(desc(aiStyleChecks.createdAt))
     .all();
 }
 
@@ -1506,6 +1523,95 @@ export async function runDbsContent(
       stagePrompt,
       error,
       fallbackMessage: "dbs-content 诊断失败"
+    });
+    throw error;
+  }
+}
+
+export async function runAIStyleCheck(
+  articleId: string,
+  input: RunAIStyleCheckInput,
+  client: AIClient = getAIClient(),
+  db: WorkbenchDatabase = getDatabase().db
+): Promise<AIStyleCheck> {
+  const article = requireArticle(articleId, db);
+  const parsed = runAIStyleCheckInputSchema.parse(input);
+  const draft = requireDraft(article.id, parsed.draftVersionId, db);
+  const stagePrompt = getStagePromptDefault("ai_style_check", db);
+  const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "ai_style_check", db);
+  const selectedRequirementsSummary = selectedRequirements.length > 0 ? selectedRequirements.map((requirement) => requirement.label).join("、") : "";
+  const prompt = buildLayeredPrompt(
+    renderPrompt("ai_style_check", {
+      title: article.title,
+      topic: article.topic,
+      targetReader: article.targetReader,
+      coreProblem: article.coreProblem,
+      customInstruction: parsed.customInstruction,
+      selectedRequirementsSummary,
+      draftMarkdown: draft.markdown
+    }),
+    {
+      stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
+      selectedRequirements
+    }
+  );
+
+  try {
+    const generated = await client.runAIStyleCheck(prompt);
+    if ((generated.verdict === "needs_cleanup" || generated.verdict === "heavy_slop") && generated.issues.length === 0) {
+      throw new Error("AI 返回的问题列表为空");
+    }
+
+    const check: AIStyleCheck = {
+      id: randomUUID(),
+      articleId: article.id,
+      ownerId: article.ownerId,
+      draftVersionId: draft.id,
+      sourceInvocationId: null,
+      sourceType: "draft_version",
+      cleanlinessVerdict: generated.verdict,
+      score: generated.score,
+      issueCount: generated.issues.length,
+      summaryMarkdown: generated.summaryMarkdown,
+      issuesJson: JSON.stringify(generated.issues),
+      customInstructionSnapshot: parsed.customInstruction || null,
+      createdBy: "ai",
+      createdAt: new Date().toISOString()
+    };
+
+    db.transaction(() => {
+      const invocationId = recordAIInvocation(db, {
+        article,
+        taskType: "ai_style_check",
+        client,
+        prompt,
+        response: generated,
+        customInstruction: parsed.customInstruction,
+        stagePrompt,
+        status: "success"
+      });
+      recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      check.sourceInvocationId = invocationId;
+      db.insert(aiStyleChecks).values(check).run();
+      recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "run_ai_style_check", {
+        draftVersionId: draft.id,
+        checkId: check.id,
+        verdict: check.cleanlinessVerdict,
+        issueCount: check.issueCount
+      });
+    });
+
+    return check;
+  } catch (error) {
+    recordFailedAIInvocation(db, {
+      article,
+      taskType: "ai_style_check",
+      client,
+      prompt,
+      customInstruction: parsed.customInstruction,
+      stagePrompt,
+      error,
+      fallbackMessage: "文案清洁检查失败"
     });
     throw error;
   }

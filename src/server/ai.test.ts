@@ -5,6 +5,7 @@ import {
   OpenAICompatibleClient,
   normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
+  normalizeGeneratedAIStyleCheck,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
 } from "./ai";
@@ -181,6 +182,69 @@ describe("fake AI client", () => {
 
     expect(prePublish.summaryMarkdown).toContain("发布前检查摘要");
     expect(review.summaryMarkdown).toContain("复盘归因检查清单");
+  });
+
+  it("generates stable AI style check output", async () => {
+    const client = new FakeAIClient();
+    const check = await client.runAIStyleCheck();
+
+    expect(check.verdict).toBe("needs_cleanup");
+    expect(check.summaryMarkdown).toContain("重复判断");
+    expect(check.issues.length).toBeGreaterThan(0);
+    expect(check.issues[0].quote).toBeTruthy();
+  });
+
+  it("normalizes AI style check responses with standard fields", () => {
+    const check = normalizeGeneratedAIStyleCheck({
+      verdict: "heavy_slop",
+      score: 42,
+      summaryMarkdown: "有明显表达水分。",
+      issues: [
+        {
+          type: "ai_cliche",
+          severity: "high",
+          quote: "真正改变的不是速度，而是路径。",
+          problem: "句式模板化。",
+          fixDirection: "改成具体家庭场景。"
+        }
+      ]
+    });
+
+    expect(check.verdict).toBe("heavy_slop");
+    expect(check.score).toBe(42);
+    expect(check.issues[0].type).toBe("ai_cliche");
+  });
+
+  it("normalizes AI style check responses with Chinese fields", () => {
+    const check = normalizeGeneratedAIStyleCheck({
+      清洁度判断: "需要清理",
+      分数: "68 分",
+      摘要: "有重复判断。",
+      问题列表: [
+        {
+          问题类型: "repetition",
+          严重程度: "medium",
+          原文片段: "速度只是表层",
+          问题说明: "前面已经说过。",
+          修改方向: "合并到上一段。"
+        }
+      ]
+    });
+
+    expect(check.verdict).toBe("needs_cleanup");
+    expect(check.score).toBe(68);
+    expect(check.summaryMarkdown).toContain("重复判断");
+    expect(check.issues[0].fixDirection).toContain("合并");
+  });
+
+  it("rejects high-risk AI style checks without issues", () => {
+    expect(() =>
+      normalizeGeneratedAIStyleCheck({
+        清洁度判断: "重度水分",
+        摘要: "有明显问题。",
+        问题列表: []
+      })
+    ).toThrow("AI 返回的问题列表为空");
   });
 
   it("parses fenced JSON from OpenAI compatible responses", async () => {

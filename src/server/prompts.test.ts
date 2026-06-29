@@ -48,6 +48,26 @@ describe("prompt templates", () => {
     expect(prompt).toContain("AI 痕迹");
   });
 
+  it("renders ai style check prompt without rewriting the draft", () => {
+    const prompt = renderPrompt("ai_style_check", {
+      title: "跨境支付通火了",
+      topic: "跨境支付通",
+      targetReader: "跨境家庭",
+      coreProblem: "资金路径是否更可操作",
+      customInstruction: "重点检查重复判断。",
+      selectedRequirementsSummary: "检查空话、AI 味和重复。",
+      draftMarkdown: "# 跨境支付通\n\n真正改变的不是速度，而是路径。"
+    });
+
+    expect(prompt).toContain("文案清洁检查");
+    expect(prompt).toContain("不改写全文");
+    expect(prompt).toContain("不评价选题是否值得写");
+    expect(prompt).toContain("不替代 dbs-content");
+    expect(prompt).toContain("只诊断这篇 Markdown 文案的表达层水分");
+    expect(prompt).toContain("verdict：只能是 clean、minor、needs_cleanup、heavy_slop");
+    expect(prompt).toContain("issues：问题列表");
+  });
+
   it("renders topic diagnosis as a strict gate prompt", () => {
     const prompt = renderPrompt("topic_diagnosis", {
       topic: "香港账户还能不能开",

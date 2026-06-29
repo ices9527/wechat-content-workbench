@@ -1,4 +1,13 @@
-import type { GeneratedContentResearch, GeneratedDraft, GeneratedOutline, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
+import type {
+  AIStyleCheckVerdict,
+  GeneratedAIStyleCheck,
+  GeneratedAIStyleCheckIssue,
+  GeneratedContentResearch,
+  GeneratedDraft,
+  GeneratedOutline,
+  GeneratedTopicDiagnosis,
+  TopicDiagnosisVerdict
+} from "./ai";
 
 function stringifyPromptValue(value: unknown): string {
   if (typeof value === "string") {
@@ -33,6 +42,29 @@ function firstPromptValue(json: Record<string, unknown>, keys: string[]): string
     }
   }
   return "";
+}
+
+function firstRawValue(json: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (json[key] !== undefined && json[key] !== null) {
+      return json[key];
+    }
+  }
+  return undefined;
+}
+
+function parsePromptNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const match = value.match(/-?\d+(?:\.\d+)?/);
+    if (match) {
+      const parsed = Number(match[0]);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+  }
+  return null;
 }
 
 function outlineObjectToMarkdown(json: Record<string, unknown>): string {
@@ -168,6 +200,61 @@ function contentResearchObjectToMarkdown(json: Record<string, unknown>): string 
     .join("\n\n");
 }
 
+function normalizeAIStyleCheckVerdict(value: string): AIStyleCheckVerdict {
+  const normalized = value.trim().toLocaleLowerCase();
+  if (normalized.includes("heavy") || normalized.includes("重度") || normalized.includes("严重") || normalized.includes("高风险")) {
+    return "heavy_slop";
+  }
+  if (
+    normalized.includes("needs_cleanup") ||
+    normalized.includes("需要清理") ||
+    normalized.includes("明显") ||
+    normalized.includes("较多")
+  ) {
+    return "needs_cleanup";
+  }
+  if (normalized.includes("minor") || normalized.includes("轻微") || normalized.includes("少量")) {
+    return "minor";
+  }
+  if (normalized.includes("clean") || normalized.includes("清爽") || normalized.includes("干净") || normalized.includes("通过")) {
+    return "clean";
+  }
+  return "minor";
+}
+
+function normalizeAIStyleCheckIssue(issue: unknown): GeneratedAIStyleCheckIssue | null {
+  if (typeof issue === "string") {
+    const problem = issue.trim();
+    return problem ? { type: "unknown", severity: "medium", quote: "", problem, fixDirection: "" } : null;
+  }
+  if (!issue || typeof issue !== "object") {
+    return null;
+  }
+  const record = issue as Record<string, unknown>;
+  const normalizedIssue = {
+    type: firstPromptValue(record, ["type", "issueType", "issue_type", "问题类型", "类型"]) || "unknown",
+    severity: firstPromptValue(record, ["severity", "level", "严重程度", "风险等级"]) || "medium",
+    quote: firstPromptValue(record, ["quote", "text", "original", "原文片段", "原文", "片段"]),
+    problem: firstPromptValue(record, ["problem", "explanation", "reason", "问题说明", "说明", "问题"]),
+    fixDirection: firstPromptValue(record, ["fixDirection", "fix_direction", "suggestion", "修改方向", "修改建议", "建议"])
+  };
+  if (!normalizedIssue.quote && !normalizedIssue.problem && !normalizedIssue.fixDirection) {
+    return null;
+  }
+  return normalizedIssue;
+}
+
+function normalizeAIStyleCheckIssues(value: unknown): GeneratedAIStyleCheckIssue[] {
+  if (!value) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeAIStyleCheckIssue).filter((issue): issue is GeneratedAIStyleCheckIssue => Boolean(issue));
+  }
+  const singleIssue = normalizeAIStyleCheckIssue(value);
+  return singleIssue ? [singleIssue] : [];
+}
+
 export function normalizeGeneratedOutline(json: Record<string, unknown>): GeneratedOutline {
   const mainline = firstPromptValue(json, [
     "mainline",
@@ -220,6 +307,30 @@ export function normalizeGeneratedDraft(json: Record<string, unknown>): Generate
     ]) || draftObjectToMarkdown(json);
 
   return { markdown };
+}
+
+export function normalizeGeneratedAIStyleCheck(json: Record<string, unknown>): GeneratedAIStyleCheck {
+  const verdict = normalizeAIStyleCheckVerdict(
+    firstPromptValue(json, ["verdict", "decision", "cleanlinessVerdict", "cleanliness_verdict", "清洁度判断", "判断", "结论"])
+  );
+  const score = parsePromptNumber(firstRawValue(json, ["score", "cleanlinessScore", "cleanliness_score", "分数", "清洁度分数"]));
+  const summaryMarkdown =
+    firstPromptValue(json, ["summaryMarkdown", "summary_markdown", "summary", "摘要", "总结"]) ||
+    (verdict === "clean" ? "未发现明显表达水分。" : "AI 未返回清洁检查摘要。");
+  const issues = normalizeAIStyleCheckIssues(
+    firstRawValue(json, ["issues", "issueList", "issue_list", "problems", "problemList", "问题列表"])
+  );
+
+  if ((verdict === "needs_cleanup" || verdict === "heavy_slop") && issues.length === 0) {
+    throw new Error("AI 返回的问题列表为空");
+  }
+
+  return {
+    verdict,
+    score,
+    summaryMarkdown,
+    issues
+  };
 }
 
 function normalizeTopicDiagnosisVerdict(value: string): TopicDiagnosisVerdict {

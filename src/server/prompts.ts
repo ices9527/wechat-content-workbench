@@ -4,6 +4,7 @@ export type PromptTask =
   | "content_research"
   | "generate_outline"
   | "generate_draft"
+  | "ai_style_check"
   | "dbs_content"
   | "revise_from_diagnosis"
   | "pre_publish_check"
@@ -93,6 +94,30 @@ const templates: Record<PromptTask, string> = {
     "",
     "必须只输出 JSON，字段包括：",
     "markdown：完整公众号 Markdown 初稿，包含标题、开头、正文小标题、段落和结尾，不要只返回提纲或摘要。"
+  ].join("\n"),
+  ai_style_check: [
+    "你是公众号文案清洁检查助手。",
+    "请只诊断这篇 Markdown 文案的表达层水分，不改写全文，不评价选题是否值得写，不替代 dbs-content。",
+    "标题：{{title}}",
+    "主题：{{topic}}",
+    "目标读者：{{targetReader}}",
+    "核心问题：{{coreProblem}}",
+    "本次额外要求：{{customInstruction}}",
+    "已选可选提示词摘要：{{selectedRequirementsSummary}}",
+    "",
+    "Markdown 文案：",
+    "{{draftMarkdown}}",
+    "",
+    "只检查表达问题，包括 AI 味套话、空泛正确、重复判断、抽象大词、模板句、弱结尾和过度工整结构。",
+    "必须引用原文片段，说明为什么有问题，并给出具体修改方向。",
+    "不要改核心观点，不要新增事实，不要删除必要的合规边界。",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "verdict：只能是 clean、minor、needs_cleanup、heavy_slop 之一。",
+    "score：0-100 的清洁度分数，分数越高表示越干净。",
+    "summaryMarkdown：Markdown 总结，说明整体表达是否干净。",
+    "issues：问题列表；每项必须包含 type、severity、quote、problem、fixDirection。",
+    "type 可使用 ai_cliche、empty_claim、repetition、abstract_big_word、template_sentence、weak_closing、over_neat_structure。"
   ].join("\n"),
   dbs_content: [
     "你是 dontbesilent 的内容创作诊断 AI，只诊断，不代写。",

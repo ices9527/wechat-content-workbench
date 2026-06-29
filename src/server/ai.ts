@@ -3,6 +3,7 @@ import { readAppConfig } from "@/config/env";
 import {
   normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
+  normalizeGeneratedAIStyleCheck,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
 } from "./ai-normalizers";
@@ -10,6 +11,7 @@ import {
 export {
   normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
+  normalizeGeneratedAIStyleCheck,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
 } from "./ai-normalizers";
@@ -67,6 +69,23 @@ export type GeneratedPromptArtifact = {
   summaryMarkdown: string;
 };
 
+export type AIStyleCheckVerdict = "clean" | "minor" | "needs_cleanup" | "heavy_slop";
+
+export type GeneratedAIStyleCheckIssue = {
+  type: string;
+  severity: string;
+  quote: string;
+  problem: string;
+  fixDirection: string;
+};
+
+export type GeneratedAIStyleCheck = {
+  verdict: AIStyleCheckVerdict;
+  score: number | null;
+  summaryMarkdown: string;
+  issues: GeneratedAIStyleCheckIssue[];
+};
+
 export type AIClient = {
   model: string;
   baseUrl?: string;
@@ -75,6 +94,7 @@ export type AIClient = {
   generateContentResearch(prompt: string): Promise<GeneratedContentResearch>;
   generateOutline(prompt: string): Promise<GeneratedOutline>;
   generateDraft(prompt: string): Promise<GeneratedDraft>;
+  runAIStyleCheck(prompt: string): Promise<GeneratedAIStyleCheck>;
   diagnoseContent(prompt: string): Promise<GeneratedDiagnosis>;
   reviseDraft(prompt: string): Promise<GeneratedDraft>;
   generatePrePublishCheck(prompt: string): Promise<GeneratedPromptArtifact>;
@@ -261,6 +281,30 @@ export class FakeAIClient implements AIClient {
     };
   }
 
+  async runAIStyleCheck(): Promise<GeneratedAIStyleCheck> {
+    return {
+      verdict: "needs_cleanup",
+      score: 68,
+      summaryMarkdown: "整体能读，但有重复判断和 AI 味句式，需要清理后再进入最终稿。",
+      issues: [
+        {
+          type: "ai_cliche",
+          severity: "medium",
+          quote: "真正重要的不是几秒到账，而是生活资金的路径变得更低摩擦。",
+          problem: "句式接近常见 AI 转折，判断成立但表达过于模板化。",
+          fixDirection: "直接写家庭为什么在意路径稳定，少用“不是……而是……”结构。"
+        },
+        {
+          type: "repetition",
+          severity: "low",
+          quote: "速度只是表层",
+          problem: "前文已经表达过速度不是重点，这里再次出现会降低信息密度。",
+          fixDirection: "保留一个判断句，后面直接进入使用场景、额度和合规边界。"
+        }
+      ]
+    };
+  }
+
   async diagnoseContent(): Promise<GeneratedDiagnosis> {
     return {
       diagnosisMarkdown: [
@@ -388,6 +432,11 @@ export class OpenAICompatibleClient implements AIClient {
   async generateDraft(prompt: string): Promise<GeneratedDraft> {
     const json = await this.completeJson(prompt);
     return normalizeGeneratedDraft(json);
+  }
+
+  async runAIStyleCheck(prompt: string): Promise<GeneratedAIStyleCheck> {
+    const json = await this.completeJson(prompt);
+    return normalizeGeneratedAIStyleCheck(json);
   }
 
   async diagnoseContent(prompt: string): Promise<GeneratedDiagnosis> {
