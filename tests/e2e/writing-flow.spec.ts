@@ -70,6 +70,15 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(researchPanel.getByText("当前资料包 r3")).toBeVisible();
   await expect(researchPanel.locator(".research-preview").getByText("手动")).toBeVisible();
   await expect(researchPanel.getByLabel("研究资料包版本").locator("option")).toHaveCount(3);
+  const researchComparison = researchPanel.getByLabel("资料包对比区域");
+  await expect(researchComparison.getByText("资料包版本对比")).toBeVisible();
+  await expect(researchComparison.getByLabel("左侧对比版本")).toHaveValue(/.+/);
+  await expect(researchComparison.getByLabel("右侧对比版本")).toHaveValue(/.+/);
+  await expect(researchComparison.getByText("材料摘要")).toBeVisible();
+  await expect(researchComparison.getByText("边界提醒")).toBeVisible();
+  await expect(researchComparison.getByText("可写方向")).toBeVisible();
+  await expect(researchComparison.getByText("不建议写的方向")).toBeVisible();
+  await expect(researchComparison.getByText("人工摘要：后续提纲要围绕家庭现金流和路径边界展开。")).toBeVisible();
   await researchPanel.getByLabel("研究资料包版本").selectOption({ index: 2 });
   await expect(researchPanel.getByText("当前资料包 r1")).toBeVisible();
   await researchPanel.getByLabel("研究资料包版本").selectOption({ index: 0 });

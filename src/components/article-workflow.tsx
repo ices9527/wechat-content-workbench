@@ -113,6 +113,48 @@ function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string
   return TOPIC_DIAGNOSIS_VERDICT_LABELS[verdict] || verdict;
 }
 
+function formatResearchOptionLabel(research: ResearchVersion): string {
+  return `r${research.versionNo} · ${formatTime(research.createdAt)}`;
+}
+
+function extractMarkdownSection(markdown: string, headings: string[]): string {
+  const lines = markdown.split(/\r?\n/);
+  const collected: string[] = [];
+  let collecting = false;
+
+  for (const line of lines) {
+    const heading = line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if (heading) {
+      const title = heading[1].trim();
+      if (collecting) {
+        break;
+      }
+      collecting = headings.some((item) => title.includes(item));
+      continue;
+    }
+    if (collecting) {
+      collected.push(line);
+    }
+  }
+
+  return collected.join("\n").trim();
+}
+
+function getResearchCompareValue(research: ResearchVersion, field: "summary" | "boundaries" | "writeable" | "avoid"): string {
+  const valueByField = {
+    summary: research.summaryMarkdown || extractMarkdownSection(research.researchMarkdown, ["材料摘要", "摘要"]),
+    boundaries:
+      research.boundariesMarkdown ||
+      extractMarkdownSection(research.researchMarkdown, ["边界提醒", "资料包边界提醒", "表达边界", "合规边界", "边界"]),
+    writeable:
+      research.writeableDirectionsMarkdown || extractMarkdownSection(research.researchMarkdown, ["可写方向", "可写", "写作方向"]),
+    avoid:
+      research.avoidDirectionsMarkdown ||
+      extractMarkdownSection(research.researchMarkdown, ["不建议写的方向", "不建议", "避免", "禁区"])
+  };
+  return valueByField[field].trim() || "未填写";
+}
+
 function isBlockingTopicDiagnosisVerdict(verdict: string | null | undefined): boolean {
   return verdict === "hold" || verdict === "drop";
 }
@@ -433,6 +475,100 @@ function ResearchPanel({ count, children }: { count: number; children: ReactNode
   );
 }
 
+function ResearchComparisonPanel({
+  researchVersions,
+  leftId,
+  rightId,
+  onLeftChange,
+  onRightChange
+}: {
+  researchVersions: ResearchVersion[];
+  leftId: string;
+  rightId: string;
+  onLeftChange: (id: string) => void;
+  onRightChange: (id: string) => void;
+}) {
+  const leftResearch = researchVersions.find((research) => research.id === leftId) || researchVersions[0] || null;
+  const rightResearch =
+    researchVersions.find((research) => research.id === rightId) ||
+    researchVersions.find((research) => research.id !== leftResearch?.id) ||
+    null;
+  const fields: Array<{ key: "summary" | "boundaries" | "writeable" | "avoid"; label: string }> = [
+    { key: "summary", label: "材料摘要" },
+    { key: "boundaries", label: "边界提醒" },
+    { key: "writeable", label: "可写方向" },
+    { key: "avoid", label: "不建议写的方向" }
+  ];
+
+  return (
+    <section className="research-comparison" aria-label="资料包对比区域">
+      <div className="section-title-row">
+        <h3>资料包版本对比</h3>
+        {researchVersions.length >= 2 ? <p className="subtle">结构化对比，不做逐字 diff。</p> : null}
+      </div>
+
+      {researchVersions.length < 2 ? (
+        <p className="subtle">至少需要两个研究资料包版本，才能进行对比。</p>
+      ) : (
+        <>
+          <div className="research-compare-selectors">
+            <label className="field">
+              <span className="label">左侧版本</span>
+              <select
+                aria-label="左侧对比版本"
+                className="input"
+                onChange={(event) => onLeftChange(event.target.value)}
+                value={leftResearch?.id || ""}
+              >
+                {researchVersions.map((research) => (
+                  <option disabled={research.id === rightResearch?.id} key={research.id} value={research.id}>
+                    {formatResearchOptionLabel(research)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span className="label">右侧版本</span>
+              <select
+                aria-label="右侧对比版本"
+                className="input"
+                onChange={(event) => onRightChange(event.target.value)}
+                value={rightResearch?.id || ""}
+              >
+                {researchVersions.map((research) => (
+                  <option disabled={research.id === leftResearch?.id} key={research.id} value={research.id}>
+                    {formatResearchOptionLabel(research)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {leftResearch && rightResearch ? (
+            <div className="research-compare-list">
+              {fields.map((field) => (
+                <section className="research-compare-field" key={field.key}>
+                  <h4>{field.label}</h4>
+                  <div className="research-compare-grid">
+                    <article className="research-compare-cell">
+                      <strong>r{leftResearch.versionNo}</strong>
+                      <MarkdownPreview markdown={getResearchCompareValue(leftResearch, field.key)} />
+                    </article>
+                    <article className="research-compare-cell">
+                      <strong>r{rightResearch.versionNo}</strong>
+                      <MarkdownPreview markdown={getResearchCompareValue(rightResearch, field.key)} />
+                    </article>
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 function OutlinePanel({ headActions, children }: { headActions: ReactNode; children: ReactNode }) {
   return (
     <WorkflowPanel tabId="outline" title="主线和提纲" headActions={headActions}>
@@ -555,6 +691,8 @@ export function ArticleWorkflow({
   const [outlineMarkdown, setOutlineMarkdown] = useState(latestOutline?.outlineMarkdown || "");
   const [selectedOutlineId, setSelectedOutlineId] = useState(latestOutline?.id || "");
   const [selectedResearchId, setSelectedResearchId] = useState(latestResearch?.id || "");
+  const [compareLeftResearchId, setCompareLeftResearchId] = useState(researchVersions[0]?.id || "");
+  const [compareRightResearchId, setCompareRightResearchId] = useState(researchVersions[1]?.id || "");
   const [draftMarkdown, setDraftMarkdown] = useState(latestDraft?.markdown || "");
   const [selectedDraftId, setSelectedDraftId] = useState(latestDraft?.id || "");
   const stagePromptKey = useMemo(
@@ -903,7 +1041,7 @@ export function ArticleWorkflow({
   }
 
   function getResearchOptionLabel(research: ResearchVersion): string {
-    return `r${research.versionNo} · ${formatTime(research.createdAt)}`;
+    return formatResearchOptionLabel(research);
   }
 
   function selectResearchVersion(researchId: string) {
@@ -1232,6 +1370,8 @@ export function ArticleWorkflow({
                           selectedRequirementIds: selectedResearchRequirementIds
                         });
                         setSelectedResearchId(research.id);
+                        setCompareLeftResearchId(research.id);
+                        setCompareRightResearchId(latestResearch?.id || "");
                         setNotice(`已生成内容研究资料包 r${research.versionNo}`);
                       })
                     }
@@ -1336,6 +1476,8 @@ export function ArticleWorkflow({
                               researchMarkdown: researchEditorMarkdown
                             });
                             setSelectedResearchId(research.id);
+                            setCompareLeftResearchId(research.id);
+                            setCompareRightResearchId(researchEditorSourceId);
                             setResearchEditorSourceId(research.id);
                             setResearchSummaryMarkdown(research.summaryMarkdown);
                             setResearchEditorMarkdown(research.researchMarkdown);
@@ -1350,6 +1492,14 @@ export function ArticleWorkflow({
                     {!researchEditorSourceId ? <p className="subtle">先载入一个资料包，再另存人工版本。</p> : null}
                   </section>
                 ) : null}
+
+                <ResearchComparisonPanel
+                  researchVersions={researchVersions}
+                  leftId={compareLeftResearchId}
+                  rightId={compareRightResearchId}
+                  onLeftChange={setCompareLeftResearchId}
+                  onRightChange={setCompareRightResearchId}
+                />
               </>
             ) : (
               <p className="subtle">请先选择角度，再生成内容研究资料包。</p>

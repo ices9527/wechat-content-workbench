@@ -1101,6 +1101,70 @@ h1 {
   padding-top: 16px;
 }
 
+.research-comparison {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.section-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.section-title-row h3,
+.section-title-row p {
+  margin: 0;
+}
+
+.research-compare-selectors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.research-compare-list {
+  display: grid;
+  gap: 12px;
+}
+
+.research-compare-field {
+  display: grid;
+  gap: 8px;
+}
+
+.research-compare-field h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.research-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.research-compare-cell {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+  padding: 12px;
+}
+
+.research-compare-cell strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 13px;
+}
+
 .mini-card h3 {
   margin: 0;
   font-size: 15px;
@@ -1566,6 +1630,8 @@ h1 {
   }
 
   .inline-form,
+  .research-compare-selectors,
+  .research-compare-grid,
   .requirement-selector-toolbar,
   .requirement-edit-form,
   .draft-grid,
