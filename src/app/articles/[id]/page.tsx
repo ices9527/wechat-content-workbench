@@ -42,6 +42,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
     ...listRequirementPresets({ stage: "research", includeArchived: true }),
     ...listRequirementPresets({ stage: "outline", includeArchived: true }),
     ...listRequirementPresets({ stage: "draft", includeArchived: true }),
+    ...listRequirementPresets({ stage: "ai_style_check", includeArchived: true }),
     ...listRequirementPresets({ stage: "dbs", includeArchived: true }),
     ...listRequirementPresets({ stage: "pre_publish", includeArchived: true }),
     ...listRequirementPresets({ stage: "review", includeArchived: true })

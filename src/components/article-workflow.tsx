@@ -184,7 +184,7 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "review", label: "复盘" }
 ];
 
-const PROMPT_STAGES: RequirementStage[] = ["topic", "angle", "research", "outline", "draft", "dbs", "pre_publish", "review"];
+const PROMPT_STAGES: RequirementStage[] = ["topic", "angle", "research", "outline", "draft", "ai_style_check", "dbs", "pre_publish", "review"];
 
 function isWorkflowTabId(value: string | null): value is WorkflowTabId {
   return WORKFLOW_TABS.some((tab) => tab.id === value);

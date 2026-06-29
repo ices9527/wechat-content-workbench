@@ -29,6 +29,16 @@ export const DEFAULT_STAGE_PROMPTS = [
     ].join("\n")
   },
   {
+    stage: "ai_style_check",
+    label: "文案清洁检查默认提示词",
+    prompt: [
+      "只检查表达层面的水分、AI 味、空话、套话、重复判断和模板句。",
+      "不要替用户重写全文，不评价选题是否值得写，不替代 dbs-content 诊断。",
+      "每个问题必须引用原文片段，说明为什么有问题，并给出具体修改方向。",
+      "判断要克制，能保留的专业表达不要误判为水分。"
+    ].join("\n")
+  },
+  {
     stage: "angle",
     label: "角度默认提示词",
     prompt: [
@@ -417,6 +427,72 @@ export const DEFAULT_REQUIREMENT_PRESETS = [
     promptFragment: "不要暗示绕开监管、绕开规则、规避审查或利用灰色路径。",
     defaultEnabled: true,
     priority: 110
+  },
+  {
+    stableKey: "AICLEAN-001",
+    stage: "ai_style_check",
+    category: "空话",
+    type: "check",
+    label: "检查空泛表达",
+    description: "找出没有信息量、没有判断或没有行动含义的句子。",
+    promptFragment: "检查文案中是否存在没有具体信息、没有判断、没有边界、没有例子或没有行动含义的空泛句子；必须引用原文片段。",
+    defaultEnabled: true,
+    priority: 10
+  },
+  {
+    stableKey: "AICLEAN-002",
+    stage: "ai_style_check",
+    category: "AI 味",
+    type: "check",
+    label: "检查 AI 味套话",
+    description: "识别常见 AI 式转折、总结和模板句。",
+    promptFragment: "检查是否存在“值得注意的是”“综上所述”“不可否认的是”“在当今时代”“随着社会的发展”等 AI 味或模板化表达，并说明如何替换成具体判断。",
+    defaultEnabled: true,
+    priority: 20
+  },
+  {
+    stableKey: "AICLEAN-003",
+    stage: "ai_style_check",
+    category: "重复",
+    type: "check",
+    label: "检查重复判断",
+    description: "同一层意思不要反复换说法。",
+    promptFragment: "检查文案是否反复表达同一个判断；如果有，请列出重复片段，并建议合并或删减的方向。",
+    defaultEnabled: true,
+    priority: 30
+  },
+  {
+    stableKey: "AICLEAN-004",
+    stage: "ai_style_check",
+    category: "句式",
+    type: "avoid",
+    label: "检查车轱辘话",
+    description: "识别绕圈、递进虚假、看似推进但信息不变的段落。",
+    promptFragment: "检查是否存在车轱辘话、假递进或看似推进但信息没有增加的段落；建议保留哪一句判断、删去哪部分铺垫。",
+    defaultEnabled: true,
+    priority: 40
+  },
+  {
+    stableKey: "AICLEAN-005",
+    stage: "ai_style_check",
+    category: "密度",
+    type: "prefer",
+    label: "提高信息密度",
+    description: "每段最好有判断、边界、例子或行动含义。",
+    promptFragment: "检查每段是否至少提供一种价值：判断、边界、例子、条件或行动含义；对信息密度低的段落给出补强方向。",
+    defaultEnabled: true,
+    priority: 50
+  },
+  {
+    stableKey: "AICLEAN-006",
+    stage: "ai_style_check",
+    category: "边界",
+    type: "compliance",
+    label: "不误删必要边界",
+    description: "清理水分时保留必要的谨慎表达和合规边界。",
+    promptFragment: "清理建议不能把必要的适用条件、风险提示、合规边界或谨慎表达误删；如果某句虽然不短但承担边界说明，请标记为可保留。",
+    defaultEnabled: true,
+    priority: 60
   },
   {
     stableKey: "DBS-001",

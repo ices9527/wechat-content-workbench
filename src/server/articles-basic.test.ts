@@ -42,11 +42,21 @@ describe("article service basics", () => {
     const { db } = createTestDatabase();
     const prompts = listStagePromptDefaults(db);
 
-    expect(prompts.map((prompt) => prompt.stage).sort()).toEqual(["angle", "dbs", "draft", "outline", "pre_publish", "research", "review"]);
+    expect(prompts.map((prompt) => prompt.stage).sort()).toEqual([
+      "ai_style_check",
+      "angle",
+      "dbs",
+      "draft",
+      "outline",
+      "pre_publish",
+      "research",
+      "review"
+    ]);
     expect(prompts.find((prompt) => prompt.stage === "angle")?.prompt).toContain("真实场景");
     expect(prompts.find((prompt) => prompt.stage === "research")?.prompt).toContain("只生成内容研究资料包");
     expect(prompts.find((prompt) => prompt.stage === "outline")?.prompt).toContain("主线必须是一句话判断");
     expect(prompts.find((prompt) => prompt.stage === "draft")?.prompt).toContain("专业克制");
+    expect(prompts.find((prompt) => prompt.stage === "ai_style_check")?.prompt).toContain("只检查表达层面的水分");
     expect(prompts.find((prompt) => prompt.stage === "pre_publish")?.prompt).toContain("预期阅读来源");
     expect(prompts.find((prompt) => prompt.stage === "review")?.prompt).toContain("不要一上来归因到文笔");
   });
@@ -57,6 +67,7 @@ describe("article service basics", () => {
     const topicRequirements = listRequirementPresets({ stage: "topic" }, db);
     const draftRequirements = listRequirementPresets({ stage: "draft" }, db);
     const dbsRequirements = listRequirementPresets({ stage: "dbs" }, db);
+    const aiStyleCheckRequirements = listRequirementPresets({ stage: "ai_style_check" }, db);
     const prePublishRequirements = listRequirementPresets({ stage: "pre_publish" }, db);
     const angleRequirements = listRequirementPresets({ stage: "angle" }, db);
     const researchRequirements = listRequirementPresets({ stage: "research" }, db);
@@ -67,14 +78,17 @@ describe("article service basics", () => {
     expect(researchRequirements.length).toBeGreaterThanOrEqual(6);
     expect(outlineRequirements.length).toBeGreaterThanOrEqual(6);
     expect(draftRequirements.length).toBeGreaterThanOrEqual(24);
+    expect(aiStyleCheckRequirements.length).toBeGreaterThanOrEqual(6);
     expect(dbsRequirements.length).toBeGreaterThanOrEqual(5);
     expect(prePublishRequirements.length).toBeGreaterThanOrEqual(10);
     expect(reviewRequirements.length).toBeGreaterThanOrEqual(4);
     expect(topicRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(4);
     expect(researchRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(5);
     expect(outlineRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(6);
+    expect(aiStyleCheckRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(6);
     expect(researchRequirements.find((requirement) => requirement.stableKey === "RESEARCH-003")?.promptFragment).toContain("路径边界");
     expect(draftRequirements.find((requirement) => requirement.stableKey === "STYLE-005")?.promptFragment).toContain("不是");
+    expect(aiStyleCheckRequirements.find((requirement) => requirement.stableKey === "AICLEAN-003")?.promptFragment).toContain("反复表达同一个判断");
     expect(draftRequirements.find((requirement) => requirement.stableKey === "BAN-001")?.promptFragment).toContain("综上所述");
     expect(prePublishRequirements.find((requirement) => requirement.stableKey === "PUB-005")?.label).toBe("确认通知状态");
   });

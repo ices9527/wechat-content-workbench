@@ -104,6 +104,28 @@ const statements = [
     source_invocation_id TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS ai_style_checks (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    draft_version_id TEXT NOT NULL REFERENCES draft_versions(id),
+    source_invocation_id TEXT,
+    source_type TEXT NOT NULL DEFAULT 'draft_version',
+    cleanliness_verdict TEXT NOT NULL,
+    score INTEGER,
+    issue_count INTEGER NOT NULL DEFAULT 0,
+    summary_markdown TEXT NOT NULL,
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    custom_instruction_snapshot TEXT,
+    created_by TEXT NOT NULL DEFAULT 'ai',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS ai_style_checks_article_created_index
+    ON ai_style_checks(article_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS ai_style_checks_draft_created_index
+    ON ai_style_checks(draft_version_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS ai_style_checks_source_invocation_index
+    ON ai_style_checks(source_invocation_id)`,
   `CREATE TABLE IF NOT EXISTS topic_diagnoses (
     id TEXT PRIMARY KEY,
     article_id TEXT NOT NULL REFERENCES article_projects(id),

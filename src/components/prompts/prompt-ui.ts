@@ -45,6 +45,13 @@ export const STAGE_PROMPT_UI: Record<
     customPlaceholder: "例如：开头不要用热点追问，先从家庭生活场景进入",
     savedNotice: "已保存 Markdown 文案默认提示词"
   },
+  ai_style_check: {
+    eyebrow: "Clean Prompt",
+    title: "文案清洁检查提示词设置",
+    defaultPromptLabel: "文案清洁检查默认提示词",
+    customPlaceholder: "例如：重点找空话、重复判断和 AI 味套话，不要改核心观点",
+    savedNotice: "已保存文案清洁检查默认提示词"
+  },
   dbs: {
     eyebrow: "DBS Prompt",
     title: "dbs-content 提示词设置",
