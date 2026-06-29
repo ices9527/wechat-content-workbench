@@ -6,7 +6,7 @@ import { z } from "zod";
 import { requirementStageSchema, type RequirementStage } from "@/domain/stages";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { LOCAL_USER_ID } from "@/db/seed";
-import { aiInvocationRequirements, requirementPresets, type RequirementPreset } from "@/db/schema";
+import { requirementPresets, type RequirementPreset } from "@/db/schema";
 
 export const requirementTypeSchema = z.enum(["must", "avoid", "prefer", "check", "compliance"]);
 
@@ -162,24 +162,13 @@ export function deleteRequirementPreset(
   db: WorkbenchDatabase = getDatabase().db
 ): { deleted: boolean; archived: boolean; requirement: RequirementPreset } {
   const existing = requireRequirementPreset(id, db);
-  const used = db
-    .select()
-    .from(aiInvocationRequirements)
-    .where(eq(aiInvocationRequirements.requirementPresetId, existing.id))
-    .get();
-
-  if (used) {
-    const archived = updateRequirementPreset(
-      existing.id,
-      {
-        enabled: false,
-        archived: true
-      },
-      db
-    );
-    return { deleted: false, archived: true, requirement: archived };
-  }
-
-  db.delete(requirementPresets).where(eq(requirementPresets.id, existing.id)).run();
-  return { deleted: true, archived: false, requirement: existing };
+  const archived = updateRequirementPreset(
+    existing.id,
+    {
+      enabled: false,
+      archived: true
+    },
+    db
+  );
+  return { deleted: false, archived: true, requirement: archived };
 }

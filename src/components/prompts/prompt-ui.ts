@@ -24,6 +24,13 @@ export const STAGE_PROMPT_UI: Record<
     customPlaceholder: "例如：只生成能落到家庭跨境资金安排的角度，不要宏大趋势角度",
     savedNotice: "已保存角度默认提示词"
   },
+  research: {
+    eyebrow: "Research Prompt",
+    title: "内容研究提示词设置",
+    defaultPromptLabel: "内容研究默认提示词",
+    customPlaceholder: "例如：重点研究家庭现金流场景，不要写成政策资料罗列",
+    savedNotice: "已保存内容研究默认提示词"
+  },
   outline: {
     eyebrow: "Outline Prompt",
     title: "主线提纲提示词设置",

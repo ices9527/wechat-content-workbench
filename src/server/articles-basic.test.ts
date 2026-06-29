@@ -42,8 +42,9 @@ describe("article service basics", () => {
     const { db } = createTestDatabase();
     const prompts = listStagePromptDefaults(db);
 
-    expect(prompts.map((prompt) => prompt.stage).sort()).toEqual(["angle", "dbs", "draft", "outline", "pre_publish", "review"]);
+    expect(prompts.map((prompt) => prompt.stage).sort()).toEqual(["angle", "dbs", "draft", "outline", "pre_publish", "research", "review"]);
     expect(prompts.find((prompt) => prompt.stage === "angle")?.prompt).toContain("真实场景");
+    expect(prompts.find((prompt) => prompt.stage === "research")?.prompt).toContain("只生成内容研究资料包");
     expect(prompts.find((prompt) => prompt.stage === "outline")?.prompt).toContain("主线必须是一句话判断");
     expect(prompts.find((prompt) => prompt.stage === "draft")?.prompt).toContain("专业克制");
     expect(prompts.find((prompt) => prompt.stage === "pre_publish")?.prompt).toContain("预期阅读来源");
@@ -58,17 +59,21 @@ describe("article service basics", () => {
     const dbsRequirements = listRequirementPresets({ stage: "dbs" }, db);
     const prePublishRequirements = listRequirementPresets({ stage: "pre_publish" }, db);
     const angleRequirements = listRequirementPresets({ stage: "angle" }, db);
+    const researchRequirements = listRequirementPresets({ stage: "research" }, db);
     const reviewRequirements = listRequirementPresets({ stage: "review" }, db);
 
     expect(topicRequirements).toHaveLength(8);
     expect(angleRequirements.length).toBeGreaterThanOrEqual(5);
+    expect(researchRequirements.length).toBeGreaterThanOrEqual(6);
     expect(outlineRequirements.length).toBeGreaterThanOrEqual(6);
     expect(draftRequirements.length).toBeGreaterThanOrEqual(24);
     expect(dbsRequirements.length).toBeGreaterThanOrEqual(5);
     expect(prePublishRequirements.length).toBeGreaterThanOrEqual(10);
     expect(reviewRequirements.length).toBeGreaterThanOrEqual(4);
     expect(topicRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(4);
+    expect(researchRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(5);
     expect(outlineRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(6);
+    expect(researchRequirements.find((requirement) => requirement.stableKey === "RESEARCH-003")?.promptFragment).toContain("路径边界");
     expect(draftRequirements.find((requirement) => requirement.stableKey === "STYLE-005")?.promptFragment).toContain("不是");
     expect(draftRequirements.find((requirement) => requirement.stableKey === "BAN-001")?.promptFragment).toContain("综上所述");
     expect(prePublishRequirements.find((requirement) => requirement.stableKey === "PUB-005")?.label).toBe("确认通知状态");
@@ -126,8 +131,10 @@ describe("article service basics", () => {
     expect(archived.archivedAt).not.toBeNull();
 
     const deleted = deleteRequirementPreset(created.id, db);
-    expect(deleted.deleted).toBe(true);
-    expect(db.select().from(requirementPresets).where(eq(requirementPresets.id, created.id)).all()).toHaveLength(0);
+    expect(deleted.deleted).toBe(false);
+    expect(deleted.archived).toBe(true);
+    expect(db.select().from(requirementPresets).where(eq(requirementPresets.id, created.id)).all()).toHaveLength(1);
+    expect(listRequirementPresets({ stage: "draft" }, db).some((item) => item.id === created.id)).toBe(false);
   });
 
   it("lists articles with next action labels", () => {

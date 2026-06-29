@@ -38,6 +38,16 @@ export const DEFAULT_STAGE_PROMPTS = [
     ].join("\n")
   },
   {
+    stage: "research",
+    label: "内容研究默认提示词",
+    prompt: [
+      "只生成内容研究资料包，不写正文，不生成主线提纲。",
+      "优先整理可核验事实、读者真实问题、路径边界、风险提醒和可写方向。",
+      "不要把热点当结论，要说明它如何影响家庭决策、现金流安排或合规边界。",
+      "复杂规则必须保留适用条件，不承诺速度、收益、身份、开户或审批结果。"
+    ].join("\n")
+  },
+  {
     stage: "dbs",
     label: "dbs-content 默认提示词",
     prompt: [
@@ -154,6 +164,72 @@ export const DEFAULT_REQUIREMENT_PRESETS = [
     promptFragment: "诊断时检查这个选题是否有明确转发对象和转发理由；如果没有，请提示补强目标读者和使用场景。",
     defaultEnabled: false,
     priority: 80
+  },
+  {
+    stableKey: "RESEARCH-001",
+    stage: "research",
+    category: "事实",
+    type: "must",
+    label: "只整理可核验事实",
+    description: "资料包优先沉淀可核验事实，不把推断写成结论。",
+    promptFragment: "内容研究必须优先整理可核验事实、已知条件和仍需确认的信息；不要把推断、猜测或宣传话术写成确定结论。",
+    defaultEnabled: true,
+    priority: 10
+  },
+  {
+    stableKey: "RESEARCH-002",
+    stage: "research",
+    category: "读者",
+    type: "must",
+    label: "提炼读者真实问题",
+    description: "研究要服务后续文章判断，而不是资料堆叠。",
+    promptFragment: "内容研究必须提炼目标读者真正会问的问题，尤其是他们在家庭决策、资金路径、风险判断或下一步行动上的困惑。",
+    defaultEnabled: true,
+    priority: 20
+  },
+  {
+    stableKey: "RESEARCH-003",
+    stage: "research",
+    category: "边界",
+    type: "must",
+    label: "标出路径边界",
+    description: "把工具或方案放回适用条件中判断。",
+    promptFragment: "内容研究必须标出路径边界、适用条件、限制条件和不适用场景；不要把工具效率写成无条件优势。",
+    defaultEnabled: true,
+    priority: 30
+  },
+  {
+    stableKey: "RESEARCH-004",
+    stage: "research",
+    category: "风险",
+    type: "compliance",
+    label: "不承诺确定结果",
+    description: "研究阶段就避免后续文章出现绝对化承诺。",
+    promptFragment: "内容研究必须提醒不能承诺收益、速度、身份、开户、审批或监管结果；涉及结果时必须写成条件化、边界化表达。",
+    defaultEnabled: true,
+    priority: 40
+  },
+  {
+    stableKey: "RESEARCH-005",
+    stage: "research",
+    category: "方向",
+    type: "prefer",
+    label: "输出可写和不可写方向",
+    description: "资料包要帮助后续选择主线，不只是归档信息。",
+    promptFragment: "内容研究要分别列出可写方向和不建议写的方向，并说明原因，方便后续主线提纲取舍。",
+    defaultEnabled: true,
+    priority: 50
+  },
+  {
+    stableKey: "RESEARCH-006",
+    stage: "research",
+    category: "禁区",
+    type: "avoid",
+    label: "不要资料罗列",
+    description: "避免把资料包写成百科或新闻摘要。",
+    promptFragment: "不要把内容研究写成新闻摘要、政策资料罗列或知识百科；每条资料都要说明它和读者问题、判断边界或后续文章方向的关系。",
+    defaultEnabled: false,
+    priority: 60
   },
   {
     stableKey: "OUTLINE-001",

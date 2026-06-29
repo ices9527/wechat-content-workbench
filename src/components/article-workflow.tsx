@@ -142,7 +142,7 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "review", label: "复盘" }
 ];
 
-const PROMPT_STAGES: RequirementStage[] = ["topic", "angle", "outline", "draft", "dbs", "pre_publish", "review"];
+const PROMPT_STAGES: RequirementStage[] = ["topic", "angle", "research", "outline", "draft", "dbs", "pre_publish", "review"];
 
 function isWorkflowTabId(value: string | null): value is WorkflowTabId {
   return WORKFLOW_TABS.some((tab) => tab.id === value);
@@ -576,6 +576,7 @@ export function ArticleWorkflow({
   }, [requirementPresets]);
   const topicRequirements = requirementsByStage.topic;
   const angleRequirements = requirementsByStage.angle;
+  const researchRequirements = requirementsByStage.research;
   const outlineRequirements = requirementsByStage.outline;
   const draftRequirements = requirementsByStage.draft;
   const dbsRequirements = requirementsByStage.dbs;
@@ -604,12 +605,14 @@ export function ArticleWorkflow({
     selectedRequirementIdsFromKeys(requirementKeys)
   );
   const angleDefaultPrompt = defaultPromptDrafts.angle;
+  const researchDefaultPrompt = defaultPromptDrafts.research;
   const outlineDefaultPrompt = defaultPromptDrafts.outline;
   const draftDefaultPrompt = defaultPromptDrafts.draft;
   const dbsDefaultPrompt = defaultPromptDrafts.dbs;
   const prePublishDefaultPrompt = defaultPromptDrafts.pre_publish;
   const reviewDefaultPrompt = defaultPromptDrafts.review;
   const setAngleDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("angle", value);
+  const setResearchDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("research", value);
   const setOutlineDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("outline", value);
   const setDraftDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("draft", value);
   const setDbsDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("dbs", value);
@@ -629,6 +632,7 @@ export function ArticleWorkflow({
   const setReviewCustomInstruction = (value: string) => setCustomInstructionForStage("review", value);
   const selectedTopicRequirementIds = selectedRequirementIdsByStage.topic;
   const selectedAngleRequirementIds = selectedRequirementIdsByStage.angle;
+  const selectedResearchRequirementIds = selectedRequirementIdsByStage.research;
   const selectedOutlineRequirementIds = selectedRequirementIdsByStage.outline;
   const selectedDraftRequirementIds = selectedRequirementIdsByStage.draft;
   const selectedDbsRequirementIds = selectedRequirementIdsByStage.dbs;
@@ -636,6 +640,7 @@ export function ArticleWorkflow({
   const selectedReviewRequirementIds = selectedRequirementIdsByStage.review;
   const setSelectedTopicRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("topic", ids);
   const setSelectedAngleRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("angle", ids);
+  const setSelectedResearchRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("research", ids);
   const setSelectedOutlineRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("outline", ids);
   const setSelectedDraftRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("draft", ids);
   const setSelectedDbsRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("dbs", ids);
@@ -1177,6 +1182,24 @@ export function ArticleWorkflow({
                   <p>{selectedAngle.risk || "未填写风险提醒"}</p>
                 </section>
 
+                <StagePromptDialog
+                  title={STAGE_PROMPT_UI.research.title}
+                  stage="research"
+                  defaultPromptLabel={STAGE_PROMPT_UI.research.defaultPromptLabel}
+                  defaultPrompt={researchDefaultPrompt}
+                  onDefaultPromptChange={setResearchDefaultPrompt}
+                  onSaveDefaultPrompt={() =>
+                    runAction("save-research-default-prompt", () => saveStagePrompt("research", researchDefaultPrompt))
+                  }
+                  requirements={researchRequirements}
+                  selectedIds={selectedResearchRequirementIds}
+                  pending={pending !== null}
+                  onSelectedIdsChange={setSelectedResearchRequirementIds}
+                  onCreate={(input) => runAction("create-research-requirement", () => createRequirement(input))}
+                  onUpdate={(id, input) => runAction("update-research-requirement", () => updateRequirement(id, input))}
+                  onDelete={(id) => runAction("delete-research-requirement", () => deleteRequirement(id))}
+                />
+
                 <label className="field prompt-field">
                   <span className="label">对当前研究的补充要求</span>
                   <textarea
@@ -1194,7 +1217,8 @@ export function ArticleWorkflow({
                     onClick={() =>
                       runAction("generate-content-research", async () => {
                         const research = await postJson<ResearchVersion>(`/api/articles/${article.id}/generate-content-research`, {
-                          customInstruction: researchCustomInstruction
+                          customInstruction: researchCustomInstruction,
+                          selectedRequirementIds: selectedResearchRequirementIds
                         });
                         setSelectedResearchId(research.id);
                         setNotice(`已生成内容研究资料包 r${research.versionNo}`);

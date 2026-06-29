@@ -941,6 +941,8 @@ export async function generateContentResearch(
   if (!angle) {
     throw new Error("选中的角度不存在");
   }
+  const stagePrompt = getStagePromptDefault("research", db);
+  const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "research", db);
   const prompt = buildLayeredPrompt(
     [
       renderPrompt("content_research", {
@@ -958,6 +960,8 @@ export async function generateContentResearch(
       .filter(Boolean)
       .join("\n\n"),
     {
+      stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
+      selectedRequirements,
       customInstruction: parsed.customInstruction
     }
   );
@@ -996,6 +1000,7 @@ export async function generateContentResearch(
         prompt,
         response: generated,
         customInstruction: parsed.customInstruction,
+        stagePrompt,
         upstreamContext,
         status: "success"
       });
@@ -1006,6 +1011,7 @@ export async function generateContentResearch(
         researchVersionId: research.id,
         sourceAngleId: angle.id
       });
+      recordAIInvocationRequirements(db, invocationId, selectedRequirements);
     });
 
     return research;
@@ -1016,6 +1022,7 @@ export async function generateContentResearch(
       client,
       prompt,
       customInstruction: parsed.customInstruction,
+      stagePrompt,
       upstreamContext,
       error,
       fallbackMessage: "AI 内容研究失败"

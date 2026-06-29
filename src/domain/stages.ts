@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-export const REQUIREMENT_STAGES = ["topic", "angle", "outline", "draft", "dbs", "pre_publish", "review"] as const;
+export const REQUIREMENT_STAGES = ["topic", "angle", "research", "outline", "draft", "dbs", "pre_publish", "review"] as const;
 
-export const STAGE_PROMPT_STAGES = ["angle", "outline", "draft", "dbs", "pre_publish", "review"] as const;
+export const STAGE_PROMPT_STAGES = ["angle", "research", "outline", "draft", "dbs", "pre_publish", "review"] as const;
 
-export const FUTURE_REQUIREMENT_STAGES = ["research", "stop_slop", "illustration"] as const;
+export const FUTURE_REQUIREMENT_STAGES = ["stop_slop", "illustration"] as const;
 
 export const requirementStageSchema = z.enum(REQUIREMENT_STAGES);
 export const stagePromptStageSchema = z.enum(STAGE_PROMPT_STAGES);
@@ -14,6 +14,7 @@ export type StagePromptStage = z.infer<typeof stagePromptStageSchema>;
 
 export const STAGE_PROMPT_LABELS: Record<StagePromptStage, string> = {
   angle: "角度默认提示词",
+  research: "内容研究默认提示词",
   outline: "主线提纲默认提示词",
   draft: "Markdown 文案默认提示词",
   dbs: "dbs-content 默认提示词",

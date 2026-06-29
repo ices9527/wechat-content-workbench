@@ -39,6 +39,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const requirementPresets = [
     ...listRequirementPresets({ stage: "topic", includeArchived: true }),
     ...listRequirementPresets({ stage: "angle", includeArchived: true }),
+    ...listRequirementPresets({ stage: "research", includeArchived: true }),
     ...listRequirementPresets({ stage: "outline", includeArchived: true }),
     ...listRequirementPresets({ stage: "draft", includeArchived: true }),
     ...listRequirementPresets({ stage: "dbs", includeArchived: true }),

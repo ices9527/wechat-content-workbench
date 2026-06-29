@@ -138,10 +138,18 @@ describe("article prompt recipe service", () => {
     const article = createArticle({ topic: "跨境支付通", targetReader: "跨境家庭" }, db);
     const angle = createManualAngle(article.id, { angleTitle: "速度只是表层" }, db);
     selectAngle(article.id, angle.id, db);
+    updateStagePromptDefault({ stage: "research", prompt: "默认：只整理研究资料，不写正文。" }, db);
+    const requirement = listRequirementPresets({ stage: "research" }, db).find((item) => item.stableKey === "RESEARCH-005");
+    if (!requirement) {
+      throw new Error("测试缺少内容研究可选提示词");
+    }
 
     const research = await generateContentResearch(
       article.id,
-      { customInstruction: "重点研究家庭现金流场景。" },
+      {
+        customInstruction: "重点研究家庭现金流场景。",
+        selectedRequirementIds: [requirement.id]
+      },
       new FakeAIClient(),
       db
     );
@@ -150,8 +158,11 @@ describe("article prompt recipe service", () => {
     expect(research.sourceInvocationId).toBeTruthy();
     expect(recipe.invocationId).toBe(research.sourceInvocationId);
     expect(recipe.taskType).toBe("content_research");
+    expect(recipe.stageDefaultPrompt?.prompt).toContain("默认：只整理研究资料");
+    expect(recipe.selectedRequirements.map((item) => item.label)).toContain(requirement.label);
     expect(recipe.customInstruction).toBe("重点研究家庭现金流场景。");
     expect(recipe.finalPrompt).toContain("输出研究资料包");
+    expect(recipe.finalPrompt).toContain("可写方向和不建议写的方向");
     expect(recipe.finalPrompt).toContain("重点研究家庭现金流场景。");
   });
 
