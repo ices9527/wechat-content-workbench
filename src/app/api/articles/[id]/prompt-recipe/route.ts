@@ -5,6 +5,7 @@ import {
   ensureAppDataReady,
   getPromptRecipeForAIStyleCheck,
   getPromptRecipeForDraft,
+  getPromptRecipeForIllustrationPlan,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
   getPromptRecipeForResearch,
@@ -21,8 +22,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const topicDiagnosisId = searchParams.get("topicDiagnosisId");
     const researchVersionId = searchParams.get("researchVersionId");
     const aiStyleCheckId = searchParams.get("aiStyleCheckId");
+    const illustrationPlanId = searchParams.get("illustrationPlanId");
     const invocationId = searchParams.get("invocationId");
-    const specifiedCount = [outlineVersionId, draftVersionId, topicDiagnosisId, researchVersionId, aiStyleCheckId, invocationId].filter(Boolean).length;
+    const specifiedCount = [
+      outlineVersionId,
+      draftVersionId,
+      topicDiagnosisId,
+      researchVersionId,
+      aiStyleCheckId,
+      illustrationPlanId,
+      invocationId
+    ].filter(Boolean).length;
 
     if (specifiedCount !== 1) {
       return jsonError(new Error("必须且只能指定一个版本或调用 ID"));
@@ -38,7 +48,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             ? getPromptRecipeForResearch(id, researchVersionId)
             : aiStyleCheckId
               ? getPromptRecipeForAIStyleCheck(id, aiStyleCheckId)
-              : getPromptRecipeForInvocation(id, invocationId as string);
+              : illustrationPlanId
+                ? getPromptRecipeForIllustrationPlan(id, illustrationPlanId)
+                : getPromptRecipeForInvocation(id, invocationId as string);
 
     return NextResponse.json({ recipe });
   } catch (error) {

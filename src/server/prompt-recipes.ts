@@ -5,6 +5,7 @@ import {
   aiInvocationRequirements,
   aiInvocations,
   aiStyleChecks,
+  illustrationPlans,
   type AIInvocation,
   type AIInvocationRequirement,
   type DraftVersion
@@ -245,4 +246,25 @@ export function getPromptRecipeForAIStyleCheck(
     return emptyPromptRecipe(article.id, "这个文案清洁检查没有绑定 AI 提示词记录，可能是旧版本数据。");
   }
   return requireInvocationRecipe(article.id, check.sourceInvocationId, db);
+}
+
+export function getPromptRecipeForIllustrationPlan(
+  articleId: string,
+  illustrationPlanId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): PromptRecipe {
+  const article = requireArticle(articleId, db);
+  const plan = db
+    .select()
+    .from(illustrationPlans)
+    .where(and(eq(illustrationPlans.id, illustrationPlanId), eq(illustrationPlans.articleId, article.id)))
+    .get();
+
+  if (!plan) {
+    return emptyPromptRecipe(article.id, "没有找到对应的配图规划记录。");
+  }
+  if (!plan.sourceInvocationId) {
+    return emptyPromptRecipe(article.id, "这个配图规划没有绑定 AI 提示词记录，可能是人工保存或旧版本数据。");
+  }
+  return requireInvocationRecipe(article.id, plan.sourceInvocationId, db);
 }

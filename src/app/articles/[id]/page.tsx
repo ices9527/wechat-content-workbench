@@ -8,6 +8,7 @@ import {
   listAngles,
   listDiagnoses,
   listDrafts,
+  listIllustrationPlans,
   listOutlines,
   listPromptRunArtifacts,
   listResearchVersions,
@@ -34,6 +35,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const drafts = listDrafts(article.id);
   const diagnoses = listDiagnoses(article.id);
   const aiStyleChecks = listAIStyleChecks(article.id);
+  const illustrationPlans = listIllustrationPlans(article.id);
   const topicDiagnoses = listTopicDiagnoses(article.id);
   const assets = listArticleAssets(article.id);
   const uploads = listWechatDraftUploads(article.id);
@@ -46,6 +48,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
     ...listRequirementPresets({ stage: "draft", includeArchived: true }),
     ...listRequirementPresets({ stage: "ai_style_check", includeArchived: true }),
     ...listRequirementPresets({ stage: "dbs", includeArchived: true }),
+    ...listRequirementPresets({ stage: "illustration_plan", includeArchived: true }),
     ...listRequirementPresets({ stage: "pre_publish", includeArchived: true }),
     ...listRequirementPresets({ stage: "review", includeArchived: true })
   ];
@@ -70,6 +73,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         drafts={drafts}
         diagnoses={diagnoses}
         aiStyleChecks={aiStyleChecks}
+        illustrationPlans={illustrationPlans}
         topicDiagnoses={topicDiagnoses}
         assets={assets}
         uploads={uploads}

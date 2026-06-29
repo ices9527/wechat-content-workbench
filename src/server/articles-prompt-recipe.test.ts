@@ -19,9 +19,11 @@ import {
   deleteRequirementPreset,
   generateDraft,
   generateContentResearch,
+  generateIllustrationPlan,
   generateOutline,
   getPromptRecipeForAIStyleCheck,
   getPromptRecipeForDraft,
+  getPromptRecipeForIllustrationPlan,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
   getPromptRecipeForResearch,
@@ -166,6 +168,33 @@ describe("article prompt recipe service", () => {
     expect(recipe.finalPrompt).toContain("输出研究资料包");
     expect(recipe.finalPrompt).toContain("可写方向和不建议写的方向");
     expect(recipe.finalPrompt).toContain("重点研究家庭现金流场景。");
+  });
+
+  it("links illustration plans to their prompt recipes", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    markFinalDraft(article.id, { draftVersionId: draft.id }, db);
+    const requirement = listRequirementPresets({ stage: "illustration_plan" }, db)[0];
+
+    const plan = await generateIllustrationPlan(
+      article.id,
+      {
+        customInstruction: "只做边界清单图。",
+        selectedRequirementIds: [requirement.id]
+      },
+      new FakeAIClient(),
+      db
+    );
+    const recipe = getPromptRecipeForIllustrationPlan(article.id, plan.id, db);
+
+    expect(plan.sourceInvocationId).toBeTruthy();
+    expect(recipe.invocationId).toBe(plan.sourceInvocationId);
+    expect(recipe.taskType).toBe("illustration_plan");
+    expect(recipe.stageDefaultPrompt?.prompt).toContain("只规划正文配图");
+    expect(recipe.selectedRequirements.map((item) => item.label)).toContain(requirement.label);
+    expect(recipe.customInstruction).toBe("只做边界清单图。");
+    expect(recipe.finalPrompt).toContain("正文配图规划助手");
+    expect(recipe.finalPrompt).toContain("只做边界清单图。");
   });
 
   it("returns an empty prompt recipe for research packages without invocation history", () => {

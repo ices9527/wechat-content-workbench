@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTestDatabase } from "@/test/test-db";
 
-import { aiStyleChecks, articleProjects, draftVersions } from "./schema";
+import { aiStyleChecks, articleProjects, draftVersions, illustrationPlans } from "./schema";
 
 describe("database migrations", () => {
   it("creates ai style check storage with queryable defaults", () => {
@@ -70,5 +70,63 @@ describe("database migrations", () => {
     expect(check?.issueCount).toBe(0);
     expect(check?.issuesJson).toBe("[]");
     expect(check?.createdBy).toBe("ai");
+  });
+
+  it("creates illustration plan storage with queryable defaults", () => {
+    const { db, sqlite } = createTestDatabase();
+
+    const columns = sqlite.prepare("PRAGMA table_info(illustration_plans)").all() as Array<{ name: string }>;
+    const indexes = sqlite.prepare("PRAGMA index_list(illustration_plans)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "article_id",
+        "final_draft_version_id",
+        "source_invocation_id",
+        "status",
+        "plan_json",
+        "summary_markdown",
+        "created_by",
+        "updated_at"
+      ])
+    );
+    expect(indexes.map((index) => index.name)).toEqual(
+      expect.arrayContaining(["illustration_plans_article_created_index", "illustration_plans_draft_created_index"])
+    );
+
+    db.insert(articleProjects)
+      .values({
+        id: "article-illustration-plan",
+        ownerId: "local_user",
+        title: "测试文章",
+        topic: "测试文章"
+      })
+      .run();
+    db.insert(draftVersions)
+      .values({
+        id: "draft-illustration-plan",
+        articleId: "article-illustration-plan",
+        ownerId: "local_user",
+        versionNo: 1,
+        draftType: "initial",
+        markdown: "这是一段最终稿。",
+        isFinal: true,
+        createdBy: "user"
+      })
+      .run();
+    db.insert(illustrationPlans)
+      .values({
+        id: "plan-illustration",
+        articleId: "article-illustration-plan",
+        ownerId: "local_user",
+        finalDraftVersionId: "draft-illustration-plan",
+        planJson: JSON.stringify({ items: [] }),
+        summaryMarkdown: "暂无配图规划。"
+      })
+      .run();
+
+    const plan = db.select().from(illustrationPlans).get();
+    expect(plan?.status).toBe("draft");
+    expect(plan?.createdBy).toBe("ai");
   });
 });

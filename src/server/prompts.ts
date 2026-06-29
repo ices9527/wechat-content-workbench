@@ -5,6 +5,7 @@ export type PromptTask =
   | "generate_outline"
   | "generate_draft"
   | "ai_style_check"
+  | "illustration_plan"
   | "dbs_content"
   | "revise_from_diagnosis"
   | "revise_from_ai_style_check"
@@ -119,6 +120,40 @@ const templates: Record<PromptTask, string> = {
     "summaryMarkdown：Markdown 总结，说明整体表达是否干净。",
     "issues：问题列表；每项必须包含 type、severity、quote、problem、fixDirection。",
     "type 可使用 ai_cliche、empty_claim、repetition、abstract_big_word、template_sentence、weak_closing、over_neat_structure。"
+  ].join("\n"),
+  illustration_plan: [
+    "你是公众号正文配图规划助手。",
+    "请只根据最终稿生成正文配图规划，不生成图片，不修改正文，不改标题。",
+    "标题：{{title}}",
+    "目标读者：{{targetReader}}",
+    "核心问题：{{coreProblem}}",
+    "已确认主线：{{mainline}}",
+    "本次额外要求：{{customInstruction}}",
+    "已选可选提示词摘要：{{selectedRequirementsSummary}}",
+    "",
+    "合规和表达边界：",
+    "{{complianceBoundaries}}",
+    "",
+    "最终稿 Markdown：",
+    "{{finalMarkdown}}",
+    "",
+    "规划原则：",
+    "- 少而准，第一版建议 1-3 张。",
+    "- 每张图必须服务正文理解，不能只是装饰。",
+    "- 每张图必须绑定建议插入位置和图片作用。",
+    "- 不制造收益承诺、身份承诺、开户承诺、审批承诺、到账承诺或规避监管暗示。",
+    "- 不要把金融工具画成投资通道、确定路径或自由流动通道。",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "summary：一句话概括整篇文章的配图策略。",
+    "items：配图规划数组，建议 1-3 项；每项必须包含 position、purpose、imageType、visualBrief、promptBrief、doNotVisualize、riskNotes。",
+    "position：建议插入位置，必须能对应正文小标题或段落。",
+    "purpose：这张图帮助读者理解什么。",
+    "imageType：图片类型，例如流程图、边界清单图、对比图、结构图。",
+    "visualBrief：画面描述。",
+    "promptBrief：未来生成图片时可使用的提示词简报。",
+    "doNotVisualize：不要画什么。",
+    "riskNotes：风险提醒。"
   ].join("\n"),
   dbs_content: [
     "你是 dontbesilent 的内容创作诊断 AI，只诊断，不代写。",

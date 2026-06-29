@@ -127,6 +127,25 @@ const statements = [
     ON ai_style_checks(draft_version_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS ai_style_checks_source_invocation_index
     ON ai_style_checks(source_invocation_id)`,
+  `CREATE TABLE IF NOT EXISTS illustration_plans (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    final_draft_version_id TEXT NOT NULL REFERENCES draft_versions(id),
+    source_invocation_id TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    plan_json TEXT NOT NULL,
+    summary_markdown TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT 'ai',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS illustration_plans_article_created_index
+    ON illustration_plans(article_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS illustration_plans_draft_created_index
+    ON illustration_plans(final_draft_version_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS illustration_plans_source_invocation_index
+    ON illustration_plans(source_invocation_id)`,
   `CREATE TABLE IF NOT EXISTS topic_diagnoses (
     id TEXT PRIMARY KEY,
     article_id TEXT NOT NULL REFERENCES article_projects(id),

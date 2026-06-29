@@ -4,6 +4,8 @@ import type {
   GeneratedAIStyleCheckIssue,
   GeneratedContentResearch,
   GeneratedDraft,
+  GeneratedIllustrationPlan,
+  GeneratedIllustrationPlanItem,
   GeneratedOutline,
   GeneratedTopicDiagnosis,
   TopicDiagnosisVerdict
@@ -255,6 +257,69 @@ function normalizeAIStyleCheckIssues(value: unknown): GeneratedAIStyleCheckIssue
   return singleIssue ? [singleIssue] : [];
 }
 
+function normalizeIllustrationPlanItem(item: unknown): GeneratedIllustrationPlanItem | null {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const record = item as Record<string, unknown>;
+  const normalizedItem = {
+    position: firstPromptValue(record, [
+      "position",
+      "insertPosition",
+      "insert_position",
+      "placement",
+      "建议插入位置",
+      "插入位置",
+      "位置"
+    ]),
+    purpose: firstPromptValue(record, ["purpose", "imagePurpose", "image_purpose", "role", "作用", "图片作用", "配图作用"]),
+    imageType: firstPromptValue(record, ["imageType", "image_type", "type", "format", "图片类型", "类型", "形式"]) || "正文配图",
+    visualBrief: firstPromptValue(record, [
+      "visualBrief",
+      "visual_brief",
+      "visualDescription",
+      "visual_description",
+      "scene",
+      "画面描述",
+      "画面说明"
+    ]),
+    promptBrief: firstPromptValue(record, [
+      "promptBrief",
+      "prompt_brief",
+      "prompt",
+      "imagePrompt",
+      "image_prompt",
+      "生成提示词",
+      "提示词简报",
+      "prompt简报"
+    ]),
+    doNotVisualize: firstPromptValue(record, [
+      "doNotVisualize",
+      "do_not_visualize",
+      "avoid",
+      "negativePrompt",
+      "negative_prompt",
+      "不要画什么",
+      "不画内容",
+      "避免内容"
+    ]),
+    riskNotes: firstPromptValue(record, ["riskNotes", "risk_notes", "risk", "risks", "风险提醒", "风险", "合规风险"])
+  };
+
+  if (!normalizedItem.position || !normalizedItem.purpose || !normalizedItem.promptBrief) {
+    throw new Error("AI 返回的配图规划缺少关键字段");
+  }
+
+  return normalizedItem;
+}
+
+function normalizeIllustrationPlanItems(value: unknown): GeneratedIllustrationPlanItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map(normalizeIllustrationPlanItem).filter((item): item is GeneratedIllustrationPlanItem => Boolean(item));
+}
+
 export function normalizeGeneratedOutline(json: Record<string, unknown>): GeneratedOutline {
   const mainline = firstPromptValue(json, [
     "mainline",
@@ -330,6 +395,43 @@ export function normalizeGeneratedAIStyleCheck(json: Record<string, unknown>): G
     score,
     summaryMarkdown,
     issues
+  };
+}
+
+export function normalizeGeneratedIllustrationPlan(json: Record<string, unknown>): GeneratedIllustrationPlan {
+  const rawItems = firstRawValue(json, [
+    "items",
+    "illustrations",
+    "illustrationItems",
+    "illustration_items",
+    "planItems",
+    "plan_items",
+    "images",
+    "图片规划",
+    "配图规划",
+    "配图项",
+    "图片"
+  ]);
+  const items = normalizeIllustrationPlanItems(rawItems);
+  if (items.length === 0) {
+    throw new Error("AI 返回的配图规划为空");
+  }
+
+  const summary =
+    firstPromptValue(json, [
+      "summary",
+      "summaryMarkdown",
+      "summary_markdown",
+      "planningSummary",
+      "planning_summary",
+      "摘要",
+      "规划摘要",
+      "配图摘要"
+    ]) || `建议 ${items.length} 张正文配图。`;
+
+  return {
+    summary,
+    items
   };
 }
 

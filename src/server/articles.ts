@@ -69,11 +69,28 @@ export { getStagePromptDefault, listStagePromptDefaults, updateStagePromptDefaul
 export {
   getPromptRecipeForAIStyleCheck,
   getPromptRecipeForDraft,
+  getPromptRecipeForIllustrationPlan,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
   getPromptRecipeForResearch,
   getPromptRecipeForTopicDiagnosis
 } from "./prompt-recipes";
+export {
+  confirmIllustrationPlan,
+  confirmIllustrationPlanInputSchema,
+  generateIllustrationPlan,
+  generateIllustrationPlanInputSchema,
+  listIllustrationPlans,
+  parseIllustrationPlanPayload,
+  requireIllustrationPlan,
+  updateIllustrationPlan,
+  updateIllustrationPlanInputSchema,
+  type ConfirmIllustrationPlanInput,
+  type GenerateIllustrationPlanInput,
+  type IllustrationPlanItem,
+  type IllustrationPlanPayload,
+  type UpdateIllustrationPlanInput
+} from "./illustration-plans";
 export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";

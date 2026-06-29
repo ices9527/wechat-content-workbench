@@ -121,6 +121,20 @@ export const aiStyleChecks = sqliteTable("ai_style_checks", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
 });
 
+export const illustrationPlans = sqliteTable("illustration_plans", {
+  id: text("id").primaryKey(),
+  articleId: text("article_id").notNull().references(() => articleProjects.id),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  finalDraftVersionId: text("final_draft_version_id").notNull().references(() => draftVersions.id),
+  sourceInvocationId: text("source_invocation_id"),
+  status: text("status").notNull().default("draft"),
+  planJson: text("plan_json").notNull(),
+  summaryMarkdown: text("summary_markdown").notNull(),
+  createdBy: text("created_by").notNull().default("ai"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+});
+
 export const topicDiagnoses = sqliteTable("topic_diagnoses", {
   id: text("id").primaryKey(),
   articleId: text("article_id").notNull().references(() => articleProjects.id),
@@ -291,6 +305,7 @@ export type ResearchVersion = typeof researchVersions.$inferSelect;
 export type DraftVersion = typeof draftVersions.$inferSelect;
 export type ContentDiagnosis = typeof contentDiagnoses.$inferSelect;
 export type AIStyleCheck = typeof aiStyleChecks.$inferSelect;
+export type IllustrationPlan = typeof illustrationPlans.$inferSelect;
 export type TopicDiagnosis = typeof topicDiagnoses.$inferSelect;
 export type AIInvocation = typeof aiInvocations.$inferSelect;
 export type StagePromptDefault = typeof stagePromptDefaults.$inferSelect;

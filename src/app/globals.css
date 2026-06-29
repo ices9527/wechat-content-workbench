@@ -183,7 +183,7 @@ h1 {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(140px, 170px) minmax(140px, 170px);
   gap: 12px;
-  align-items: end;
+  align-items: flex-end;
   min-width: 0;
 }
 
@@ -537,7 +537,7 @@ h1 {
 
 .workflow-tabs {
   display: grid;
-  grid-template-columns: repeat(10, minmax(112px, 1fr));
+  grid-template-columns: repeat(11, minmax(112px, 1fr));
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -927,7 +927,7 @@ h1 {
 }
 
 .requirement-selected-only {
-  justify-self: end;
+  justify-self: flex-end;
   white-space: nowrap;
 }
 
@@ -1062,7 +1062,7 @@ h1 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
   gap: 10px;
-  align-items: end;
+  align-items: flex-end;
   margin-bottom: 16px;
 }
 
@@ -1188,6 +1188,10 @@ h1 {
 }
 
 .version-block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
   margin-bottom: 16px;
 }
 
@@ -1282,6 +1286,37 @@ h1 {
 
 .textarea.tall {
   min-height: 220px;
+}
+
+.illustration-plan-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.illustration-plan-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.illustration-plan-items {
+  display: grid;
+  gap: 12px;
+  max-height: 760px;
+  overflow: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.illustration-plan-item {
+  background: var(--surface-subtle);
+}
+
+.illustration-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .draft-grid {
@@ -1781,6 +1816,7 @@ h1 {
   .inline-form,
   .research-compare-selectors,
   .research-compare-grid,
+  .illustration-plan-grid,
   .requirement-selector-toolbar,
   .requirement-edit-form,
   .draft-grid,

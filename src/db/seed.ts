@@ -67,6 +67,16 @@ export const DEFAULT_STAGE_PROMPTS = [
     ].join("\n")
   },
   {
+    stage: "illustration_plan",
+    label: "配图规划默认提示词",
+    prompt: [
+      "只规划正文配图，不生成图片，不修改正文。",
+      "第一版建议 1-3 张，少而准。",
+      "每张图必须绑定正文插入位置、图片作用、画面说明和风险边界。",
+      "不要画成收益承诺、身份承诺、开户承诺、审批承诺、到账承诺或规避监管暗示。"
+    ].join("\n")
+  },
+  {
     stage: "pre_publish",
     label: "发布前默认提示词",
     prompt: [
@@ -515,6 +525,72 @@ export const DEFAULT_REQUIREMENT_PRESETS = [
     promptFragment: "检查文案是否反复表达同一个判断，指出重复片段并建议合并。",
     defaultEnabled: false,
     priority: 20
+  },
+  {
+    stableKey: "ILLUS-001",
+    stage: "illustration_plan",
+    category: "数量",
+    type: "must",
+    label: "少而准",
+    description: "正文配图第一版控制数量，避免装饰性堆图。",
+    promptFragment: "配图规划第一版建议 1-3 张，只有在能明显帮助读者理解流程、边界、对比或结构时才建议配图。",
+    defaultEnabled: true,
+    priority: 10
+  },
+  {
+    stableKey: "ILLUS-002",
+    stage: "illustration_plan",
+    category: "位置",
+    type: "must",
+    label: "绑定正文位置",
+    description: "每张图都要有明确插入位置。",
+    promptFragment: "每张配图必须绑定正文中的具体小标题、段落或判断句，不能只写“文章中间”。",
+    defaultEnabled: true,
+    priority: 20
+  },
+  {
+    stableKey: "ILLUS-003",
+    stage: "illustration_plan",
+    category: "作用",
+    type: "must",
+    label: "说明图片作用",
+    description: "图片必须服务读者理解。",
+    promptFragment: "每张配图必须说明它帮助读者理解什么，优先服务路径、边界、条件、对比或行动步骤。",
+    defaultEnabled: true,
+    priority: 30
+  },
+  {
+    stableKey: "ILLUS-004",
+    stage: "illustration_plan",
+    category: "合规",
+    type: "compliance",
+    label: "不画承诺结果",
+    description: "避免视觉上暗示确定收益或确定身份路径。",
+    promptFragment: "不要规划任何暗示收益、身份、开户、审批、到账或监管结果确定性的画面；涉及金融路径时必须画成条件化和边界化。",
+    defaultEnabled: true,
+    priority: 40
+  },
+  {
+    stableKey: "ILLUS-005",
+    stage: "illustration_plan",
+    category: "禁区",
+    type: "avoid",
+    label: "不做装饰图",
+    description: "避免只为好看而配图。",
+    promptFragment: "不要建议纯装饰图、氛围图、金融符号堆叠图或没有信息结构的插画。",
+    defaultEnabled: true,
+    priority: 50
+  },
+  {
+    stableKey: "ILLUS-006",
+    stage: "illustration_plan",
+    category: "类型",
+    type: "prefer",
+    label: "优先结构化图",
+    description: "正文配图优先流程、边界、对比、结构。",
+    promptFragment: "优先规划流程图、边界清单图、条件对比图、路径结构图，而不是人物摆拍或复杂场景插画。",
+    defaultEnabled: false,
+    priority: 60
   },
   {
     stableKey: "PUB-001",

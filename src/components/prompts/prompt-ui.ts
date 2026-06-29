@@ -59,6 +59,13 @@ export const STAGE_PROMPT_UI: Record<
     customPlaceholder: "例如：这次重点检查标题承诺、首屏判断和 AI 味，不要先改正文",
     savedNotice: "已保存 dbs-content 默认提示词"
   },
+  illustration_plan: {
+    eyebrow: "Illustration Prompt",
+    title: "配图规划提示词设置",
+    defaultPromptLabel: "配图规划默认提示词",
+    customPlaceholder: "例如：只做流程图和边界清单图，不要人物场景图",
+    savedNotice: "已保存配图规划默认提示词"
+  },
   pre_publish: {
     eyebrow: "Pre-publish Prompt",
     title: "发布前检查提示词设置",

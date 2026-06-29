@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize2, ScrollText, X } from "lucide-react";
+import { Maximize2, ScrollText, Trash2, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import type {
   ArticleAsset,
   ContentDiagnosis,
   DraftVersion,
+  IllustrationPlan,
   OutlineVersion,
   PromptRunArtifact,
   ResearchVersion,
@@ -122,6 +123,17 @@ type AIStyleCheckIssueView = {
   severity?: string;
 };
 
+type IllustrationPlanItemView = {
+  itemId: string;
+  position: string;
+  purpose: string;
+  imageType: string;
+  visualBrief: string;
+  promptBrief: string;
+  doNotVisualize: string;
+  riskNotes: string;
+};
+
 function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string {
   if (!verdict) {
     return "未诊断";
@@ -171,6 +183,40 @@ function parseAIStyleCheckIssues(issuesJson: string): AIStyleCheckIssueView[] {
   } catch {
     return [];
   }
+}
+
+function parseIllustrationPlanItems(planJson: string): IllustrationPlanItemView[] {
+  try {
+    const parsed = JSON.parse(planJson) as { items?: unknown };
+    if (!Array.isArray(parsed.items)) {
+      return [];
+    }
+    return parsed.items.map((item, index) => {
+      const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      return {
+        itemId: String(record.itemId || `item-${index + 1}`),
+        position: String(record.position || ""),
+        purpose: String(record.purpose || ""),
+        imageType: String(record.imageType || "正文配图"),
+        visualBrief: String(record.visualBrief || ""),
+        promptBrief: String(record.promptBrief || ""),
+        doNotVisualize: String(record.doNotVisualize || ""),
+        riskNotes: String(record.riskNotes || "")
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function getIllustrationPlanStatusLabel(status: string): string {
+  if (status === "confirmed") {
+    return "已确认";
+  }
+  if (status === "superseded") {
+    return "已被替代";
+  }
+  return "草稿";
 }
 
 function formatResearchOptionLabel(research: ResearchVersion): string {
@@ -228,6 +274,7 @@ type WorkflowTabId =
   | "draft"
   | "diagnosis"
   | "final"
+  | "illustration"
   | "publish"
   | "review";
 
@@ -240,11 +287,23 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "draft", label: "Markdown 文案" },
   { id: "diagnosis", label: "dbs-content" },
   { id: "final", label: "人工检查/最终稿" },
+  { id: "illustration", label: "配图规划" },
   { id: "publish", label: "发布" },
   { id: "review", label: "复盘" }
 ];
 
-const PROMPT_STAGES: RequirementStage[] = ["topic", "angle", "research", "outline", "draft", "ai_style_check", "dbs", "pre_publish", "review"];
+const PROMPT_STAGES: RequirementStage[] = [
+  "topic",
+  "angle",
+  "research",
+  "outline",
+  "draft",
+  "ai_style_check",
+  "dbs",
+  "illustration_plan",
+  "pre_publish",
+  "review"
+];
 
 function isWorkflowTabId(value: string | null): value is WorkflowTabId {
   return WORKFLOW_TABS.some((tab) => tab.id === value);
@@ -661,6 +720,24 @@ function FinalPanel({ finalDraft, children }: { finalDraft: DraftVersion | null;
   );
 }
 
+function IllustrationPanel({
+  latestPlan,
+  children
+}: {
+  latestPlan: IllustrationPlan | null;
+  children: ReactNode;
+}) {
+  return (
+    <WorkflowPanel
+      tabId="illustration"
+      title="配图规划"
+      status={latestPlan ? getIllustrationPlanStatusLabel(latestPlan.status) : "待规划"}
+    >
+      {children}
+    </WorkflowPanel>
+  );
+}
+
 function PublishPanel({ latestUpload, children }: { latestUpload: WechatDraftUpload | null; children: ReactNode }) {
   return (
     <WorkflowPanel tabId="publish" title="发布包" status={latestUpload?.status === "success" ? "已上传草稿箱" : null}>
@@ -808,6 +885,7 @@ export function ArticleWorkflow({
   drafts,
   diagnoses,
   aiStyleChecks,
+  illustrationPlans,
   topicDiagnoses,
   assets,
   uploads,
@@ -822,6 +900,7 @@ export function ArticleWorkflow({
   drafts: DraftVersion[];
   diagnoses: ContentDiagnosis[];
   aiStyleChecks: AIStyleCheck[];
+  illustrationPlans: IllustrationPlan[];
   topicDiagnoses: TopicDiagnosis[];
   assets: ArticleAsset[];
   uploads: WechatDraftUpload[];
@@ -843,6 +922,7 @@ export function ArticleWorkflow({
   const acceptedOutline = outlines.find((outline) => outline.accepted) || null;
   const latestDraft = drafts[0] || null;
   const finalDraft = drafts.find((draft) => draft.isFinal) || null;
+  const latestIllustrationPlan = illustrationPlans[0] || null;
   const latestTopicDiagnosis = topicDiagnoses[0] || null;
   const [mainline, setMainline] = useState(latestOutline?.mainline || "");
   const [outlineMarkdown, setOutlineMarkdown] = useState(latestOutline?.outlineMarkdown || "");
@@ -852,6 +932,11 @@ export function ArticleWorkflow({
   const [compareRightResearchId, setCompareRightResearchId] = useState(researchVersions[1]?.id || "");
   const [draftMarkdown, setDraftMarkdown] = useState(latestDraft?.markdown || "");
   const [selectedDraftId, setSelectedDraftId] = useState(latestDraft?.id || "");
+  const [selectedIllustrationPlanId, setSelectedIllustrationPlanId] = useState(latestIllustrationPlan?.id || "");
+  const [illustrationSummaryMarkdown, setIllustrationSummaryMarkdown] = useState(latestIllustrationPlan?.summaryMarkdown || "");
+  const [illustrationPlanItems, setIllustrationPlanItems] = useState<IllustrationPlanItemView[]>(() =>
+    latestIllustrationPlan ? parseIllustrationPlanItems(latestIllustrationPlan.planJson) : []
+  );
   const stagePromptKey = useMemo(
     () =>
       PROMPT_STAGES.map((stage) => {
@@ -876,6 +961,7 @@ export function ArticleWorkflow({
   const draftRequirements = requirementsByStage.draft;
   const aiStyleCheckRequirements = requirementsByStage.ai_style_check;
   const dbsRequirements = requirementsByStage.dbs;
+  const illustrationPlanRequirements = requirementsByStage.illustration_plan;
   const prePublishRequirements = requirementsByStage.pre_publish;
   const reviewRequirements = requirementsByStage.review;
   const requirementKeys = useMemo(
@@ -910,6 +996,7 @@ export function ArticleWorkflow({
   const draftDefaultPrompt = defaultPromptDrafts.draft;
   const aiStyleCheckDefaultPrompt = defaultPromptDrafts.ai_style_check;
   const dbsDefaultPrompt = defaultPromptDrafts.dbs;
+  const illustrationPlanDefaultPrompt = defaultPromptDrafts.illustration_plan;
   const prePublishDefaultPrompt = defaultPromptDrafts.pre_publish;
   const reviewDefaultPrompt = defaultPromptDrafts.review;
   const setAngleDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("angle", value);
@@ -918,6 +1005,7 @@ export function ArticleWorkflow({
   const setDraftDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("draft", value);
   const setAIStyleCheckDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("ai_style_check", value);
   const setDbsDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("dbs", value);
+  const setIllustrationPlanDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("illustration_plan", value);
   const setPrePublishDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("pre_publish", value);
   const setReviewDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("review", value);
   const angleCustomInstruction = customInstructions.angle;
@@ -925,6 +1013,7 @@ export function ArticleWorkflow({
   const draftCustomInstruction = customInstructions.draft;
   const aiStyleCheckCustomInstruction = customInstructions.ai_style_check;
   const dbsCustomInstruction = customInstructions.dbs;
+  const illustrationPlanCustomInstruction = customInstructions.illustration_plan;
   const prePublishCustomInstruction = customInstructions.pre_publish;
   const reviewCustomInstruction = customInstructions.review;
   const setAngleCustomInstruction = (value: string) => setCustomInstructionForStage("angle", value);
@@ -932,6 +1021,7 @@ export function ArticleWorkflow({
   const setDraftCustomInstruction = (value: string) => setCustomInstructionForStage("draft", value);
   const setAIStyleCheckCustomInstruction = (value: string) => setCustomInstructionForStage("ai_style_check", value);
   const setDbsCustomInstruction = (value: string) => setCustomInstructionForStage("dbs", value);
+  const setIllustrationPlanCustomInstruction = (value: string) => setCustomInstructionForStage("illustration_plan", value);
   const setPrePublishCustomInstruction = (value: string) => setCustomInstructionForStage("pre_publish", value);
   const setReviewCustomInstruction = (value: string) => setCustomInstructionForStage("review", value);
   const selectedTopicRequirementIds = selectedRequirementIdsByStage.topic;
@@ -941,6 +1031,7 @@ export function ArticleWorkflow({
   const selectedDraftRequirementIds = selectedRequirementIdsByStage.draft;
   const selectedAIStyleCheckRequirementIds = selectedRequirementIdsByStage.ai_style_check;
   const selectedDbsRequirementIds = selectedRequirementIdsByStage.dbs;
+  const selectedIllustrationPlanRequirementIds = selectedRequirementIdsByStage.illustration_plan;
   const selectedPrePublishRequirementIds = selectedRequirementIdsByStage.pre_publish;
   const selectedReviewRequirementIds = selectedRequirementIdsByStage.review;
   const setSelectedTopicRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("topic", ids);
@@ -950,6 +1041,7 @@ export function ArticleWorkflow({
   const setSelectedDraftRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("draft", ids);
   const setSelectedAIStyleCheckRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("ai_style_check", ids);
   const setSelectedDbsRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("dbs", ids);
+  const setSelectedIllustrationPlanRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("illustration_plan", ids);
   const setSelectedPrePublishRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("pre_publish", ids);
   const setSelectedReviewRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("review", ids);
   const [selectedDiagnosisId, setSelectedDiagnosisId] = useState(diagnoses[0]?.id || "");
@@ -970,6 +1062,11 @@ export function ArticleWorkflow({
   const draftById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft])), [drafts]);
   const selectedDraft = selectedDraftId ? draftById.get(selectedDraftId) || null : latestDraft;
   const selectedDraftHasUnsavedChanges = Boolean(selectedDraft && selectedDraft.markdown !== draftMarkdown);
+  const illustrationPlanById = useMemo(() => new Map(illustrationPlans.map((plan) => [plan.id, plan])), [illustrationPlans]);
+  const selectedIllustrationPlan = selectedIllustrationPlanId
+    ? illustrationPlanById.get(selectedIllustrationPlanId) || null
+    : latestIllustrationPlan;
+  const selectedIllustrationPlanEditable = selectedIllustrationPlan?.status === "draft";
   const selectedDiagnosis = useMemo(
     () => diagnoses.find((diagnosis) => diagnosis.id === selectedDiagnosisId) || diagnoses[0] || null,
     [diagnoses, selectedDiagnosisId]
@@ -1031,6 +1128,15 @@ export function ArticleWorkflow({
     }
     if (tabId === "final") {
       return finalDraft ? `v${finalDraft.versionNo}` : "待做";
+    }
+    if (tabId === "illustration") {
+      if (latestIllustrationPlan?.status === "confirmed") {
+        return "已确认";
+      }
+      if (latestIllustrationPlan) {
+        return "待确认";
+      }
+      return finalDraft ? "待规划" : "待最终稿";
     }
     if (tabId === "publish") {
       if (latestUpload?.status === "success") {
@@ -1110,6 +1216,23 @@ export function ArticleWorkflow({
     setDraftMarkdown(latestDraft?.markdown || "");
     setSelectedDraftId(latestDraft?.id || "");
   }, [latestDraft?.id, latestDraft?.markdown]);
+
+  useEffect(() => {
+    setSelectedIllustrationPlanId((current) => {
+      if (current && illustrationPlans.some((plan) => plan.id === current)) {
+        return current;
+      }
+      return latestIllustrationPlan?.id || "";
+    });
+  }, [illustrationPlans, latestIllustrationPlan?.id]);
+
+  useEffect(() => {
+    const plan = selectedIllustrationPlanId
+      ? illustrationPlanById.get(selectedIllustrationPlanId) || latestIllustrationPlan
+      : latestIllustrationPlan;
+    setIllustrationSummaryMarkdown(plan?.summaryMarkdown || "");
+    setIllustrationPlanItems(plan ? parseIllustrationPlanItems(plan.planJson) : []);
+  }, [illustrationPlanById, latestIllustrationPlan, selectedIllustrationPlanId]);
 
   useEffect(() => {
     setSelectedDiagnosisId((current) => {
@@ -1385,7 +1508,7 @@ export function ArticleWorkflow({
   }
 
   async function openPromptRecipe(
-    kind: "outline" | "draft" | "topic-diagnosis" | "research" | "ai-style-check" | "invocation",
+    kind: "outline" | "draft" | "topic-diagnosis" | "research" | "ai-style-check" | "illustration-plan" | "invocation",
     targetId: string | null
   ) {
     if (!targetId) {
@@ -1402,7 +1525,9 @@ export function ArticleWorkflow({
               ? "researchVersionId"
               : kind === "ai-style-check"
                 ? "aiStyleCheckId"
-                : "invocationId";
+                : kind === "illustration-plan"
+                  ? "illustrationPlanId"
+                  : "invocationId";
     setPending(`prompt-recipe-${kind}`);
     setError(null);
     setNotice(null);
@@ -1416,6 +1541,14 @@ export function ArticleWorkflow({
     } finally {
       setPending(null);
     }
+  }
+
+  function updateIllustrationPlanItem(index: number, key: keyof IllustrationPlanItemView, value: string) {
+    setIllustrationPlanItems((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)));
+  }
+
+  function removeIllustrationPlanItem(index: number) {
+    setIllustrationPlanItems((current) => (current.length <= 1 ? current : current.filter((_item, itemIndex) => itemIndex !== index)));
   }
 
   function closeFullscreen() {
@@ -2587,6 +2720,254 @@ export function ArticleWorkflow({
             <p className="subtle">暂无文案版本。</p>
           )}
           </FinalPanel>
+        ) : null}
+
+        {activeTab === "illustration" ? (
+          <IllustrationPanel latestPlan={latestIllustrationPlan}>
+            <StagePromptDialog
+              title={STAGE_PROMPT_UI.illustration_plan.title}
+              stage="illustration_plan"
+              defaultPromptLabel={STAGE_PROMPT_UI.illustration_plan.defaultPromptLabel}
+              defaultPrompt={illustrationPlanDefaultPrompt}
+              onDefaultPromptChange={setIllustrationPlanDefaultPrompt}
+              onSaveDefaultPrompt={() =>
+                runAction("save-illustration-plan-default-prompt", () =>
+                  saveStagePrompt("illustration_plan", illustrationPlanDefaultPrompt)
+                )
+              }
+              requirements={illustrationPlanRequirements}
+              selectedIds={selectedIllustrationPlanRequirementIds}
+              pending={pending !== null}
+              onSelectedIdsChange={setSelectedIllustrationPlanRequirementIds}
+              onCreate={(input) => runAction("create-illustration-plan-requirement", () => createRequirement(input))}
+              onUpdate={(id, input) => runAction("update-illustration-plan-requirement", () => updateRequirement(id, input))}
+              onDelete={(id) => runAction("delete-illustration-plan-requirement", () => deleteRequirement(id))}
+            />
+
+            <label className="field prompt-field">
+              <span className="label">对当前配图规划的要求</span>
+              <textarea
+                className="textarea prompt-textarea"
+                placeholder={STAGE_PROMPT_UI.illustration_plan.customPlaceholder}
+                value={illustrationPlanCustomInstruction}
+                onChange={(event) => setIllustrationPlanCustomInstruction(event.target.value)}
+              />
+              <button
+                className="button secondary prompt-save-button"
+                disabled={pending !== null}
+                onClick={() =>
+                  runAction(
+                    "save-illustration-plan-custom-requirement",
+                    () => saveCustomInstructionAsRequirement("illustration_plan", illustrationPlanCustomInstruction)
+                  )
+                }
+                type="button"
+              >
+                保存为可选提示词
+              </button>
+            </label>
+
+            <div className="action-row">
+              <button
+                className="button"
+                disabled={!finalDraft || pending !== null}
+                onClick={() =>
+                  runAction("generate-illustration-plan", async () => {
+                    const plan = await postJson<IllustrationPlan>(`/api/articles/${article.id}/generate-illustration-plan`, {
+                      customInstruction: illustrationPlanCustomInstruction,
+                      selectedRequirementIds: selectedIllustrationPlanRequirementIds
+                    });
+                    setSelectedIllustrationPlanId(plan.id);
+                    setIllustrationSummaryMarkdown(plan.summaryMarkdown);
+                    setIllustrationPlanItems(parseIllustrationPlanItems(plan.planJson));
+                    setNotice("已生成配图规划");
+                  })
+                }
+                type="button"
+              >
+                {pending === "generate-illustration-plan" ? "规划中" : "生成配图规划"}
+              </button>
+              {!finalDraft ? <p className="subtle">请先在“人工检查/最终稿”中标记最终稿，再生成正文配图规划。</p> : null}
+            </div>
+
+            {illustrationPlans.length > 0 ? (
+              <div className="version-block">
+                <label className="field compact-field">
+                  <span className="label">配图规划版本</span>
+                  <select
+                    className="input"
+                    disabled={pending !== null}
+                    onChange={(event) => setSelectedIllustrationPlanId(event.target.value)}
+                    value={selectedIllustrationPlanId}
+                  >
+                    {illustrationPlans.map((plan, index) => (
+                      <option key={plan.id} value={plan.id}>
+                        p{illustrationPlans.length - index} · {getIllustrationPlanStatusLabel(plan.status)} · {formatTime(plan.createdAt)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedIllustrationPlan?.sourceInvocationId ? (
+                  <button
+                    aria-label="查看配图规划提示词配方"
+                    className="icon-action"
+                    disabled={pending !== null}
+                    onClick={() => void openPromptRecipe("illustration-plan", selectedIllustrationPlan.id)}
+                    title="查看提示词配方"
+                    type="button"
+                  >
+                    <ScrollText aria-hidden="true" size={16} />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {selectedIllustrationPlan ? (
+              <div className="illustration-plan-editor">
+                <div className="illustration-plan-status-row">
+                  <span className="source-pill">{getIllustrationPlanStatusLabel(selectedIllustrationPlan.status)}</span>
+                  <span className="subtle">来源最终稿：{getDraftLabel(selectedIllustrationPlan.finalDraftVersionId)}</span>
+                </div>
+
+                <label className="field">
+                  <span className="label">规划摘要</span>
+                  <textarea
+                    className="textarea prompt-textarea"
+                    disabled={!selectedIllustrationPlanEditable}
+                    value={illustrationSummaryMarkdown}
+                    onChange={(event) => setIllustrationSummaryMarkdown(event.target.value)}
+                  />
+                </label>
+
+                <div className="illustration-plan-items">
+                  {illustrationPlanItems.map((item, index) => (
+                    <article className="mini-card illustration-plan-item" key={item.itemId}>
+                      <div className="mini-card-head">
+                        <h3>配图 {index + 1}</h3>
+                        <button
+                          aria-label={`删除配图 ${index + 1}`}
+                          className="icon-action"
+                          disabled={!selectedIllustrationPlanEditable || pending !== null || illustrationPlanItems.length <= 1}
+                          onClick={() => removeIllustrationPlanItem(index)}
+                          title="删除配图项"
+                          type="button"
+                        >
+                          <Trash2 aria-hidden="true" size={16} />
+                        </button>
+                      </div>
+                      <div className="illustration-plan-grid">
+                        <label className="field">
+                          <span className="label">插入位置</span>
+                          <input
+                            className="input"
+                            disabled={!selectedIllustrationPlanEditable}
+                            value={item.position}
+                            onChange={(event) => updateIllustrationPlanItem(index, "position", event.target.value)}
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="label">图片类型</span>
+                          <input
+                            className="input"
+                            disabled={!selectedIllustrationPlanEditable}
+                            value={item.imageType}
+                            onChange={(event) => updateIllustrationPlanItem(index, "imageType", event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <label className="field">
+                        <span className="label">图片作用</span>
+                        <textarea
+                          className="textarea prompt-textarea"
+                          disabled={!selectedIllustrationPlanEditable}
+                          value={item.purpose}
+                          onChange={(event) => updateIllustrationPlanItem(index, "purpose", event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="label">画面说明</span>
+                        <textarea
+                          className="textarea prompt-textarea"
+                          disabled={!selectedIllustrationPlanEditable}
+                          value={item.visualBrief}
+                          onChange={(event) => updateIllustrationPlanItem(index, "visualBrief", event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="label">Prompt 简报</span>
+                        <textarea
+                          className="textarea prompt-textarea"
+                          disabled={!selectedIllustrationPlanEditable}
+                          value={item.promptBrief}
+                          onChange={(event) => updateIllustrationPlanItem(index, "promptBrief", event.target.value)}
+                        />
+                      </label>
+                      <div className="illustration-plan-grid">
+                        <label className="field">
+                          <span className="label">不要画什么</span>
+                          <textarea
+                            className="textarea prompt-textarea"
+                            disabled={!selectedIllustrationPlanEditable}
+                            value={item.doNotVisualize}
+                            onChange={(event) => updateIllustrationPlanItem(index, "doNotVisualize", event.target.value)}
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="label">风险提醒</span>
+                          <textarea
+                            className="textarea prompt-textarea"
+                            disabled={!selectedIllustrationPlanEditable}
+                            value={item.riskNotes}
+                            onChange={(event) => updateIllustrationPlanItem(index, "riskNotes", event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="action-row">
+                  <button
+                    className="button secondary"
+                    disabled={!selectedIllustrationPlanEditable || pending !== null}
+                    onClick={() =>
+                      runAction("update-illustration-plan", async () => {
+                        const saved = await patchJson<IllustrationPlan>(`/api/articles/${article.id}/illustration-plans`, {
+                          planId: selectedIllustrationPlan.id,
+                          summaryMarkdown: illustrationSummaryMarkdown,
+                          items: illustrationPlanItems
+                        });
+                        setIllustrationSummaryMarkdown(saved.summaryMarkdown);
+                        setNotice("已保存配图规划");
+                      })
+                    }
+                    type="button"
+                  >
+                    保存当前规划
+                  </button>
+                  <button
+                    className="button"
+                    disabled={!selectedIllustrationPlanEditable || pending !== null}
+                    onClick={() =>
+                      runAction("confirm-illustration-plan", async () => {
+                        await postJson<IllustrationPlan>(`/api/articles/${article.id}/confirm-illustration-plan`, {
+                          planId: selectedIllustrationPlan.id
+                        });
+                        setNotice("已确认配图规划");
+                      })
+                    }
+                    type="button"
+                  >
+                    确认配图规划
+                  </button>
+                </div>
+
+                {!selectedIllustrationPlanEditable ? <p className="subtle">已确认或已被替代的规划不可编辑。重新生成会创建新的规划草稿。</p> : null}
+              </div>
+            ) : (
+              <p className="subtle">还没有配图规划。生成后可以编辑、删除规划项并确认。</p>
+            )}
+          </IllustrationPanel>
         ) : null}
 
         {activeTab === "publish" ? (

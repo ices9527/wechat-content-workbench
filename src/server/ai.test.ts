@@ -6,6 +6,7 @@ import {
   normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
   normalizeGeneratedAIStyleCheck,
+  normalizeGeneratedIllustrationPlan,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
 } from "./ai";
@@ -192,6 +193,63 @@ describe("fake AI client", () => {
     expect(check.summaryMarkdown).toContain("重复判断");
     expect(check.issues.length).toBeGreaterThan(0);
     expect(check.issues[0].quote).toBeTruthy();
+  });
+
+  it("generates stable illustration planning output", async () => {
+    const client = new FakeAIClient();
+    const plan = await client.generateIllustrationPlan();
+
+    expect(plan.summary).toContain("正文配图");
+    expect(plan.items.length).toBeGreaterThan(0);
+    expect(plan.items[0].position).toContain("速度");
+    expect(plan.items[0].promptBrief).toContain("流程图");
+  });
+
+  it("normalizes illustration plans with standard fields", () => {
+    const plan = normalizeGeneratedIllustrationPlan({
+      summary: "建议两张图。",
+      items: [
+        {
+          position: "第一节后",
+          purpose: "解释路径",
+          imageType: "流程图",
+          visualBrief: "三个节点",
+          promptBrief: "克制流程图",
+          doNotVisualize: "不要钞票飞出",
+          riskNotes: "不承诺结果"
+        }
+      ]
+    });
+
+    expect(plan.summary).toContain("两张图");
+    expect(plan.items[0].imageType).toBe("流程图");
+    expect(plan.items[0].riskNotes).toContain("不承诺");
+  });
+
+  it("normalizes illustration plans with Chinese fields", () => {
+    const plan = normalizeGeneratedIllustrationPlan({
+      规划摘要: "建议一张边界图。",
+      配图项: [
+        {
+          插入位置: "边界小节前",
+          图片作用: "提醒使用条件",
+          图片类型: "边界清单图",
+          画面描述: "三列清单",
+          生成提示词: "中文信息图",
+          不要画什么: "不要收益箭头",
+          风险提醒: "不要暗示开户承诺"
+        }
+      ]
+    });
+
+    expect(plan.summary).toContain("边界图");
+    expect(plan.items[0].position).toContain("边界");
+    expect(plan.items[0].promptBrief).toContain("信息图");
+  });
+
+  it("rejects empty illustration plans", () => {
+    expect(() => normalizeGeneratedIllustrationPlan({ items: [] })).toThrow("AI 返回的配图规划为空");
+    expect(() => normalizeGeneratedIllustrationPlan({ 配图项: [{ 图片作用: "缺位置" }] })).toThrow("AI 返回的配图规划缺少关键字段");
   });
 
   it("normalizes AI style check responses with standard fields", () => {

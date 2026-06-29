@@ -68,6 +68,28 @@ describe("prompt templates", () => {
     expect(prompt).toContain("issues：问题列表");
   });
 
+  it("renders illustration planning prompt without generating images", () => {
+    const prompt = renderPrompt("illustration_plan", {
+      title: "香港账户还能不能开",
+      targetReader: "跨境家庭",
+      coreProblem: "资金路径是否可解释",
+      mainline: "账户只是工具，路径才是判断。",
+      customInstruction: "只做流程图。",
+      selectedRequirementsSummary: "少而准：建议 1-3 张。",
+      complianceBoundaries: "- 不承诺开户结果。",
+      finalMarkdown: "# 香港账户还能不能开\n\n正文内容"
+    });
+
+    expect(prompt).toContain("正文配图规划助手");
+    expect(prompt).toContain("不生成图片");
+    expect(prompt).toContain("不修改正文");
+    expect(prompt).toContain("建议 1-3 张");
+    expect(prompt).toContain("合规和表达边界");
+    expect(prompt).toContain("不承诺开户结果");
+    expect(prompt).toContain("items：配图规划数组");
+    expect(prompt).toContain("# 香港账户还能不能开");
+  });
+
   it("renders topic diagnosis as a strict gate prompt", () => {
     const prompt = renderPrompt("topic_diagnosis", {
       topic: "香港账户还能不能开",

@@ -4,6 +4,7 @@ import {
   normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
   normalizeGeneratedAIStyleCheck,
+  normalizeGeneratedIllustrationPlan,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
 } from "./ai-normalizers";
@@ -12,6 +13,7 @@ export {
   normalizeGeneratedContentResearch,
   normalizeGeneratedDraft,
   normalizeGeneratedAIStyleCheck,
+  normalizeGeneratedIllustrationPlan,
   normalizeGeneratedOutline,
   normalizeGeneratedTopicDiagnosis
 } from "./ai-normalizers";
@@ -65,6 +67,21 @@ export type GeneratedContentResearch = {
   summaryMarkdown: string;
 };
 
+export type GeneratedIllustrationPlanItem = {
+  position: string;
+  purpose: string;
+  imageType: string;
+  visualBrief: string;
+  promptBrief: string;
+  doNotVisualize: string;
+  riskNotes: string;
+};
+
+export type GeneratedIllustrationPlan = {
+  summary: string;
+  items: GeneratedIllustrationPlanItem[];
+};
+
 export type GeneratedPromptArtifact = {
   summaryMarkdown: string;
 };
@@ -95,6 +112,7 @@ export type AIClient = {
   generateOutline(prompt: string): Promise<GeneratedOutline>;
   generateDraft(prompt: string): Promise<GeneratedDraft>;
   runAIStyleCheck(prompt: string): Promise<GeneratedAIStyleCheck>;
+  generateIllustrationPlan(prompt: string): Promise<GeneratedIllustrationPlan>;
   diagnoseContent(prompt: string): Promise<GeneratedDiagnosis>;
   reviseDraft(prompt: string): Promise<GeneratedDraft>;
   generatePrePublishCheck(prompt: string): Promise<GeneratedPromptArtifact>;
@@ -321,6 +339,32 @@ export class FakeAIClient implements AIClient {
     };
   }
 
+  async generateIllustrationPlan(): Promise<GeneratedIllustrationPlan> {
+    return {
+      summary: "建议使用 2 张正文配图：一张解释资金路径，一张提示合规边界。",
+      items: [
+        {
+          position: "放在第一节“速度只是入口”之后",
+          purpose: "帮助读者把到账速度和家庭资金路径区分开。",
+          imageType: "流程示意图",
+          visualBrief: "用三段式流程展示家庭从生活资金需求到支付工具再到用途核验的关系。",
+          promptBrief: "克制的公众号正文流程图，展示家庭生活资金需求、跨境支付工具、用途和额度核验三个节点。",
+          doNotVisualize: "不要画成投资收益通道，不要暗示资金自由流动。",
+          riskNotes: "需要避免出现收益、审批、开户或绕开监管的视觉暗示。"
+        },
+        {
+          position: "放在“边界比工具更重要”小节前",
+          purpose: "让读者先看到使用场景、额度条件和合规责任三个边界。",
+          imageType: "边界清单图",
+          visualBrief: "三列清单分别写生活场景、额度条件、合规责任，整体留白充足。",
+          promptBrief: "简洁克制的中文信息图，三列展示生活场景、额度条件、合规责任，适合公众号正文插图。",
+          doNotVisualize: "不要出现银行卡堆叠、钞票飞出、暴涨箭头。",
+          riskNotes: "文案要条件化，不能写成保证可用或一定到账。"
+        }
+      ]
+    };
+  }
+
   async diagnoseContent(): Promise<GeneratedDiagnosis> {
     return {
       diagnosisMarkdown: [
@@ -453,6 +497,11 @@ export class OpenAICompatibleClient implements AIClient {
   async runAIStyleCheck(prompt: string): Promise<GeneratedAIStyleCheck> {
     const json = await this.completeJson(prompt);
     return normalizeGeneratedAIStyleCheck(json);
+  }
+
+  async generateIllustrationPlan(prompt: string): Promise<GeneratedIllustrationPlan> {
+    const json = await this.completeJson(prompt);
+    return normalizeGeneratedIllustrationPlan(json);
   }
 
   async diagnoseContent(prompt: string): Promise<GeneratedDiagnosis> {
