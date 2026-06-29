@@ -9,8 +9,10 @@ describe("database migrations", () => {
     const { db, sqlite } = createTestDatabase();
 
     const columns = sqlite.prepare("PRAGMA table_info(ai_style_checks)").all() as Array<{ name: string }>;
+    const draftColumns = sqlite.prepare("PRAGMA table_info(draft_versions)").all() as Array<{ name: string }>;
     const indexes = sqlite.prepare("PRAGMA index_list(ai_style_checks)").all() as Array<{ name: string }>;
 
+    expect(draftColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["source_ai_style_check_id"]));
     expect(columns.map((column) => column.name)).toEqual(
       expect.arrayContaining([
         "article_id",

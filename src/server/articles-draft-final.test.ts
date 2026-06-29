@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocations, draftVersions } from "@/db/schema";
+import { aiInvocations, aiStyleChecks, draftVersions, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { createArticleWithDraft, EmptyDraftClient, FakeAIClient } from "./articles-test-utils";
@@ -97,5 +97,34 @@ describe("article draft and final service", () => {
     expect(getArticle(article.id, db)?.finalDraftVersionId).toBe(secondRevision.id);
     expect(ready.status).toBe("ready_to_publish");
     expect(listPublishQueueArticles(db)).toHaveLength(1);
+  });
+
+  it("requires confirmation before marking a heavy-slop draft final", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    db.insert(aiStyleChecks)
+      .values({
+        id: "heavy-slop-check",
+        articleId: article.id,
+        ownerId: article.ownerId,
+        draftVersionId: draft.id,
+        cleanlinessVerdict: "heavy_slop",
+        issueCount: 1,
+        summaryMarkdown: "仍存在明显表达水分。",
+        issuesJson: "[]"
+      })
+      .run();
+
+    expect(() => markFinalDraft(article.id, { draftVersionId: draft.id }, db)).toThrow("仍存在明显表达水分");
+
+    const final = markFinalDraft(article.id, { draftVersionId: draft.id, force: true }, db);
+    const gateEvent = db
+      .select()
+      .from(workflowEvents)
+      .where(eq(workflowEvents.eventType, "confirm_final_draft_ai_style_check_gate"))
+      .get();
+
+    expect(final.isFinal).toBe(true);
+    expect(gateEvent?.payloadJson).toContain("heavy-slop-check");
   });
 });

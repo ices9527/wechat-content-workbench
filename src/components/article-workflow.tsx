@@ -136,8 +136,20 @@ function formatAIStyleCheckVerdict(verdict: string | null | undefined): string {
   return AI_STYLE_CHECK_VERDICT_LABELS[verdict] || verdict;
 }
 
+function isDraftVersionAIStyleCheck(check: AIStyleCheck): boolean {
+  return check.sourceType === "draft_version";
+}
+
+function isPublishHTMLAIStyleCheck(check: AIStyleCheck): boolean {
+  return check.sourceType === "publish_html";
+}
+
 function isHighRiskAIStyleCheck(check: AIStyleCheck | null | undefined): boolean {
   return check?.cleanlinessVerdict === "needs_cleanup" || check?.cleanlinessVerdict === "heavy_slop";
+}
+
+function requiresFinalDraftConfirmation(check: AIStyleCheck | null | undefined): boolean {
+  return check?.cleanlinessVerdict === "heavy_slop";
 }
 
 function parseAIStyleCheckIssues(issuesJson: string): AIStyleCheckIssueView[] {
@@ -669,11 +681,15 @@ function AIStyleCheckResultCard({
   check,
   draftLabel,
   compact = false,
+  actionDisabled = false,
+  onCreateCleanDraft,
   onOpenRecipe
 }: {
   check: AIStyleCheck;
   draftLabel: string;
   compact?: boolean;
+  actionDisabled?: boolean;
+  onCreateCleanDraft?: (check: AIStyleCheck) => void;
   onOpenRecipe?: (check: AIStyleCheck) => void;
 }) {
   const issues = parseAIStyleCheckIssues(check.issuesJson);
@@ -700,6 +716,16 @@ function AIStyleCheckResultCard({
         </div>
         <div className="mini-card-actions ai-style-check-card-actions">
           <strong>{check.issueCount} 个问题</strong>
+          {onCreateCleanDraft ? (
+            <button
+              className="button secondary compact-button"
+              disabled={actionDisabled}
+              onClick={() => onCreateCleanDraft(check)}
+              type="button"
+            >
+              生成清洁版文案
+            </button>
+          ) : null}
           {onOpenRecipe ? (
             <button
               aria-label="查看文案清洁检查提示词配方"
@@ -949,10 +975,14 @@ export function ArticleWorkflow({
     [diagnoses, selectedDiagnosisId]
   );
   const selectedDraftAIStyleChecks = useMemo(
-    () => aiStyleCheckList.filter((check) => check.draftVersionId === selectedDraftId),
+    () => aiStyleCheckList.filter((check) => check.draftVersionId === selectedDraftId && isDraftVersionAIStyleCheck(check)),
     [aiStyleCheckList, selectedDraftId]
   );
   const latestSelectedDraftAIStyleCheck = selectedDraftAIStyleChecks[0] || null;
+  const latestPublishHTMLAIStyleCheck = useMemo(
+    () => aiStyleCheckList.find((check) => isPublishHTMLAIStyleCheck(check)) || null,
+    [aiStyleCheckList]
+  );
   const selectedAIStyleCheckDetail = selectedAIStyleCheckDetailId
     ? aiStyleCheckList.find((check) => check.id === selectedAIStyleCheckDetailId) || null
     : null;
@@ -1178,8 +1208,21 @@ export function ArticleWorkflow({
     return draft ? `v${draft.versionNo}` : "未知版本";
   }
 
+  function getDraftTypeLabel(draft: DraftVersion): string {
+    if (draft.sourceAIStyleCheckId) {
+      return "清洁版文案";
+    }
+    if (draft.draftType === "revision") {
+      return "修改稿";
+    }
+    if (draft.draftType === "initial") {
+      return "初稿";
+    }
+    return "保存稿";
+  }
+
   function getAIStyleChecksForDraft(draftVersionId: string): AIStyleCheck[] {
-    return aiStyleCheckList.filter((check) => check.draftVersionId === draftVersionId);
+    return aiStyleCheckList.filter((check) => check.draftVersionId === draftVersionId && isDraftVersionAIStyleCheck(check));
   }
 
   function getLatestAIStyleCheckForDraft(draftVersionId: string): AIStyleCheck | null {
@@ -1212,6 +1255,35 @@ export function ArticleWorkflow({
       draftEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       draftEditorRef.current?.focus();
     });
+  }
+
+  async function createCleanDraftFromCheck(check: AIStyleCheck) {
+    await runAction(
+      "revise-from-ai-style-check",
+      async () => {
+        const draft = await postJson<DraftVersion>(`/api/articles/${article.id}/revise-from-ai-style-check`, {
+          checkId: check.id
+        });
+        setDraftMarkdown(draft.markdown);
+        setSelectedDraftId(draft.id);
+        setSelectedAIStyleCheckDetailId("");
+        setNotice(`已生成清洁版文案 v${draft.versionNo}`);
+      },
+      "draft"
+    );
+  }
+
+  async function markDraftAsFinal(draft: DraftVersion) {
+    const latestCheck = getLatestAIStyleCheckForDraft(draft.id);
+    const force = requiresFinalDraftConfirmation(latestCheck);
+    if (force && !window.confirm("仍存在明显表达水分，是否继续标记最终稿")) {
+      return;
+    }
+    await postJson<DraftVersion>(`/api/articles/${article.id}/mark-final-draft`, {
+      draftVersionId: draft.id,
+      force
+    });
+    setNotice(`已标记最终稿 v${draft.versionNo}`);
   }
 
   function selectDraftVersion(draftId: string) {
@@ -2063,6 +2135,8 @@ export function ArticleWorkflow({
                   <AIStyleCheckResultCard
                     check={latestSelectedDraftAIStyleCheck}
                     draftLabel={getDraftLabel(latestSelectedDraftAIStyleCheck.draftVersionId)}
+                    actionDisabled={pending !== null}
+                    onCreateCleanDraft={createCleanDraftFromCheck}
                     onOpenRecipe={(check) => void openPromptRecipe("ai-style-check", check.id)}
                   />
                   {selectedDraftAIStyleChecks.length > 1 ? (
@@ -2078,6 +2152,8 @@ export function ArticleWorkflow({
                             check={check}
                             draftLabel={getDraftLabel(check.draftVersionId)}
                             key={check.id}
+                            actionDisabled={pending !== null}
+                            onCreateCleanDraft={createCleanDraftFromCheck}
                             onOpenRecipe={(historyCheck) => void openPromptRecipe("ai-style-check", historyCheck.id)}
                           />
                         ))}
@@ -2246,6 +2322,8 @@ export function ArticleWorkflow({
               <AIStyleCheckResultCard
                 check={selectedAIStyleCheckDetail}
                 draftLabel={getDraftLabel(selectedAIStyleCheckDetail.draftVersionId)}
+                actionDisabled={pending !== null}
+                onCreateCleanDraft={isDraftVersionAIStyleCheck(selectedAIStyleCheckDetail) ? createCleanDraftFromCheck : undefined}
                 onOpenRecipe={(check) => void openPromptRecipe("ai-style-check", check.id)}
               />
             </div>
@@ -2301,7 +2379,7 @@ export function ArticleWorkflow({
               >
                 {drafts.map((draft) => (
                   <option key={draft.id} value={draft.id}>
-                    v{draft.versionNo} · {draft.draftType === "revision" ? "修改稿" : draft.draftType === "initial" ? "初稿" : "保存稿"}
+                    v{draft.versionNo} · {getDraftTypeLabel(draft)}
                   </option>
                 ))}
               </select>
@@ -2427,8 +2505,9 @@ export function ArticleWorkflow({
                     <h3>v{draft.versionNo}</h3>
                     {draft.isFinal ? <span className="source-pill">最终稿</span> : <span className="source-pill">{draft.createdBy}</span>}
                   </div>
-                  <p>{draft.draftType === "revision" ? "修改稿" : draft.draftType === "initial" ? "初稿" : "保存稿"}</p>
+                  <p>{getDraftTypeLabel(draft)}</p>
                   <p>{draft.sourceDiagnosisId ? `来源诊断：${diagnoses.find((item) => item.id === draft.sourceDiagnosisId) ? "已关联" : "未载入"}` : "无诊断来源"}</p>
+                  {draft.sourceAIStyleCheckId ? <p>来源清洁检查：已关联</p> : null}
                   {(() => {
                     const latestCheck = getLatestAIStyleCheckForDraft(draft.id);
                     return (
@@ -2492,12 +2571,7 @@ export function ArticleWorkflow({
                       onClick={() =>
                         runAction(
                           "final",
-                          async () => {
-                            await postJson<DraftVersion>(`/api/articles/${article.id}/mark-final-draft`, {
-                              draftVersionId: draft.id
-                            });
-                            setNotice(`已标记最终稿 v${draft.versionNo}`);
-                          },
+                          () => markDraftAsFinal(draft),
                           "final"
                         )
                       }
@@ -2587,6 +2661,24 @@ export function ArticleWorkflow({
               {pending === "render-html" ? "生成中" : "生成公众号 HTML"}
             </button>
 
+            <button
+              className="button secondary"
+              disabled={!finalDraft || htmlAssets.length === 0 || pending !== null}
+              onClick={() =>
+                runAction("publish-html-ai-style-check", async () => {
+                  const check = await postJson<AIStyleCheck>(`/api/articles/${article.id}/run-publish-html-ai-style-check`, {
+                    htmlAssetId: htmlAssets[0]?.id,
+                    customInstruction: prePublishCustomInstruction
+                  });
+                  setAIStyleCheckList((current) => [check, ...current.filter((item) => item.id !== check.id)]);
+                  setNotice("已完成发布 HTML 文案清洁检查");
+                })
+              }
+              type="button"
+            >
+              {pending === "publish-html-ai-style-check" ? "检查中" : "检查发布 HTML 文案"}
+            </button>
+
             <label className="file-field">
               <span className="label">封面素材，可选</span>
               <input accept="image/*" aria-label="封面素材，可选" onChange={handleCoverFile} type="file" />
@@ -2646,6 +2738,24 @@ export function ArticleWorkflow({
                 ) : null}
               </div>
               <MarkdownPreview markdown={latestPrePublishArtifact.summaryMarkdown} />
+            </section>
+          ) : null}
+
+          {latestPublishHTMLAIStyleCheck ? (
+            <section className="prompt-artifact">
+              <div className="prompt-artifact-head">
+                <div>
+                  <h3>最新发布 HTML 文案清洁检查</h3>
+                  <p>{formatTime(latestPublishHTMLAIStyleCheck.createdAt)}</p>
+                </div>
+              </div>
+              <AIStyleCheckResultCard
+                compact
+                check={latestPublishHTMLAIStyleCheck}
+                draftLabel="发布 HTML"
+                actionDisabled={pending !== null}
+                onOpenRecipe={(check) => void openPromptRecipe("ai-style-check", check.id)}
+              />
             </section>
           ) : null}
 

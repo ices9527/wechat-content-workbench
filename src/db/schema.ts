@@ -81,6 +81,7 @@ export const draftVersions = sqliteTable("draft_versions", {
   html: text("html"),
   sourceOutlineId: text("source_outline_id"),
   sourceDiagnosisId: text("source_diagnosis_id"),
+  sourceAIStyleCheckId: text("source_ai_style_check_id"),
   sourceInvocationId: text("source_invocation_id"),
   isFinal: integer("is_final", { mode: "boolean" }).notNull().default(false),
   createdBy: text("created_by").notNull(),

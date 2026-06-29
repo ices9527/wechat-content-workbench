@@ -1,5 +1,8 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { aiInvocationRequirements, aiInvocations, aiStyleChecks, draftVersions, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
@@ -9,10 +12,15 @@ import {
   getArticle,
   listAIStyleChecks,
   listRequirementPresets,
+  markFinalDraft,
+  markReadyToPublish,
+  reviseFromAIStyleCheck,
   runAIStyleCheck,
+  runPublishHTMLAIStyleCheck,
   type RunAIStyleCheckInput
 } from "./articles";
-import type { GeneratedAIStyleCheck } from "./ai";
+import type { GeneratedAIStyleCheck, GeneratedDraft } from "./ai";
+import { renderWechatHtmlAsset } from "./publishing";
 
 class FailingAIStyleCheckClient extends FakeAIClient {
   async runAIStyleCheck(): Promise<never> {
@@ -27,6 +35,14 @@ class EmptyHighRiskAIStyleCheckClient extends FakeAIClient {
       score: 20,
       summaryMarkdown: "有明显表达水分。",
       issues: []
+    };
+  }
+}
+
+class CleanDraftClient extends FakeAIClient {
+  async reviseDraft(): Promise<GeneratedDraft> {
+    return {
+      markdown: "# 清洁版文案\n\n把模板化表达改成直接判断。"
     };
   }
 }
@@ -128,5 +144,52 @@ describe("article AI style check service", () => {
     expect(event?.fromStatus).toBe("draft_generated");
     expect(event?.toStatus).toBe("draft_generated");
     expect(event?.payloadJson).toContain(check.id);
+  });
+
+  it("generates a clean draft version from an AI style check without overwriting the source draft", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    const originalMarkdown = draft.markdown;
+    const check = await runAIStyleCheck(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+
+    const cleanDraft = await reviseFromAIStyleCheck(article.id, { checkId: check.id }, new CleanDraftClient(), db);
+    const drafts = db.select().from(draftVersions).where(eq(draftVersions.articleId, article.id)).all();
+    const sourceDraft = db.select().from(draftVersions).where(eq(draftVersions.id, draft.id)).get();
+
+    expect(cleanDraft.versionNo).toBe(2);
+    expect(cleanDraft.markdown).toContain("清洁版文案");
+    expect(cleanDraft.sourceAIStyleCheckId).toBe(check.id);
+    expect(cleanDraft.sourceInvocationId).toBeTruthy();
+    expect(sourceDraft?.markdown).toBe(originalMarkdown);
+    expect(drafts).toHaveLength(2);
+    expect(getArticle(article.id, db)?.status).toBe("draft_generated");
+  });
+
+  it("rejects clean draft generation from another article's AI style check", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    const { article: otherArticle } = await createArticleWithDraft(db);
+    const check = await runAIStyleCheck(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+
+    await expect(reviseFromAIStyleCheck(otherArticle.id, { checkId: check.id }, new CleanDraftClient(), db)).rejects.toThrow(
+      "文案清洁检查记录不存在"
+    );
+  });
+
+  it("runs AI style checks against generated publish HTML without changing draft history", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft } = await createArticleWithDraft(db);
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-html-style-check-"));
+    markFinalDraft(article.id, { draftVersionId: draft.id }, db);
+    markReadyToPublish(article.id, db);
+    const htmlAsset = renderWechatHtmlAsset(article.id, db, { assetRoot });
+
+    const check = await runPublishHTMLAIStyleCheck(article.id, { htmlAssetId: htmlAsset.id }, new FakeAIClient(), db);
+    const sourceDraft = db.select().from(draftVersions).where(eq(draftVersions.id, draft.id)).get();
+
+    expect(check.sourceType).toBe("publish_html");
+    expect(check.draftVersionId).toBe(draft.id);
+    expect(check.issueCount).toBeGreaterThan(0);
+    expect(sourceDraft?.markdown).toBe(draft.markdown);
   });
 });

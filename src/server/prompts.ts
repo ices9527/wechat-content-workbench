@@ -7,6 +7,7 @@ export type PromptTask =
   | "ai_style_check"
   | "dbs_content"
   | "revise_from_diagnosis"
+  | "revise_from_ai_style_check"
   | "pre_publish_check"
   | "review_check";
 
@@ -150,6 +151,25 @@ const templates: Record<PromptTask, string> = {
     "",
     "必须只输出 JSON，字段包括：",
     "markdown：完整 Markdown 修改稿，包含标题、开头、正文小标题、段落和结尾。"
+  ].join("\n"),
+  revise_from_ai_style_check: [
+    "你是公众号文案清洁改写助手。",
+    "请只根据文案清洁检查结果生成一版新的 Markdown 清洁版文案。",
+    "重要边界：不改变核心观点，不新增事实，不删除必要的合规和风险边界，不把文章改成另一篇文章。",
+    "只处理表达层面的水分：AI 味套话、空泛正确、重复判断、抽象大词、模板句、弱结尾和过度工整结构。",
+    "主题：{{topic}}",
+    "原文案版本：v{{versionNo}}",
+    "原 Markdown 文案：",
+    "{{markdown}}",
+    "",
+    "文案清洁检查摘要：",
+    "{{summaryMarkdown}}",
+    "",
+    "文案清洁检查问题列表：",
+    "{{issuesMarkdown}}",
+    "",
+    "必须只输出 JSON，字段包括：",
+    "markdown：完整 Markdown 清洁版文案，保留标题、开头、正文小标题、段落和结尾。"
   ].join("\n"),
   pre_publish_check: [
     "你是公众号发布前检查助手。",

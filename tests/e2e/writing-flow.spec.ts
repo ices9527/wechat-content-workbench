@@ -271,4 +271,38 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(page.getByText("已载入文案 v1 到编辑器")).toBeVisible();
   await expect(editor).toHaveValue(/跨境支付通火了/);
   await expect(editor).not.toHaveValue(/这是人工补充的一段。/);
+
+  await page.getByLabel("切换文案版本").selectOption({ label: "v2" });
+  await expect(page.getByText("已载入文案 v2 到编辑器")).toBeVisible();
+  await aiStyleSection.getByPlaceholder("例如：重点找空话、重复判断和 AI 味套话，不要改核心观点").fill("强制重度水分");
+  await aiStyleSection.getByRole("button", { name: "运行文案清洁检查" }).click();
+  await expect(page.getByText("已保存文案清洁检查")).toBeVisible({ timeout: actionTimeout });
+
+  await page.getByRole("tab", { name: /^人工检查/ }).click();
+  const heavyDraftCard = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v2" }) });
+  await expect(heavyDraftCard.getByText("有高风险表达水分：重度水分")).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("仍存在明显表达水分，是否继续标记最终稿");
+    await dialog.accept();
+  });
+  await heavyDraftCard.getByRole("button", { name: "标记最终稿" }).click();
+  await expect(page.getByText("已标记最终稿 v2")).toBeVisible({ timeout: actionTimeout });
+
+  await heavyDraftCard.getByRole("button", { name: "查看检查详情" }).click();
+  const heavyDetailDialog = page.getByRole("dialog", { name: "文案清洁检查详情" });
+  await heavyDetailDialog.getByRole("button", { name: "生成清洁版文案" }).click();
+  await expect(page.getByText("已生成清洁版文案 v3")).toBeVisible({ timeout: actionTimeout });
+  await expect(heavyDetailDialog).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: /^Markdown 文案/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("切换文案版本").locator("option")).toHaveCount(3);
+
+  await page.getByRole("tab", { name: /^人工检查/ }).click();
+  await page.getByRole("button", { name: "标记待发布" }).click();
+  await expect(page.getByText("已进入发布队列")).toBeVisible({ timeout: actionTimeout });
+  const publishPanel = page.locator("#workflow-panel-publish");
+  await publishPanel.getByRole("button", { name: "生成公众号 HTML" }).click();
+  await expect(page.getByText(/已生成公众号 HTML/)).toBeVisible({ timeout: actionTimeout });
+  await publishPanel.getByRole("button", { name: "检查发布 HTML 文案" }).click();
+  await expect(page.getByText("已完成发布 HTML 文案清洁检查")).toBeVisible({ timeout: actionTimeout });
+  await expect(publishPanel.getByText("最新发布 HTML 文案清洁检查")).toBeVisible();
 });

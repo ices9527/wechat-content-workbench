@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -40,6 +41,7 @@ import {
 import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
+import { htmlToPlainText } from "./html-text";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
@@ -179,6 +181,19 @@ export const runAIStyleCheckInputSchema = z.object({
   ...promptControlInputShape
 });
 
+export const reviseFromAIStyleCheckInputSchema = z.object({
+  checkId: z.string().trim().min(1, "必须指定文案清洁检查记录")
+});
+
+export const runPublishHTMLAIStyleCheckInputSchema = z.object({
+  htmlAssetId: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || undefined),
+  ...promptControlInputShape
+});
+
 export const prePublishCheckInputSchema = z.object(promptControlInputShape);
 
 export const reviewCheckInputSchema = z.object(promptControlInputShape);
@@ -188,7 +203,8 @@ export const reviseFromDiagnosisInputSchema = z.object({
 });
 
 export const markFinalDraftInputSchema = z.object({
-  draftVersionId: z.string().trim().min(1, "必须指定最终稿版本")
+  draftVersionId: z.string().trim().min(1, "必须指定最终稿版本"),
+  force: z.boolean().optional().default(false)
 });
 
 export type ManualAngleInput = z.infer<typeof manualAngleInputSchema>;
@@ -203,10 +219,12 @@ export type GenerateOutlineInput = z.input<typeof generateOutlineInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
 export type RunDbsContentInput = z.input<typeof runDbsContentInputSchema>;
 export type RunAIStyleCheckInput = z.input<typeof runAIStyleCheckInputSchema>;
+export type ReviseFromAIStyleCheckInput = z.infer<typeof reviseFromAIStyleCheckInputSchema>;
+export type RunPublishHTMLAIStyleCheckInput = z.input<typeof runPublishHTMLAIStyleCheckInputSchema>;
 export type PrePublishCheckInput = z.input<typeof prePublishCheckInputSchema>;
 export type ReviewCheckInput = z.input<typeof reviewCheckInputSchema>;
 export type ReviseFromDiagnosisInput = z.infer<typeof reviseFromDiagnosisInputSchema>;
-export type MarkFinalDraftInput = z.infer<typeof markFinalDraftInputSchema>;
+export type MarkFinalDraftInput = z.input<typeof markFinalDraftInputSchema>;
 
 // Read model helpers
 
@@ -482,6 +500,51 @@ function requireFinalDraft(article: ArticleProject, db: WorkbenchDatabase): Draf
   return draft;
 }
 
+function requireAIStyleCheck(articleId: string, checkId: string, db: WorkbenchDatabase): AIStyleCheck {
+  const check = db
+    .select()
+    .from(aiStyleChecks)
+    .where(and(eq(aiStyleChecks.id, checkId), eq(aiStyleChecks.articleId, articleId)))
+    .get();
+  if (!check) {
+    throw new Error("文案清洁检查记录不存在");
+  }
+  return check;
+}
+
+function getLatestDraftVersionAIStyleCheck(articleId: string, draftVersionId: string, db: WorkbenchDatabase): AIStyleCheck | null {
+  return (
+    db
+      .select()
+      .from(aiStyleChecks)
+      .where(
+        and(
+          eq(aiStyleChecks.articleId, articleId),
+          eq(aiStyleChecks.draftVersionId, draftVersionId),
+          eq(aiStyleChecks.sourceType, "draft_version")
+        )
+      )
+      .orderBy(desc(aiStyleChecks.createdAt))
+      .get() || null
+  );
+}
+
+function requireHTMLAsset(articleId: string, draftVersionId: string, htmlAssetId: string | undefined, db: WorkbenchDatabase) {
+  const conditions = [
+    eq(articleAssets.articleId, articleId),
+    eq(articleAssets.draftVersionId, draftVersionId),
+    eq(articleAssets.assetType, "html")
+  ];
+  if (htmlAssetId) {
+    conditions.push(eq(articleAssets.id, htmlAssetId));
+  }
+  const asset = db.select().from(articleAssets).where(and(...conditions)).orderBy(desc(articleAssets.createdAt)).get();
+  if (!asset) {
+    throw new Error("请先生成公众号 HTML");
+  }
+  return asset;
+}
+
 function isFinalDraftLockedStatus(status: ArticleStatus): boolean {
   return isPublishQueueStatus(status) || status === "review_recorded";
 }
@@ -508,6 +571,33 @@ function getPublishContext(articleId: string, db: WorkbenchDatabase): {
     : "未上传草稿箱";
 
   return { htmlAssetCount, coverAssetCount, uploadStatus };
+}
+
+function formatAIStyleCheckIssuesForPrompt(check: AIStyleCheck): string {
+  let issues: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(check.issuesJson) as unknown;
+    if (Array.isArray(parsed)) {
+      issues = parsed.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+    }
+  } catch {
+    issues = [];
+  }
+  if (issues.length === 0) {
+    return "无具体问题列表。";
+  }
+  return issues
+    .map((issue, index) =>
+      [
+        `${index + 1}. ${String(issue.type || "未分类")} / ${String(issue.severity || "medium")}`,
+        issue.quote ? `原文片段：${String(issue.quote)}` : "",
+        issue.problem ? `问题：${String(issue.problem)}` : "",
+        issue.fixDirection || issue.fix_direction ? `修改方向：${String(issue.fixDirection || issue.fix_direction)}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .join("\n\n");
 }
 
 // Article read models and queries
@@ -1338,6 +1428,7 @@ export async function generateDraft(
       html: null,
       sourceOutlineId: outline.id,
       sourceDiagnosisId: null,
+      sourceAIStyleCheckId: null,
       sourceInvocationId: null,
       isFinal: false,
       createdBy: "ai",
@@ -1398,6 +1489,7 @@ export function saveDraftVersion(
     html: null,
     sourceOutlineId: latest?.sourceOutlineId || null,
     sourceDiagnosisId: latest?.sourceDiagnosisId || null,
+    sourceAIStyleCheckId: latest?.sourceAIStyleCheckId || null,
     sourceInvocationId: null,
     isFinal: false,
     createdBy: "user",
@@ -1618,6 +1710,84 @@ export async function runAIStyleCheck(
   }
 }
 
+export async function reviseFromAIStyleCheck(
+  articleId: string,
+  input: ReviseFromAIStyleCheckInput,
+  client: AIClient = getAIClient(),
+  db: WorkbenchDatabase = getDatabase().db
+): Promise<DraftVersion> {
+  const article = requireArticle(articleId, db);
+  const parsed = reviseFromAIStyleCheckInputSchema.parse(input);
+  const check = requireAIStyleCheck(article.id, parsed.checkId, db);
+  if (check.sourceType !== "draft_version") {
+    throw new Error("只能基于文案版本的清洁检查生成清洁版文案");
+  }
+  const sourceDraft = requireDraft(article.id, check.draftVersionId, db);
+  const prompt = renderPrompt("revise_from_ai_style_check", {
+    topic: article.topic,
+    versionNo: String(sourceDraft.versionNo),
+    markdown: sourceDraft.markdown,
+    summaryMarkdown: check.summaryMarkdown,
+    issuesMarkdown: formatAIStyleCheckIssuesForPrompt(check)
+  });
+
+  try {
+    const generated = await client.reviseDraft(prompt);
+    if (!generated.markdown) {
+      throw new Error("AI 返回的清洁版文案为空");
+    }
+
+    const existing = listDrafts(article.id, db);
+    let draft: DraftVersion = {
+      id: randomUUID(),
+      articleId: article.id,
+      ownerId: article.ownerId,
+      versionNo: nextVersionNo(existing),
+      draftType: "revision",
+      markdown: generated.markdown,
+      html: null,
+      sourceOutlineId: sourceDraft.sourceOutlineId,
+      sourceDiagnosisId: sourceDraft.sourceDiagnosisId,
+      sourceAIStyleCheckId: check.id,
+      sourceInvocationId: null,
+      isFinal: false,
+      createdBy: "ai",
+      createdAt: new Date().toISOString()
+    };
+    const status = article.status as ArticleStatus;
+
+    db.transaction(() => {
+      const invocationId = recordAIInvocation(db, {
+        article,
+        taskType: "revise_from_ai_style_check",
+        client,
+        prompt,
+        response: generated,
+        status: "success"
+      });
+      draft = { ...draft, sourceInvocationId: invocationId };
+      db.insert(draftVersions).values(draft).run();
+      recordWorkflowEvent(db, article, status, status, "revise_from_ai_style_check", {
+        checkId: check.id,
+        sourceDraftVersionId: sourceDraft.id,
+        draftId: draft.id
+      });
+    });
+
+    return draft;
+  } catch (error) {
+    recordFailedAIInvocation(db, {
+      article,
+      taskType: "revise_from_ai_style_check",
+      client,
+      prompt,
+      error,
+      fallbackMessage: "生成清洁版文案失败"
+    });
+    throw error;
+  }
+}
+
 export async function reviseFromDiagnosis(
   articleId: string,
   input: ReviseFromDiagnosisInput,
@@ -1657,6 +1827,7 @@ export async function reviseFromDiagnosis(
       html: null,
       sourceOutlineId: sourceDraft.sourceOutlineId,
       sourceDiagnosisId: diagnosis.id,
+      sourceAIStyleCheckId: null,
       sourceInvocationId: null,
       isFinal: false,
       createdBy: "ai",
@@ -1701,6 +1872,102 @@ export async function reviseFromDiagnosis(
   }
 }
 
+export async function runPublishHTMLAIStyleCheck(
+  articleId: string,
+  input: RunPublishHTMLAIStyleCheckInput = {},
+  client: AIClient = getAIClient(),
+  db: WorkbenchDatabase = getDatabase().db
+): Promise<AIStyleCheck> {
+  const article = requireArticle(articleId, db);
+  const parsed = runPublishHTMLAIStyleCheckInputSchema.parse(input);
+  const finalDraft = requireFinalDraft(article, db);
+  const htmlAsset = requireHTMLAsset(article.id, finalDraft.id, parsed.htmlAssetId, db);
+  const plainText = htmlToPlainText(readFileSync(htmlAsset.path, "utf8"));
+  if (!plainText) {
+    throw new Error("HTML 资产没有可检查的文本");
+  }
+  const stagePrompt = getStagePromptDefault("ai_style_check", db);
+  const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "ai_style_check", db);
+  const selectedRequirementsSummary = selectedRequirements.length > 0 ? selectedRequirements.map((requirement) => requirement.label).join("、") : "";
+  const prompt = buildLayeredPrompt(
+    renderPrompt("ai_style_check", {
+      title: article.title,
+      topic: article.topic,
+      targetReader: article.targetReader,
+      coreProblem: article.coreProblem,
+      customInstruction: parsed.customInstruction,
+      selectedRequirementsSummary,
+      draftMarkdown: plainText
+    }),
+    {
+      stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
+      selectedRequirements
+    }
+  );
+
+  try {
+    const generated = await client.runAIStyleCheck(prompt);
+    if ((generated.verdict === "needs_cleanup" || generated.verdict === "heavy_slop") && generated.issues.length === 0) {
+      throw new Error("AI 返回的问题列表为空");
+    }
+
+    const check: AIStyleCheck = {
+      id: randomUUID(),
+      articleId: article.id,
+      ownerId: article.ownerId,
+      draftVersionId: finalDraft.id,
+      sourceInvocationId: null,
+      sourceType: "publish_html",
+      cleanlinessVerdict: generated.verdict,
+      score: generated.score,
+      issueCount: generated.issues.length,
+      summaryMarkdown: generated.summaryMarkdown,
+      issuesJson: JSON.stringify(generated.issues),
+      customInstructionSnapshot: parsed.customInstruction || null,
+      createdBy: "ai",
+      createdAt: new Date().toISOString()
+    };
+    const status = article.status as ArticleStatus;
+
+    db.transaction(() => {
+      const invocationId = recordAIInvocation(db, {
+        article,
+        taskType: "publish_html_ai_style_check",
+        client,
+        prompt,
+        response: generated,
+        customInstruction: parsed.customInstruction,
+        stagePrompt,
+        status: "success"
+      });
+      recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      check.sourceInvocationId = invocationId;
+      db.insert(aiStyleChecks).values(check).run();
+      recordWorkflowEvent(db, article, status, status, "run_publish_html_ai_style_check", {
+        draftVersionId: finalDraft.id,
+        htmlAssetId: htmlAsset.id,
+        checkId: check.id,
+        verdict: check.cleanlinessVerdict,
+        issueCount: check.issueCount
+      });
+    });
+
+    return check;
+  } catch (error) {
+    recordFailedAIInvocation(db, {
+      article,
+      taskType: "publish_html_ai_style_check",
+      client,
+      prompt,
+      customInstruction: parsed.customInstruction,
+      stagePrompt,
+      error,
+      fallbackMessage: "发布 HTML 文案清洁检查失败"
+    });
+    throw error;
+  }
+}
+
 export function markFinalDraft(
   articleId: string,
   input: MarkFinalDraftInput,
@@ -1713,17 +1980,33 @@ export function markFinalDraft(
   if (isFinalDraftLockedStatus(status)) {
     throw new Error("文章已进入发布或复盘流程，不能重新标记最终稿");
   }
+  const latestCheck = getLatestDraftVersionAIStyleCheck(article.id, draft.id, db);
+  if (latestCheck?.cleanlinessVerdict === "heavy_slop" && !parsed.force) {
+    throw new Error("仍存在明显表达水分，是否继续标记最终稿");
+  }
 
   db.transaction(() => {
     const nextStatus: ArticleStatus = status === "human_review" ? status : "human_review";
     const updatedAt = new Date().toISOString();
+    if (latestCheck?.cleanlinessVerdict === "heavy_slop" && parsed.force) {
+      recordWorkflowEvent(db, article, status, status, "confirm_final_draft_ai_style_check_gate", {
+        draftVersionId: draft.id,
+        checkId: latestCheck.id,
+        verdict: latestCheck.cleanlinessVerdict
+      });
+    }
     db.update(draftVersions).set({ isFinal: false }).where(eq(draftVersions.articleId, article.id)).run();
     db.update(draftVersions).set({ isFinal: true }).where(eq(draftVersions.id, draft.id)).run();
     db.update(articleProjects)
       .set({ finalDraftVersionId: draft.id, status: nextStatus, updatedAt })
       .where(eq(articleProjects.id, article.id))
       .run();
-    recordWorkflowEvent(db, article, status, nextStatus, "mark_final_draft", { draftVersionId: draft.id });
+    recordWorkflowEvent(db, article, status, nextStatus, "mark_final_draft", {
+      draftVersionId: draft.id,
+      aiStyleCheckId: latestCheck?.id || null,
+      aiStyleCheckVerdict: latestCheck?.cleanlinessVerdict || null,
+      aiStyleCheckGateConfirmed: latestCheck?.cleanlinessVerdict === "heavy_slop" && parsed.force
+    });
   });
 
   return { ...draft, isFinal: true };

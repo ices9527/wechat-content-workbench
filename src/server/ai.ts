@@ -281,7 +281,23 @@ export class FakeAIClient implements AIClient {
     };
   }
 
-  async runAIStyleCheck(): Promise<GeneratedAIStyleCheck> {
+  async runAIStyleCheck(prompt = ""): Promise<GeneratedAIStyleCheck> {
+    if (prompt.includes("强制重度水分") || prompt.toLowerCase().includes("force heavy slop")) {
+      return {
+        verdict: "heavy_slop",
+        score: 34,
+        summaryMarkdown: "存在明显表达水分，进入最终稿前建议先清理。",
+        issues: [
+          {
+            type: "ai_cliche",
+            severity: "high",
+            quote: "真正重要的不是几秒到账，而是生活资金的路径变得更低摩擦。",
+            problem: "使用高频 AI 转折结构承载主判断，读起来像模板总结。",
+            fixDirection: "改成更直接的家庭场景判断，保留资金路径边界。"
+          }
+        ]
+      };
+    }
     return {
       verdict: "needs_cleanup",
       score: 68,
