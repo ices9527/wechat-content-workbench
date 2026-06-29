@@ -35,6 +35,14 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await researchPanel.getByRole("button", { name: "生成内容研究资料包" }).click();
   await expect(researchPanel.getByText("当前资料包 r2")).toBeVisible({ timeout: actionTimeout });
   await expect(researchPanel.getByLabel("研究资料包版本").locator("option")).toHaveCount(2);
+  await researchPanel.getByRole("button", { name: "查看研究资料包提示词配方" }).click();
+  const researchRecipeDialog = page.getByRole("dialog", { name: "提示词配方" });
+  await expect(researchRecipeDialog.getByText("最终提示词")).toBeVisible();
+  await researchRecipeDialog.getByText("最终提示词").click();
+  await expect(researchRecipeDialog.locator(".prompt-recipe-card", { hasText: "第二版重点研究读者真实问题。" }).first()).toBeVisible();
+  await expectPromptDialogScrollable(researchRecipeDialog);
+  await researchRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
+  await expect(researchRecipeDialog).toHaveCount(0);
   await researchPanel.getByLabel("研究资料包版本").selectOption({ index: 1 });
   await expect(researchPanel.getByText("当前资料包 r1")).toBeVisible();
   await researchPanel.getByLabel("研究资料包版本").selectOption({ index: 0 });

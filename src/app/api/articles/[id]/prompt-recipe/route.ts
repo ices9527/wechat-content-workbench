@@ -6,6 +6,7 @@ import {
   getPromptRecipeForDraft,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
+  getPromptRecipeForResearch,
   getPromptRecipeForTopicDiagnosis
 } from "@/server/articles";
 
@@ -17,8 +18,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const outlineVersionId = searchParams.get("outlineVersionId");
     const draftVersionId = searchParams.get("draftVersionId");
     const topicDiagnosisId = searchParams.get("topicDiagnosisId");
+    const researchVersionId = searchParams.get("researchVersionId");
     const invocationId = searchParams.get("invocationId");
-    const specifiedCount = [outlineVersionId, draftVersionId, topicDiagnosisId, invocationId].filter(Boolean).length;
+    const specifiedCount = [outlineVersionId, draftVersionId, topicDiagnosisId, researchVersionId, invocationId].filter(Boolean).length;
 
     if (specifiedCount !== 1) {
       return jsonError(new Error("必须且只能指定一个版本或调用 ID"));
@@ -30,7 +32,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         ? getPromptRecipeForDraft(id, draftVersionId)
         : topicDiagnosisId
           ? getPromptRecipeForTopicDiagnosis(id, topicDiagnosisId)
-          : getPromptRecipeForInvocation(id, invocationId as string);
+          : researchVersionId
+            ? getPromptRecipeForResearch(id, researchVersionId)
+            : getPromptRecipeForInvocation(id, invocationId as string);
 
     return NextResponse.json({ recipe });
   } catch (error) {

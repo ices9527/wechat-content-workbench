@@ -1,7 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocationRequirements, aiInvocations, promptRunArtifacts, requirementPresets, stagePromptDefaults } from "@/db/schema";
+import {
+  aiInvocationRequirements,
+  aiInvocations,
+  promptRunArtifacts,
+  requirementPresets,
+  researchVersions,
+  stagePromptDefaults
+} from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { createArticleWithDraft, FakeAIClient } from "./articles-test-utils";
@@ -11,10 +18,12 @@ import {
   createManualAngle,
   deleteRequirementPreset,
   generateDraft,
+  generateContentResearch,
   generateOutline,
   getPromptRecipeForDraft,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
+  getPromptRecipeForResearch,
   getPromptRecipeForTopicDiagnosis,
   listPromptRunArtifacts,
   listRequirementPresets,
@@ -122,6 +131,73 @@ describe("article prompt recipe service", () => {
     expect(recipe.customInstruction).toBe("重点检查今天点开的理由。");
     expect(recipe.finalPrompt).toContain("只判断这个选题是否值得进入公众号生产线");
     expect(recipe.finalPrompt).toContain("重点检查今天点开的理由。");
+  });
+
+  it("links content research packages to their prompt recipes", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通", targetReader: "跨境家庭" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是表层" }, db);
+    selectAngle(article.id, angle.id, db);
+
+    const research = await generateContentResearch(
+      article.id,
+      { customInstruction: "重点研究家庭现金流场景。" },
+      new FakeAIClient(),
+      db
+    );
+    const recipe = getPromptRecipeForResearch(article.id, research.id, db);
+
+    expect(research.sourceInvocationId).toBeTruthy();
+    expect(recipe.invocationId).toBe(research.sourceInvocationId);
+    expect(recipe.taskType).toBe("content_research");
+    expect(recipe.customInstruction).toBe("重点研究家庭现金流场景。");
+    expect(recipe.finalPrompt).toContain("输出研究资料包");
+    expect(recipe.finalPrompt).toContain("重点研究家庭现金流场景。");
+  });
+
+  it("returns an empty prompt recipe for research packages without invocation history", () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是表层" }, db);
+    selectAngle(article.id, angle.id, db);
+
+    db.insert(researchVersions)
+      .values({
+        id: "manual-research-version",
+        articleId: article.id,
+        ownerId: article.ownerId,
+        versionNo: 1,
+        sourceAngleId: angle.id,
+        sourceInvocationId: null,
+        summaryMarkdown: "人工摘要",
+        researchMarkdown: "## 人工资料包\n\n人工修正内容",
+        factsMarkdown: null,
+        backgroundMarkdown: null,
+        readerQuestionsMarkdown: null,
+        boundariesMarkdown: null,
+        writeableDirectionsMarkdown: null,
+        avoidDirectionsMarkdown: null,
+        createdBy: "user",
+        createdAt: new Date().toISOString()
+      })
+      .run();
+
+    const recipe = getPromptRecipeForResearch(article.id, "manual-research-version", db);
+
+    expect(recipe.invocationId).toBeNull();
+    expect(recipe.emptyReason).toContain("没有绑定 AI 提示词记录");
+    expect(recipe.finalPrompt).toBeNull();
+  });
+
+  it("rejects cross-article research prompt recipe lookups", async () => {
+    const { db } = createTestDatabase();
+    const first = createArticle({ topic: "第一篇" }, db);
+    const firstAngle = createManualAngle(first.id, { angleTitle: "第一角度" }, db);
+    selectAngle(first.id, firstAngle.id, db);
+    const research = await generateContentResearch(first.id, {}, new FakeAIClient(), db);
+    const second = createArticle({ topic: "第二篇" }, db);
+
+    expect(() => getPromptRecipeForResearch(second.id, research.id, db)).toThrow("研究资料包不存在");
   });
 
   it("updates stage default prompts", () => {

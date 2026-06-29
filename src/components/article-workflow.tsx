@@ -973,7 +973,7 @@ export function ArticleWorkflow({
     });
   }
 
-  async function openPromptRecipe(kind: "outline" | "draft" | "topic-diagnosis" | "invocation", targetId: string | null) {
+  async function openPromptRecipe(kind: "outline" | "draft" | "topic-diagnosis" | "research" | "invocation", targetId: string | null) {
     if (!targetId) {
       return;
     }
@@ -984,7 +984,9 @@ export function ArticleWorkflow({
           ? "draftVersionId"
           : kind === "topic-diagnosis"
             ? "topicDiagnosisId"
-            : "invocationId";
+            : kind === "research"
+              ? "researchVersionId"
+              : "invocationId";
     setPending(`prompt-recipe-${kind}`);
     setError(null);
     setNotice(null);
@@ -1228,7 +1230,21 @@ export function ArticleWorkflow({
                   <section className="research-preview">
                     <div className="mini-card-head">
                       <h3>当前资料包 r{selectedResearch.versionNo}</h3>
-                      <span className="source-pill">{selectedResearch.createdBy === "ai" ? "AI" : "手动"}</span>
+                      <div className="mini-card-actions">
+                        <span className="source-pill">{selectedResearch.createdBy === "ai" ? "AI" : "手动"}</span>
+                        {selectedResearch.sourceInvocationId ? (
+                          <button
+                            aria-label="查看研究资料包提示词配方"
+                            className="icon-action"
+                            disabled={pending !== null}
+                            onClick={() => void openPromptRecipe("research", selectedResearch.id)}
+                            title="查看提示词配方"
+                            type="button"
+                          >
+                            <ScrollText aria-hidden="true" size={16} />
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                     <MarkdownPreview markdown={selectedResearch.researchMarkdown} />
                   </section>

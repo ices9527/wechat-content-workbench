@@ -1078,6 +1078,13 @@ h1 {
   gap: 10px;
 }
 
+.mini-card-actions {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .mini-card h3 {
   margin: 0;
   font-size: 15px;

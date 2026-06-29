@@ -66,6 +66,7 @@ export {
   getPromptRecipeForDraft,
   getPromptRecipeForInvocation,
   getPromptRecipeForOutline,
+  getPromptRecipeForResearch,
   getPromptRecipeForTopicDiagnosis
 } from "./prompt-recipes";
 export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";

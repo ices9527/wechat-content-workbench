@@ -7,7 +7,7 @@ export async function expectNoRuntimeErrorOverlay(page: Page) {
 }
 
 export async function expectPromptDialogScrollable(dialog: Locator) {
-  const body = dialog.locator(".prompt-config-body");
+  const body = dialog.locator(".prompt-config-body, .prompt-recipe-body");
   await expect(body).toBeVisible();
   await expect(body).toHaveCSS("overflow-y", "scroll");
   await expect
