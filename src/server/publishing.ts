@@ -213,19 +213,27 @@ export function renderWechatHtmlAsset(
   const html = markdownToWechatHtml(draft.markdown);
   const relativePath = path.join("articles", article.id, "html", `draft-v${draft.versionNo}.html`);
   const filePath = path.join(options.assetRoot || defaultAssetRoot(), relativePath);
+  const now = new Date().toISOString();
   const asset: ArticleAsset = {
     id: randomUUID(),
     articleId: article.id,
     ownerId: article.ownerId,
     draftVersionId: draft.id,
+    sourcePlanId: null,
+    sourcePlanItemId: null,
     assetType: "html",
+    status: "ready",
     variant: "wechat_inline",
     path: filePath,
     mimeType: "text/html",
     source: "markdown_final_draft",
+    promptSnapshot: null,
+    provider: null,
+    errorMessage: null,
     width: null,
     height: null,
-    createdAt: new Date().toISOString()
+    generatedAt: now,
+    createdAt: now
   };
 
   db.transaction(() => {
@@ -297,13 +305,20 @@ export function generateCoverAssets(
       articleId: article.id,
       ownerId: article.ownerId,
       draftVersionId: draft.id,
+      sourcePlanId: null,
+      sourcePlanItemId: null,
       assetType: "cover",
+      status: "ready",
       variant: variant.variant,
       path: path.join(root, relativePath),
       mimeType: "image/svg+xml",
       source: sourceLabel,
+      promptSnapshot: null,
+      provider: "local_cover_svg",
+      errorMessage: null,
       width: variant.width,
       height: variant.height,
+      generatedAt: now,
       createdAt: now
     } satisfies ArticleAsset;
   });
@@ -318,13 +333,20 @@ export function generateCoverAssets(
           articleId: article.id,
           ownerId: article.ownerId,
           draftVersionId: draft.id,
+          sourcePlanId: null,
+          sourcePlanItemId: null,
           assetType: "cover_source",
+          status: "ready",
           variant: "upload",
           path: uploadPath,
           mimeType: source.mimeType || null,
           source: "upload",
+          promptSnapshot: null,
+          provider: null,
+          errorMessage: null,
           width: null,
           height: null,
+          generatedAt: now,
           createdAt: now
         })
         .run();

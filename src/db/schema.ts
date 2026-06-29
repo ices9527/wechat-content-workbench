@@ -234,13 +234,20 @@ export const articleAssets = sqliteTable("article_assets", {
   articleId: text("article_id").notNull().references(() => articleProjects.id),
   ownerId: text("owner_id").notNull().references(() => users.id),
   draftVersionId: text("draft_version_id"),
+  sourcePlanId: text("source_plan_id").references(() => illustrationPlans.id),
+  sourcePlanItemId: text("source_plan_item_id"),
   assetType: text("asset_type").notNull(),
+  status: text("status").notNull().default("ready"),
   variant: text("variant"),
   path: text("path").notNull(),
   mimeType: text("mime_type"),
   source: text("source"),
+  promptSnapshot: text("prompt_snapshot"),
+  provider: text("provider"),
+  errorMessage: text("error_message"),
   width: integer("width"),
   height: integer("height"),
+  generatedAt: text("generated_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
 });
 

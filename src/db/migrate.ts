@@ -240,13 +240,20 @@ const statements = [
     article_id TEXT NOT NULL REFERENCES article_projects(id),
     owner_id TEXT NOT NULL REFERENCES users(id),
     draft_version_id TEXT,
+    source_plan_id TEXT REFERENCES illustration_plans(id),
+    source_plan_item_id TEXT,
     asset_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ready',
     variant TEXT,
     path TEXT NOT NULL,
     mime_type TEXT,
     source TEXT,
+    prompt_snapshot TEXT,
+    provider TEXT,
+    error_message TEXT,
     width INTEGER,
     height INTEGER,
+    generated_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE TABLE IF NOT EXISTS wechat_draft_uploads (
@@ -318,12 +325,25 @@ const columnMigrations = [
   { table: "topic_diagnoses", column: "target_reader_snapshot", definition: "TEXT" },
   { table: "topic_diagnoses", column: "core_problem_snapshot", definition: "TEXT" },
   { table: "topic_diagnoses", column: "hot_anchor_snapshot", definition: "TEXT" },
-  { table: "topic_diagnoses", column: "custom_instruction_snapshot", definition: "TEXT" }
+  { table: "topic_diagnoses", column: "custom_instruction_snapshot", definition: "TEXT" },
+  { table: "article_assets", column: "source_plan_id", definition: "TEXT" },
+  { table: "article_assets", column: "source_plan_item_id", definition: "TEXT" },
+  { table: "article_assets", column: "status", definition: "TEXT NOT NULL DEFAULT 'ready'" },
+  { table: "article_assets", column: "prompt_snapshot", definition: "TEXT" },
+  { table: "article_assets", column: "provider", definition: "TEXT" },
+  { table: "article_assets", column: "error_message", definition: "TEXT" },
+  { table: "article_assets", column: "generated_at", definition: "TEXT" }
 ] as const;
 
 const postColumnStatements = [
   `CREATE INDEX IF NOT EXISTS content_diagnoses_source_invocation_index
-    ON content_diagnoses(source_invocation_id)`
+    ON content_diagnoses(source_invocation_id)`,
+  `CREATE INDEX IF NOT EXISTS article_assets_article_type_created_index
+    ON article_assets(article_id, asset_type, created_at)`,
+  `CREATE INDEX IF NOT EXISTS article_assets_source_plan_index
+    ON article_assets(source_plan_id)`,
+  `CREATE INDEX IF NOT EXISTS article_assets_plan_item_created_index
+    ON article_assets(source_plan_id, source_plan_item_id, created_at)`
 ];
 
 function columnExists(sqlite: Database.Database, table: string, column: string): boolean {

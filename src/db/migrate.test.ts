@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTestDatabase } from "@/test/test-db";
 
-import { aiStyleChecks, articleProjects, draftVersions, illustrationPlans } from "./schema";
+import { aiStyleChecks, articleAssets, articleProjects, draftVersions, illustrationPlans } from "./schema";
 
 describe("database migrations", () => {
   it("creates ai style check storage with queryable defaults", () => {
@@ -128,5 +128,54 @@ describe("database migrations", () => {
     const plan = db.select().from(illustrationPlans).get();
     expect(plan?.status).toBe("draft");
     expect(plan?.createdBy).toBe("ai");
+  });
+
+  it("creates article asset inline illustration metadata with ready defaults", () => {
+    const { db, sqlite } = createTestDatabase();
+
+    const columns = sqlite.prepare("PRAGMA table_info(article_assets)").all() as Array<{ name: string }>;
+    const indexes = sqlite.prepare("PRAGMA index_list(article_assets)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "source_plan_id",
+        "source_plan_item_id",
+        "status",
+        "prompt_snapshot",
+        "provider",
+        "error_message",
+        "generated_at"
+      ])
+    );
+    expect(indexes.map((index) => index.name)).toEqual(
+      expect.arrayContaining([
+        "article_assets_article_type_created_index",
+        "article_assets_source_plan_index",
+        "article_assets_plan_item_created_index"
+      ])
+    );
+
+    db.insert(articleProjects)
+      .values({
+        id: "article-inline-asset",
+        ownerId: "local_user",
+        title: "测试文章",
+        topic: "测试文章"
+      })
+      .run();
+    db.insert(articleAssets)
+      .values({
+        id: "asset-inline",
+        articleId: "article-inline-asset",
+        ownerId: "local_user",
+        assetType: "inline_illustration",
+        path: "/tmp/inline.svg"
+      })
+      .run();
+
+    const asset = db.select().from(articleAssets).get();
+    expect(asset?.status).toBe("ready");
+    expect(asset?.sourcePlanId).toBeNull();
+    expect(asset?.provider).toBeNull();
   });
 });
