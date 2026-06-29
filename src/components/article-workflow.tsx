@@ -219,6 +219,47 @@ function getIllustrationPlanStatusLabel(status: string): string {
   return "草稿";
 }
 
+function inlineIllustrationAssetKey(planId: string, itemId: string): string {
+  return `${planId}:${itemId}`;
+}
+
+function inlineIllustrationPendingKey(itemId: string): string {
+  return `generate-inline-illustration-${itemId}`;
+}
+
+function getInlineIllustrationAssetStatusLabel(asset: ArticleAsset | null): string {
+  if (!asset) {
+    return "未生成";
+  }
+  if (asset.status === "ready") {
+    return "已生成";
+  }
+  if (asset.status === "failed") {
+    return "生成失败";
+  }
+  if (asset.status === "generating") {
+    return "生成中";
+  }
+  return asset.status;
+}
+
+function getInlineIllustrationAssetStatusClass(asset: ArticleAsset | null): string {
+  if (!asset) {
+    return "missing";
+  }
+  if (asset.status === "ready") {
+    return "ready";
+  }
+  if (asset.status === "failed") {
+    return "failed";
+  }
+  return "pending";
+}
+
+function compareAssetCreatedDesc(left: ArticleAsset, right: ArticleAsset): number {
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
 function formatResearchOptionLabel(research: ResearchVersion): string {
   return `r${research.versionNo} · ${formatTime(research.createdAt)}`;
 }
@@ -738,6 +779,101 @@ function IllustrationPanel({
   );
 }
 
+function InlineIllustrationAssetPanel({
+  articleId,
+  plan,
+  item,
+  itemIndex,
+  assets,
+  pending,
+  onGenerate
+}: {
+  articleId: string;
+  plan: IllustrationPlan;
+  item: IllustrationPlanItemView;
+  itemIndex: number;
+  assets: ArticleAsset[];
+  pending: string | null;
+  onGenerate: () => void;
+}) {
+  const latestAsset = assets[0] || null;
+  const historyAssets = assets.slice(1);
+  const canGenerate = plan.status === "confirmed";
+  const actionPending = pending === inlineIllustrationPendingKey(item.itemId);
+  const previewUrl = latestAsset?.status === "ready" ? `/api/articles/${articleId}/assets/${latestAsset.id}/file` : "";
+
+  return (
+    <section className="inline-illustration-assets" aria-label={`配图 ${itemIndex + 1} 图片资产`}>
+      <div className="inline-asset-head">
+        <div>
+          <span className={`inline-asset-status ${getInlineIllustrationAssetStatusClass(latestAsset)}`}>
+            {getInlineIllustrationAssetStatusLabel(latestAsset)}
+          </span>
+          <p>
+            {latestAsset
+              ? `${latestAsset.provider || "unknown"} · ${latestAsset.generatedAt ? formatTime(latestAsset.generatedAt) : formatTime(latestAsset.createdAt)}`
+              : "确认规划后生成正文配图。"}
+          </p>
+        </div>
+        <button
+          aria-label={`${assets.length > 0 ? "重新生成" : "生成"}配图 ${itemIndex + 1} 图片`}
+          className="button secondary compact-button"
+          disabled={!canGenerate || pending !== null}
+          onClick={onGenerate}
+          type="button"
+        >
+          {actionPending ? "生成中" : assets.length > 0 ? "重新生成图片" : "生成图片"}
+        </button>
+      </div>
+
+      {!canGenerate ? <p className="subtle">确认配图规划后可生成正文配图。</p> : null}
+
+      {latestAsset?.status === "ready" ? (
+        <figure className="inline-asset-preview">
+          {/* eslint-disable-next-line @next/next/no-img-element -- previewing local generated SVG assets from the workbench API */}
+          <img alt={`配图 ${itemIndex + 1} 预览`} src={previewUrl} />
+          <figcaption>{latestAsset.path}</figcaption>
+        </figure>
+      ) : null}
+
+      {latestAsset?.status === "failed" ? (
+        <p className="inline-asset-error">生成失败：{latestAsset.errorMessage || "未知错误"}</p>
+      ) : null}
+
+      {latestAsset?.promptSnapshot ? (
+        <details className="inline-asset-details">
+          <summary>查看 prompt</summary>
+          <pre>{latestAsset.promptSnapshot}</pre>
+        </details>
+      ) : null}
+
+      {historyAssets.length > 0 ? (
+        <details className="inline-asset-history">
+          <summary>历史记录（{historyAssets.length}）</summary>
+          <div className="inline-asset-history-list">
+            {historyAssets.map((asset) => (
+              <div className="inline-asset-history-row" key={asset.id}>
+                <span className={`inline-asset-status ${getInlineIllustrationAssetStatusClass(asset)}`}>
+                  {getInlineIllustrationAssetStatusLabel(asset)}
+                </span>
+                <span>{asset.provider || "unknown"}</span>
+                <span>{asset.generatedAt ? formatTime(asset.generatedAt) : formatTime(asset.createdAt)}</span>
+                {asset.status === "ready" ? (
+                  <a href={`/api/articles/${articleId}/assets/${asset.id}/file`} target="_blank" rel="noreferrer">
+                    打开图片
+                  </a>
+                ) : (
+                  <span>{asset.errorMessage || "无图片文件"}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
 function PublishPanel({ latestUpload, children }: { latestUpload: WechatDraftUpload | null; children: ReactNode }) {
   return (
     <WorkflowPanel tabId="publish" title="发布包" status={latestUpload?.status === "success" ? "已上传草稿箱" : null}>
@@ -1085,6 +1221,22 @@ export function ArticleWorkflow({
     : null;
   const htmlAssets = assets.filter((asset) => asset.assetType === "html");
   const coverAssets = assets.filter((asset) => asset.assetType === "cover");
+  const inlineIllustrationAssetsByItem = useMemo(() => {
+    const grouped = new Map<string, ArticleAsset[]>();
+    for (const asset of assets) {
+      if (asset.assetType !== "inline_illustration" || !asset.sourcePlanId || !asset.sourcePlanItemId) {
+        continue;
+      }
+      const key = inlineIllustrationAssetKey(asset.sourcePlanId, asset.sourcePlanItemId);
+      const current = grouped.get(key) || [];
+      current.push(asset);
+      grouped.set(key, current);
+    }
+    for (const itemAssets of grouped.values()) {
+      itemAssets.sort(compareAssetCreatedDesc);
+    }
+    return grouped;
+  }, [assets]);
   const latestUpload = uploads[0] || null;
   const canMarkFinal = drafts.length > 0 && canMarkFinalDraft(articleStatus);
   const topicDiagnosisWarning = latestTopicDiagnosis
@@ -2840,7 +2992,11 @@ export function ArticleWorkflow({
                 </label>
 
                 <div className="illustration-plan-items">
-                  {illustrationPlanItems.map((item, index) => (
+                  {illustrationPlanItems.map((item, index) => {
+                    const itemAssets = selectedIllustrationPlan
+                      ? inlineIllustrationAssetsByItem.get(inlineIllustrationAssetKey(selectedIllustrationPlan.id, item.itemId)) || []
+                      : [];
+                    return (
                     <article className="mini-card illustration-plan-item" key={item.itemId}>
                       <div className="mini-card-head">
                         <h3>配图 {index + 1}</h3>
@@ -2922,8 +3078,26 @@ export function ArticleWorkflow({
                           />
                         </label>
                       </div>
+                      <InlineIllustrationAssetPanel
+                        articleId={article.id}
+                        plan={selectedIllustrationPlan}
+                        item={item}
+                        itemIndex={index}
+                        assets={itemAssets}
+                        pending={pending}
+                        onGenerate={() =>
+                          runAction(inlineIllustrationPendingKey(item.itemId), async () => {
+                            await postJson<ArticleAsset>(`/api/articles/${article.id}/generate-inline-illustration`, {
+                              planId: selectedIllustrationPlan.id,
+                              planItemId: item.itemId
+                            });
+                            setNotice(`已生成配图 ${index + 1}`);
+                          })
+                        }
+                      />
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="action-row">

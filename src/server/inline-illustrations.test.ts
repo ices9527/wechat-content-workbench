@@ -18,7 +18,8 @@ import {
   generateInlineIllustration,
   getArticle,
   markFinalDraft,
-  parseIllustrationPlanPayload
+  parseIllustrationPlanPayload,
+  requireInlineIllustrationAssetFile
 } from "./articles";
 
 class FailingInlineIllustrationClient extends FakeInlineIllustrationClient {
@@ -69,6 +70,10 @@ describe("inline illustration generation service", () => {
     expect(fs.readFileSync(asset.path, "utf8")).toContain("Fake SVG");
     expect(event?.payloadJson).toContain(asset.id);
     expect(getArticle(article.id, db)?.status).toBe(statusBefore);
+
+    const file = requireInlineIllustrationAssetFile(article.id, asset.id, db);
+    expect(file.contentType).toBe("image/svg+xml");
+    expect(file.content.toString("utf8")).toContain("Fake SVG");
   });
 
   it("keeps old inline illustration assets when regenerating the same plan item", async () => {
@@ -136,5 +141,18 @@ describe("inline illustration generation service", () => {
     expect(asset?.generatedAt).toBeTruthy();
     expect(asset?.path ? fs.existsSync(asset.path) : false).toBe(false);
     expect(event?.payloadJson).toContain("provider down");
+    expect(() => requireInlineIllustrationAssetFile(article.id, asset?.id || "", db)).toThrow("正文配图资产尚未生成成功");
+  });
+
+  it("rejects cross-article inline illustration file reads", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-inline-assets-"));
+    const { article, plan, item } = await createConfirmedIllustrationPlan(db);
+    const other = createArticle({ topic: "另一篇文章" }, db);
+    const asset = await generateInlineIllustration(article.id, { planId: plan.id, planItemId: item.itemId }, new FakeInlineIllustrationClient(), db, {
+      assetRoot
+    });
+
+    expect(() => requireInlineIllustrationAssetFile(other.id, asset.id, db)).toThrow("正文配图资产不存在");
   });
 });

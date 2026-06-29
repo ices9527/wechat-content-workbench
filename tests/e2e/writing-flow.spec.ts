@@ -1,8 +1,58 @@
+import { randomUUID } from "node:crypto";
+
+import { desc, eq } from "drizzle-orm";
 import { expect, test } from "@playwright/test";
 
+import { getDatabase } from "@/db/client";
+import { articleAssets, illustrationPlans } from "@/db/schema";
 import { expectPromptDialogScrollable } from "./helpers";
 
 const actionTimeout = 15_000;
+
+function currentArticleIdFromUrl(url: string): string {
+  const parts = new URL(url).pathname.split("/").filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+
+function insertFailedInlineIllustrationAsset(articleId: string) {
+  const { db } = getDatabase();
+  const plan = db
+    .select()
+    .from(illustrationPlans)
+    .where(eq(illustrationPlans.articleId, articleId))
+    .orderBy(desc(illustrationPlans.createdAt))
+    .get();
+  if (!plan) {
+    throw new Error("missing illustration plan for e2e failed asset setup");
+  }
+  const parsed = JSON.parse(plan.planJson) as { items?: Array<{ itemId?: string }> };
+  const itemId = parsed.items?.[0]?.itemId || "item-1";
+  const now = new Date().toISOString();
+
+  db.insert(articleAssets)
+    .values({
+      id: randomUUID(),
+      articleId: plan.articleId,
+      ownerId: plan.ownerId,
+      draftVersionId: plan.finalDraftVersionId,
+      sourcePlanId: plan.id,
+      sourcePlanItemId: itemId,
+      assetType: "inline_illustration",
+      status: "failed",
+      variant: itemId,
+      path: `/tmp/missing-inline-illustration-${itemId}.svg`,
+      mimeType: "image/svg+xml",
+      source: "e2e_failed_asset",
+      promptSnapshot: "Prompt 简报：这是一条失败资产的测试 prompt。",
+      provider: "e2e_failed_provider",
+      errorMessage: "provider broken for e2e",
+      width: 1200,
+      height: 675,
+      generatedAt: now,
+      createdAt: now
+    })
+    .run();
+}
 
 test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await page.goto("/");
@@ -317,10 +367,25 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(illustrationRecipeDialog.locator(".prompt-recipe-card", { hasText: "只做边界清单图，不要人物场景图。" }).first()).toBeVisible();
   await illustrationRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
   await expect(illustrationRecipeDialog).toHaveCount(0);
+  await expect(firstIllustrationItem.getByRole("button", { name: "生成配图 1 图片" })).toBeDisabled();
   await illustrationPanel.getByRole("button", { name: "确认配图规划" }).click();
   await expect(page.getByText("已确认配图规划")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByRole("tab", { name: /^配图规划/ })).toContainText("已确认");
   await expect(illustrationPanel.getByRole("button", { name: "保存当前规划" })).toBeDisabled();
+
+  insertFailedInlineIllustrationAsset(currentArticleIdFromUrl(page.url()));
+  await page.reload();
+  const refreshedIllustrationPanel = page.locator("#workflow-panel-illustration");
+  const refreshedFirstIllustrationItem = refreshedIllustrationPanel.locator(".illustration-plan-item").first();
+  await expect(refreshedFirstIllustrationItem.locator(".inline-asset-status", { hasText: "生成失败" })).toBeVisible();
+  await expect(refreshedFirstIllustrationItem.getByText("provider broken for e2e")).toBeVisible();
+  await refreshedFirstIllustrationItem.getByRole("button", { name: "重新生成配图 1 图片" }).click();
+  await expect(page.getByText("已生成配图 1")).toBeVisible({ timeout: actionTimeout });
+  await expect(refreshedFirstIllustrationItem.getByAltText("配图 1 预览")).toBeVisible({ timeout: actionTimeout });
+  await refreshedFirstIllustrationItem.getByText("查看 prompt").click();
+  await expect(refreshedFirstIllustrationItem.locator(".inline-asset-details pre")).toContainText("Prompt 简报");
+  await refreshedFirstIllustrationItem.getByText("历史记录（1）").click();
+  await expect(refreshedFirstIllustrationItem.getByText("provider broken for e2e")).toBeVisible();
 
   await page.getByRole("tab", { name: /^人工检查/ }).click();
   await heavyDraftCard.getByRole("button", { name: "查看检查详情" }).click();

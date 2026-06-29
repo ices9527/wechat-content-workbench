@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import type { ArticleStatus } from "@/domain/status";
@@ -40,6 +40,12 @@ export type InlineIllustrationClientResult = {
 export type InlineIllustrationClient = {
   provider: string;
   generate(input: InlineIllustrationClientInput): Promise<InlineIllustrationClientResult>;
+};
+
+export type InlineIllustrationAssetFile = {
+  asset: ArticleAsset;
+  content: Buffer;
+  contentType: string;
 };
 
 function defaultAssetRoot(): string {
@@ -264,4 +270,33 @@ export async function generateInlineIllustration(
     });
     throw error;
   }
+}
+
+export function requireInlineIllustrationAssetFile(
+  articleId: string,
+  assetId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): InlineIllustrationAssetFile {
+  const article = requireArticle(articleId, db);
+  const asset = db
+    .select()
+    .from(articleAssets)
+    .where(and(eq(articleAssets.id, assetId), eq(articleAssets.articleId, article.id)))
+    .get();
+
+  if (!asset || asset.assetType !== "inline_illustration") {
+    throw new Error("正文配图资产不存在");
+  }
+  if (asset.status !== "ready") {
+    throw new Error("正文配图资产尚未生成成功");
+  }
+  if (!fs.existsSync(asset.path)) {
+    throw new Error("正文配图文件不存在");
+  }
+
+  return {
+    asset,
+    content: fs.readFileSync(asset.path),
+    contentType: asset.mimeType || "application/octet-stream"
+  };
 }

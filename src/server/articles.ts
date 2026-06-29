@@ -95,7 +95,9 @@ export {
   FakeInlineIllustrationClient,
   generateInlineIllustration,
   generateInlineIllustrationInputSchema,
+  requireInlineIllustrationAssetFile,
   type GenerateInlineIllustrationInput,
+  type InlineIllustrationAssetFile,
   type InlineIllustrationClient,
   type InlineIllustrationClientInput,
   type InlineIllustrationClientResult
