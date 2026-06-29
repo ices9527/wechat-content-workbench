@@ -158,6 +158,40 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await draftRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
   await expect(draftRecipeDialog).toHaveCount(0);
 
+  const aiStyleSection = draftPanel.locator(".ai-style-check-section");
+  await aiStyleSection.getByRole("button", { name: "打开文案清洁检查提示词设置" }).click();
+  const aiStylePromptDialog = page.getByRole("dialog", { name: "文案清洁检查提示词设置" });
+  await expect(aiStylePromptDialog.getByText("文案清洁检查默认提示词")).toBeVisible();
+  await expect(aiStylePromptDialog.getByText("检查重复判断").first()).toBeVisible();
+  await expectPromptDialogScrollable(aiStylePromptDialog);
+  await aiStylePromptDialog.getByRole("button", { name: "关闭提示词设置" }).click();
+  await expect(aiStylePromptDialog).toHaveCount(0);
+
+  await aiStyleSection.getByPlaceholder("例如：重点找空话、重复判断和 AI 味套话，不要改核心观点").fill("重点检查不是而是和重复判断。");
+  let failAIStyleCheckOnce = true;
+  await page.route("**/api/articles/**/run-ai-style-check", async (route) => {
+    if (failAIStyleCheckOnce) {
+      failAIStyleCheckOnce = false;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "模拟文案清洁检查失败" })
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await aiStyleSection.getByRole("button", { name: "运行文案清洁检查" }).click();
+  await expect(page.getByText("模拟文案清洁检查失败")).toBeVisible({ timeout: actionTimeout });
+
+  await aiStyleSection.getByRole("button", { name: "运行文案清洁检查" }).click();
+  await expect(page.getByText("已保存文案清洁检查")).toBeVisible({ timeout: actionTimeout });
+  await expect(aiStyleSection.getByText("需要清理").first()).toBeVisible();
+  await expect(aiStyleSection.getByText("2 个问题").first()).toBeVisible();
+  await expect(aiStyleSection.getByText("ai_cliche").first()).toBeVisible();
+  await expect(aiStyleSection.getByText("真正重要的不是几秒到账，而是生活资金的路径变得更低摩擦。")).toBeVisible();
+  await expect(aiStyleSection.getByText("少用“不是……而是……”结构")).toBeVisible();
+
   await page.getByRole("tab", { name: /^dbs-content/ }).click();
   await expect(page).toHaveURL(/tab=diagnosis/);
   await page.reload();
@@ -174,6 +208,8 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await editorDialog.getByRole("button", { name: "关闭全屏" }).click();
   await expect(editorDialog).toHaveCount(0);
   await expect(editor).toHaveValue(/这是全屏编辑补充。/);
+  await expect(aiStyleSection.getByRole("button", { name: "运行文案清洁检查" })).toBeDisabled();
+  await expect(aiStyleSection.getByText("编辑器有未保存修改")).toBeVisible();
 
   await page.getByRole("button", { name: "全屏查看基础预览" }).click();
   const previewDialog = page.getByRole("dialog", { name: "基础预览全屏" });

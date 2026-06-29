@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/status-badge";
 import {
   ensureAppDataReady,
   getArticle,
+  listAIStyleChecks,
   listAngles,
   listDiagnoses,
   listDrafts,
@@ -32,6 +33,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const researchVersions = listResearchVersions(article.id);
   const drafts = listDrafts(article.id);
   const diagnoses = listDiagnoses(article.id);
+  const aiStyleChecks = listAIStyleChecks(article.id);
   const topicDiagnoses = listTopicDiagnoses(article.id);
   const assets = listArticleAssets(article.id);
   const uploads = listWechatDraftUploads(article.id);
@@ -67,6 +69,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         researchVersions={researchVersions}
         drafts={drafts}
         diagnoses={diagnoses}
+        aiStyleChecks={aiStyleChecks}
         topicDiagnoses={topicDiagnoses}
         assets={assets}
         uploads={uploads}

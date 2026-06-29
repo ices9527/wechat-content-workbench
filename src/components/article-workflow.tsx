@@ -7,6 +7,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 
 import type {
   AngleCandidate,
+  AIStyleCheck,
   ArticleAsset,
   ContentDiagnosis,
   DraftVersion,
@@ -106,11 +107,54 @@ const TOPIC_DIAGNOSIS_WARNING_COPY: Record<string, string> = {
   drop: "选题诊断建议放弃。请修改主题或重新运行选题诊断后继续。"
 };
 
+const AI_STYLE_CHECK_VERDICT_LABELS: Record<string, string> = {
+  clean: "清洁",
+  minor: "少量问题",
+  needs_cleanup: "需要清理",
+  heavy_slop: "重度水分"
+};
+
+type AIStyleCheckIssueView = {
+  type: string;
+  quote: string;
+  problem: string;
+  fixDirection: string;
+  severity?: string;
+};
+
 function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string {
   if (!verdict) {
     return "未诊断";
   }
   return TOPIC_DIAGNOSIS_VERDICT_LABELS[verdict] || verdict;
+}
+
+function formatAIStyleCheckVerdict(verdict: string | null | undefined): string {
+  if (!verdict) {
+    return "未检查";
+  }
+  return AI_STYLE_CHECK_VERDICT_LABELS[verdict] || verdict;
+}
+
+function parseAIStyleCheckIssues(issuesJson: string): AIStyleCheckIssueView[] {
+  try {
+    const parsed = JSON.parse(issuesJson) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.map((issue) => {
+      const item = issue && typeof issue === "object" ? (issue as Record<string, unknown>) : {};
+      return {
+        type: String(item.type || "未分类"),
+        quote: String(item.quote || ""),
+        problem: String(item.problem || item.explanation || ""),
+        fixDirection: String(item.fixDirection || item.fix_direction || item.suggestion || ""),
+        severity: item.severity ? String(item.severity) : undefined
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 function formatResearchOptionLabel(research: ResearchVersion): string {
@@ -617,6 +661,65 @@ function ReviewPanel({ status, children }: { status: string; children: ReactNode
   );
 }
 
+function AIStyleCheckResultCard({ check, draftLabel, compact = false }: { check: AIStyleCheck; draftLabel: string; compact?: boolean }) {
+  const issues = parseAIStyleCheckIssues(check.issuesJson);
+  const issueTypeSummary =
+    issues.length > 0
+      ? Array.from(
+          issues.reduce((summary, issue) => {
+            summary.set(issue.type, (summary.get(issue.type) || 0) + 1);
+            return summary;
+          }, new Map<string, number>())
+        )
+          .map(([type, count]) => `${type} ${count}`)
+          .join("、")
+      : "无";
+
+  return (
+    <article className={compact ? "mini-card ai-style-check-card compact" : "mini-card ai-style-check-card"}>
+      <div className="mini-card-head">
+        <div>
+          <h3>{formatAIStyleCheckVerdict(check.cleanlinessVerdict)}</h3>
+          <p>
+            {draftLabel} · {formatTime(check.createdAt)}
+          </p>
+        </div>
+        <strong>{check.issueCount} 个问题</strong>
+      </div>
+      <div className="ai-style-check-summary">
+        <p>
+          <span>问题类型</span>
+          {issueTypeSummary}
+        </p>
+        {check.score !== null ? (
+          <p>
+            <span>清洁分</span>
+            {check.score}
+          </p>
+        ) : null}
+      </div>
+      <MarkdownPreview markdown={check.summaryMarkdown} />
+      {issues.length > 0 ? (
+        <div className="ai-style-check-issues">
+          {issues.map((issue, index) => (
+            <section className="ai-style-check-issue" key={`${issue.type}-${index}`}>
+              <div className="topic-verdict-line">
+                <strong>{issue.type}</strong>
+                {issue.severity ? <span>{issue.severity}</span> : null}
+              </div>
+              {issue.quote ? <blockquote>{issue.quote}</blockquote> : null}
+              {issue.problem ? <p>{issue.problem}</p> : null}
+              {issue.fixDirection ? <p className="first-fix">{issue.fixDirection}</p> : null}
+            </section>
+          ))}
+        </div>
+      ) : (
+        <p className="subtle">没有具体问题片段。</p>
+      )}
+    </article>
+  );
+}
+
 // Stage keyed prompt state helpers
 
 function defaultRequirementIdsFromKey(key: string): string[] {
@@ -652,6 +755,7 @@ export function ArticleWorkflow({
   researchVersions,
   drafts,
   diagnoses,
+  aiStyleChecks,
   topicDiagnoses,
   assets,
   uploads,
@@ -665,6 +769,7 @@ export function ArticleWorkflow({
   researchVersions: ResearchVersion[];
   drafts: DraftVersion[];
   diagnoses: ContentDiagnosis[];
+  aiStyleChecks: AIStyleCheck[];
   topicDiagnoses: TopicDiagnosis[];
   assets: ArticleAsset[];
   uploads: WechatDraftUpload[];
@@ -717,6 +822,7 @@ export function ArticleWorkflow({
   const researchRequirements = requirementsByStage.research;
   const outlineRequirements = requirementsByStage.outline;
   const draftRequirements = requirementsByStage.draft;
+  const aiStyleCheckRequirements = requirementsByStage.ai_style_check;
   const dbsRequirements = requirementsByStage.dbs;
   const prePublishRequirements = requirementsByStage.pre_publish;
   const reviewRequirements = requirementsByStage.review;
@@ -745,10 +851,12 @@ export function ArticleWorkflow({
   const [selectedRequirementIdsByStage, setSelectedRequirementIdsByStage] = useState<Record<RequirementStage, string[]>>(() =>
     selectedRequirementIdsFromKeys(requirementKeys)
   );
+  const [aiStyleCheckList, setAIStyleCheckList] = useState(aiStyleChecks);
   const angleDefaultPrompt = defaultPromptDrafts.angle;
   const researchDefaultPrompt = defaultPromptDrafts.research;
   const outlineDefaultPrompt = defaultPromptDrafts.outline;
   const draftDefaultPrompt = defaultPromptDrafts.draft;
+  const aiStyleCheckDefaultPrompt = defaultPromptDrafts.ai_style_check;
   const dbsDefaultPrompt = defaultPromptDrafts.dbs;
   const prePublishDefaultPrompt = defaultPromptDrafts.pre_publish;
   const reviewDefaultPrompt = defaultPromptDrafts.review;
@@ -756,18 +864,21 @@ export function ArticleWorkflow({
   const setResearchDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("research", value);
   const setOutlineDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("outline", value);
   const setDraftDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("draft", value);
+  const setAIStyleCheckDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("ai_style_check", value);
   const setDbsDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("dbs", value);
   const setPrePublishDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("pre_publish", value);
   const setReviewDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("review", value);
   const angleCustomInstruction = customInstructions.angle;
   const outlineCustomInstruction = customInstructions.outline;
   const draftCustomInstruction = customInstructions.draft;
+  const aiStyleCheckCustomInstruction = customInstructions.ai_style_check;
   const dbsCustomInstruction = customInstructions.dbs;
   const prePublishCustomInstruction = customInstructions.pre_publish;
   const reviewCustomInstruction = customInstructions.review;
   const setAngleCustomInstruction = (value: string) => setCustomInstructionForStage("angle", value);
   const setOutlineCustomInstruction = (value: string) => setCustomInstructionForStage("outline", value);
   const setDraftCustomInstruction = (value: string) => setCustomInstructionForStage("draft", value);
+  const setAIStyleCheckCustomInstruction = (value: string) => setCustomInstructionForStage("ai_style_check", value);
   const setDbsCustomInstruction = (value: string) => setCustomInstructionForStage("dbs", value);
   const setPrePublishCustomInstruction = (value: string) => setCustomInstructionForStage("pre_publish", value);
   const setReviewCustomInstruction = (value: string) => setCustomInstructionForStage("review", value);
@@ -776,6 +887,7 @@ export function ArticleWorkflow({
   const selectedResearchRequirementIds = selectedRequirementIdsByStage.research;
   const selectedOutlineRequirementIds = selectedRequirementIdsByStage.outline;
   const selectedDraftRequirementIds = selectedRequirementIdsByStage.draft;
+  const selectedAIStyleCheckRequirementIds = selectedRequirementIdsByStage.ai_style_check;
   const selectedDbsRequirementIds = selectedRequirementIdsByStage.dbs;
   const selectedPrePublishRequirementIds = selectedRequirementIdsByStage.pre_publish;
   const selectedReviewRequirementIds = selectedRequirementIdsByStage.review;
@@ -784,6 +896,7 @@ export function ArticleWorkflow({
   const setSelectedResearchRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("research", ids);
   const setSelectedOutlineRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("outline", ids);
   const setSelectedDraftRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("draft", ids);
+  const setSelectedAIStyleCheckRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("ai_style_check", ids);
   const setSelectedDbsRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("dbs", ids);
   const setSelectedPrePublishRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("pre_publish", ids);
   const setSelectedReviewRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("review", ids);
@@ -802,10 +915,17 @@ export function ArticleWorkflow({
   const outlineById = useMemo(() => new Map(outlines.map((outline) => [outline.id, outline])), [outlines]);
   const selectedOutline = selectedOutlineId ? outlineById.get(selectedOutlineId) || null : latestOutline;
   const draftById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft])), [drafts]);
+  const selectedDraft = selectedDraftId ? draftById.get(selectedDraftId) || null : latestDraft;
+  const selectedDraftHasUnsavedChanges = Boolean(selectedDraft && selectedDraft.markdown !== draftMarkdown);
   const selectedDiagnosis = useMemo(
     () => diagnoses.find((diagnosis) => diagnosis.id === selectedDiagnosisId) || diagnoses[0] || null,
     [diagnoses, selectedDiagnosisId]
   );
+  const selectedDraftAIStyleChecks = useMemo(
+    () => aiStyleCheckList.filter((check) => check.draftVersionId === selectedDraftId),
+    [aiStyleCheckList, selectedDraftId]
+  );
+  const latestSelectedDraftAIStyleCheck = selectedDraftAIStyleChecks[0] || null;
   const htmlAssets = assets.filter((asset) => asset.assetType === "html");
   const coverAssets = assets.filter((asset) => asset.assetType === "cover");
   const latestUpload = uploads[0] || null;
@@ -939,6 +1059,10 @@ export function ArticleWorkflow({
       return diagnoses[0]?.id || "";
     });
   }, [diagnoses]);
+
+  useEffect(() => {
+    setAIStyleCheckList(aiStyleChecks);
+  }, [aiStyleChecks]);
 
   useEffect(() => {
     if (!fullscreenPane) {
@@ -1794,6 +1918,104 @@ export function ArticleWorkflow({
               {pending === "generate-draft" ? "生成中" : "生成 Markdown 文案"}
             </button>
           </div>
+
+          {latestDraft ? (
+            <section className="ai-style-check-section">
+              <div className="ai-style-check-head">
+                <div>
+                  <h3>文案清洁检查</h3>
+                  <p className="subtle">
+                    检查当前加载的已保存版本{selectedDraft ? `：v${selectedDraft.versionNo}` : ""}。
+                  </p>
+                </div>
+                <StagePromptDialog
+                  title={STAGE_PROMPT_UI.ai_style_check.title}
+                  stage="ai_style_check"
+                  defaultPromptLabel={STAGE_PROMPT_UI.ai_style_check.defaultPromptLabel}
+                  defaultPrompt={aiStyleCheckDefaultPrompt}
+                  onDefaultPromptChange={setAIStyleCheckDefaultPrompt}
+                  onSaveDefaultPrompt={() =>
+                    runAction("save-ai-style-check-default-prompt", () => saveStagePrompt("ai_style_check", aiStyleCheckDefaultPrompt))
+                  }
+                  requirements={aiStyleCheckRequirements}
+                  selectedIds={selectedAIStyleCheckRequirementIds}
+                  pending={pending !== null}
+                  onSelectedIdsChange={setSelectedAIStyleCheckRequirementIds}
+                  onCreate={(input) => runAction("create-ai-style-check-requirement", () => createRequirement(input))}
+                  onUpdate={(id, input) => runAction("update-ai-style-check-requirement", () => updateRequirement(id, input))}
+                  onDelete={(id) => runAction("delete-ai-style-check-requirement", () => deleteRequirement(id))}
+                />
+              </div>
+
+              <label className="field prompt-field">
+                <span className="label">对当前检查的要求</span>
+                <textarea
+                  className="textarea prompt-textarea"
+                  placeholder={STAGE_PROMPT_UI.ai_style_check.customPlaceholder}
+                  value={aiStyleCheckCustomInstruction}
+                  onChange={(event) => setAIStyleCheckCustomInstruction(event.target.value)}
+                />
+                <button
+                  className="button secondary prompt-save-button"
+                  disabled={pending !== null}
+                  onClick={() =>
+                    runAction(
+                      "save-ai-style-check-custom-requirement",
+                      () => saveCustomInstructionAsRequirement("ai_style_check", aiStyleCheckCustomInstruction)
+                    )
+                  }
+                  type="button"
+                >
+                  保存为可选提示词
+                </button>
+              </label>
+
+              <div className="action-row ai-style-check-actions">
+                <button
+                  className="button"
+                  disabled={!selectedDraftId || pending !== null || selectedDraftHasUnsavedChanges}
+                  onClick={() =>
+                    runAction("run-ai-style-check", async () => {
+                      const check = await postJson<AIStyleCheck>(`/api/articles/${article.id}/run-ai-style-check`, {
+                        draftVersionId: selectedDraftId,
+                        customInstruction: aiStyleCheckCustomInstruction,
+                        selectedRequirementIds: selectedAIStyleCheckRequirementIds
+                      });
+                      setAIStyleCheckList((current) => [check, ...current.filter((item) => item.id !== check.id)]);
+                      setNotice("已保存文案清洁检查");
+                    })
+                  }
+                  type="button"
+                >
+                  {pending === "run-ai-style-check" ? "检查中" : "运行文案清洁检查"}
+                </button>
+                {selectedDraftHasUnsavedChanges ? <p className="subtle">编辑器有未保存修改。请先保存当前版本或另存为新版本后再检查。</p> : null}
+              </div>
+
+              {latestSelectedDraftAIStyleCheck ? (
+                <div className="ai-style-check-results">
+                  <AIStyleCheckResultCard check={latestSelectedDraftAIStyleCheck} draftLabel={getDraftLabel(latestSelectedDraftAIStyleCheck.draftVersionId)} />
+                  {selectedDraftAIStyleChecks.length > 1 ? (
+                    <details className="ai-style-check-history">
+                      <summary>
+                        <span>历史检查记录</span>
+                        <span>{selectedDraftAIStyleChecks.length - 1} 条</span>
+                      </summary>
+                      <div className="ai-style-check-history-list">
+                        {selectedDraftAIStyleChecks.slice(1).map((check) => (
+                          <AIStyleCheckResultCard compact check={check} draftLabel={getDraftLabel(check.draftVersionId)} key={check.id} />
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="subtle">当前文案版本还没有文案清洁检查记录。</p>
+              )}
+            </section>
+          ) : (
+            <p className="subtle">生成文案后可以运行文案清洁检查。</p>
+          )}
 
           {latestDraft ? (
             <div className="draft-grid">
