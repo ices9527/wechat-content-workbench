@@ -80,4 +80,17 @@ describe("POST /api/articles/[id]/upload-wechat-draft", () => {
     expect(response.status).toBe(400);
     expect(body).toEqual({ error: "请先生成 HTML 和封面" });
   });
+
+  it("returns JSON when initialization fails", async () => {
+    mocks.ensureAppDataReady.mockImplementation(() => {
+      throw new Error("数据库初始化失败");
+    });
+
+    const response = await postForArticle();
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(body).toEqual({ error: "数据库初始化失败" });
+  });
 });
