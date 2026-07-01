@@ -54,6 +54,41 @@ test("runs the Sprint 4 publish package path", async ({ page }) => {
   await expect(page.getByText("21:9 封面：1 个")).toBeVisible();
   await expect(page.getByText("1:1 封面：1 个")).toBeVisible();
 
+  const articleId = new URL(page.url()).pathname.split("/").pop() || "article";
+  await page.route(
+    "**/api/articles/*/upload-wechat-draft",
+    async (route) => {
+      await route.fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "微信接口失败",
+          upload: {
+            id: "failed-upload-1",
+            articleId,
+            ownerId: "owner-1",
+            draftVersionId: "draft-1",
+            coverAssetId: "cover-1",
+            htmlAssetId: "html-1",
+            wechatMediaId: null,
+            wechatArticleUrl: null,
+            status: "failed",
+            errorMessage: "微信接口失败",
+            uploadedAt: "2026-07-01T00:00:00.000Z"
+          }
+        })
+      });
+    },
+    { times: 1 }
+  );
+
+  await page.getByRole("button", { name: "上传公众号草稿箱" }).click();
+  await expect(page.locator(".error", { hasText: "微信接口失败" })).toBeVisible();
+  const uploadList = page.locator(".upload-list");
+  await expect(uploadList).toContainText("failed");
+  await expect(uploadList).toContainText("微信接口失败");
+  await expect(page.locator(".notice", { hasText: "已上传公众号草稿箱：null" })).toHaveCount(0);
+
   await page.getByRole("button", { name: "上传公众号草稿箱" }).click();
   await expect(page.locator(".notice", { hasText: "已上传公众号草稿箱" })).toBeVisible();
   await expect(page.locator(".status", { hasText: "已上传草稿箱" }).first()).toBeVisible();

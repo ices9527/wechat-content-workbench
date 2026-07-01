@@ -32,6 +32,18 @@ import { StagePromptDialog } from "./prompts/stage-prompt-dialog";
 
 // API helpers
 
+class ApiResponseError extends Error {
+  readonly payload: unknown;
+  readonly status: number;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = "ApiResponseError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 async function postJson<T>(url: string, payload?: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
@@ -75,7 +87,7 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   if (contentType.includes("application/json")) {
     const result = (await response.json()) as T & { error?: string };
     if (!response.ok) {
-      throw new Error(result.error || fallbackMessage);
+      throw new ApiResponseError(result.error || fallbackMessage, response.status, result);
     }
     return result;
   }
@@ -87,6 +99,25 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
     throw new Error(`${fallbackMessage}（HTTP ${response.status}${snippet ? `：${snippet}` : ""}）`);
   }
   throw new Error(`${fallbackMessage}（服务器返回了非 JSON 响应）`);
+}
+
+function isWechatDraftUpload(value: unknown): value is WechatDraftUpload {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "id" in value &&
+      "articleId" in value &&
+      "status" in value &&
+      "uploadedAt" in value
+  );
+}
+
+function failedUploadFromError(error: unknown): WechatDraftUpload | null {
+  if (!(error instanceof ApiResponseError) || !error.payload || typeof error.payload !== "object") {
+    return null;
+  }
+  const upload = (error.payload as { upload?: unknown }).upload;
+  return isWechatDraftUpload(upload) && upload.status === "failed" ? upload : null;
 }
 
 // Formatters and workflow constants
@@ -1183,6 +1214,7 @@ export function ArticleWorkflow({
   const [selectedDiagnosisId, setSelectedDiagnosisId] = useState(diagnoses[0]?.id || "");
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [optimisticUploads, setOptimisticUploads] = useState<WechatDraftUpload[]>([]);
   const [fullscreenPane, setFullscreenPane] = useState<"editor" | "preview" | null>(null);
   const [promptRecipe, setPromptRecipe] = useState<PromptRecipe | null>(null);
   const [selectedAIStyleCheckDetailId, setSelectedAIStyleCheckDetailId] = useState("");
@@ -1239,7 +1271,19 @@ export function ArticleWorkflow({
     }
     return grouped;
   }, [assets]);
-  const latestUpload = uploads[0] || null;
+  const visibleUploads = useMemo(() => {
+    const merged: WechatDraftUpload[] = [];
+    const seen = new Set<string>();
+    for (const upload of [...optimisticUploads, ...uploads]) {
+      if (seen.has(upload.id)) {
+        continue;
+      }
+      seen.add(upload.id);
+      merged.push(upload);
+    }
+    return merged;
+  }, [optimisticUploads, uploads]);
+  const latestUpload = visibleUploads[0] || null;
   const canMarkFinal = drafts.length > 0 && canMarkFinalDraft(articleStatus);
   const topicDiagnosisWarning = latestTopicDiagnosis
     ? TOPIC_DIAGNOSIS_WARNING_COPY[latestTopicDiagnosis.verdict] || null
@@ -1352,6 +1396,10 @@ export function ArticleWorkflow({
   useEffect(() => {
     setSelectedRequirementIdsByStage(selectedRequirementIdsFromKeys(requirementKeys));
   }, [article.id, requirementKeys]);
+
+  useEffect(() => {
+    setOptimisticUploads([]);
+  }, [article.id, uploads]);
 
   useEffect(() => {
     const urlTab = searchParams.get("tab");
@@ -3264,8 +3312,18 @@ export function ArticleWorkflow({
               disabled={!finalDraft || pending !== null}
               onClick={() =>
                 runAction("upload-wechat", async () => {
-                  const upload = await postJson<WechatDraftUpload>(`/api/articles/${article.id}/upload-wechat-draft`);
-                  setNotice(`已上传公众号草稿箱：${upload.wechatMediaId}`);
+                  try {
+                    const upload = await postJson<WechatDraftUpload>(`/api/articles/${article.id}/upload-wechat-draft`);
+                    setOptimisticUploads((current) => current.filter((item) => item.id !== upload.id));
+                    setNotice(`已上传公众号草稿箱：${upload.wechatMediaId}`);
+                  } catch (actionError) {
+                    const failedUpload = failedUploadFromError(actionError);
+                    if (failedUpload) {
+                      setOptimisticUploads((current) => [failedUpload, ...current.filter((item) => item.id !== failedUpload.id)]);
+                      router.refresh();
+                    }
+                    throw actionError;
+                  }
                 })
               }
               type="button"
@@ -3377,10 +3435,10 @@ export function ArticleWorkflow({
             </div>
           </div>
 
-          {uploads.length > 0 ? (
+          {visibleUploads.length > 0 ? (
             <div className="upload-list">
               <h3>草稿箱记录</h3>
-              {uploads.map((upload) => (
+              {visibleUploads.map((upload) => (
                 <div className="asset-row" key={upload.id}>
                   <span>{upload.status}</span>
                   <span>{upload.wechatMediaId || upload.errorMessage || "无 media_id"}</span>
