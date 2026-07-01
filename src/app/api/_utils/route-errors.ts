@@ -8,6 +8,8 @@ type JsonErrorOptions = {
   code?: string;
 };
 
+type JsonRouteHandler = () => Response | Promise<Response>;
+
 export function jsonError(error: unknown, options: JsonErrorOptions = {}) {
   const isValidationError = error instanceof ZodError;
   const message =
@@ -31,6 +33,14 @@ export function zodOrJsonError(error: unknown, fallback: string, status = 400) {
     fallback,
     status
   });
+}
+
+export async function withJsonErrorBoundary(handler: JsonRouteHandler, options: JsonErrorOptions = {}) {
+  try {
+    return await handler();
+  } catch (error) {
+    return jsonError(error, options);
+  }
 }
 
 export async function readOptionalJson(request: Request): Promise<unknown> {
