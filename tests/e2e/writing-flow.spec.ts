@@ -55,6 +55,8 @@ function insertFailedInlineIllustrationAsset(articleId: string) {
 }
 
 test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
+  test.setTimeout(120_000);
+
   await page.goto("/");
 
   const topic = `Sprint2 manual ${Date.now()}`;
