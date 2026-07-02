@@ -407,8 +407,9 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(page.getByText(/已生成公众号 HTML/)).toBeVisible({ timeout: actionTimeout });
   await expect(publishPanel.getByText("正文配图需要人工处理")).toBeVisible({ timeout: actionTimeout });
   await expect(publishPanel.getByRole("alert").getByText("正文配图使用本地资产引用")).toBeVisible();
+  await expect(publishPanel.getByRole("alert").getByText("微信正文图片 URL")).toBeVisible();
   await expect(publishPanel.getByText("正文配图：1 张已生成")).toBeVisible();
-  await expect(publishPanel.getByText("正文配图处理：需要人工处理")).toBeVisible();
+  await expect(publishPanel.getByText("正文配图处理：需上传为微信正文图片 URL")).toBeVisible();
   await expect(publishPanel.frameLocator('iframe[title="公众号 HTML 预览"]').locator(".wechat-inline-illustration img")).toBeVisible({
     timeout: actionTimeout
   });

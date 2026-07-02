@@ -71,7 +71,8 @@ type WechatHtmlRenderResult = {
   insertedAssetIds: string[];
 };
 
-const LOCAL_INLINE_ILLUSTRATION_WARNING = "正文配图使用本地资产引用，草稿箱上传前需要人工处理。";
+const LOCAL_INLINE_ILLUSTRATION_WARNING =
+  "正文配图使用本地资产引用，无法直接进入公众号草稿箱。请先上传为微信正文图片 URL，或在公众号后台人工处理后再发布。";
 
 function defaultAssetRoot(): string {
   return path.join(process.cwd(), "data", "assets");

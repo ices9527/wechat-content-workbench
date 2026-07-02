@@ -3406,7 +3406,7 @@ export function ArticleWorkflow({
               <p className={readyInlineIllustrationAssets.length > 0 ? "check-item done" : "check-item"}>
                 正文配图：{readyInlineIllustrationAssets.length > 0 ? `${readyInlineIllustrationAssets.length} 张已生成` : "未生成"}
               </p>
-              {latestHtmlAsset?.errorMessage ? <p className="check-item warning">正文配图处理：需要人工处理</p> : null}
+              {latestHtmlAsset?.errorMessage ? <p className="check-item warning">正文配图处理：需上传为微信正文图片 URL</p> : null}
               <p className={coverAssets.some((asset) => asset.variant === "wechat_21_9") ? "check-item done" : "check-item"}>
                 21:9 封面：{coverAssets.filter((asset) => asset.variant === "wechat_21_9").length} 个
               </p>

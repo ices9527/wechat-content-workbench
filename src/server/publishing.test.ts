@@ -126,6 +126,8 @@ describe("publishing service", () => {
     expect(html).toContain(`/api/articles/${articleId}/assets/${inlineAsset.id}/file`);
     expect(html.indexOf("速度只是表层")).toBeLessThan(html.indexOf(`data-plan-item-id="${item.itemId}"`));
     expect(htmlAsset.errorMessage).toContain("正文配图使用本地资产引用");
+    expect(htmlAsset.errorMessage).toContain("无法直接进入公众号草稿箱");
+    expect(htmlAsset.errorMessage).toContain("微信正文图片 URL");
   });
 
   it("keeps HTML readable and records a warning when an inline illustration anchor is missing", async () => {
@@ -208,7 +210,10 @@ describe("publishing service", () => {
     renderWechatHtmlAsset(articleId, db, { assetRoot });
     generateCoverAssets(articleId, {}, db, { assetRoot });
 
-    await expect(uploadWechatDraft(articleId, new FakeWechatDraftClient(), db)).rejects.toThrow("发布包存在正文配图处理提示");
+    const uploadAttempt = uploadWechatDraft(articleId, new FakeWechatDraftClient(), db);
+
+    await expect(uploadAttempt).rejects.toThrow("发布包存在正文配图处理提示");
+    await expect(uploadAttempt).rejects.toThrow("微信正文图片 URL");
     expect(db.select().from(wechatDraftUploads).all()).toHaveLength(0);
     expect(getArticle(articleId, db)?.status).toBe("cover_generated");
   });
