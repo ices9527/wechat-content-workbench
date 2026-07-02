@@ -269,6 +269,30 @@ const statements = [
     error_message TEXT,
     uploaded_at TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS wechat_draft_upload_images (
+    id TEXT PRIMARY KEY,
+    upload_id TEXT NOT NULL REFERENCES wechat_draft_uploads(id),
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    draft_version_id TEXT NOT NULL,
+    html_asset_id TEXT,
+    asset_id TEXT NOT NULL REFERENCES article_assets(id),
+    source_plan_id TEXT,
+    source_plan_item_id TEXT,
+    original_src TEXT NOT NULL,
+    wechat_url TEXT,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    occurrence_count INTEGER NOT NULL DEFAULT 1,
+    alt_texts_json TEXT NOT NULL DEFAULT '[]',
+    uploaded_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS wechat_draft_upload_images_upload_index
+    ON wechat_draft_upload_images(upload_id)`,
+  `CREATE INDEX IF NOT EXISTS wechat_draft_upload_images_article_created_index
+    ON wechat_draft_upload_images(article_id, uploaded_at)`,
+  `CREATE INDEX IF NOT EXISTS wechat_draft_upload_images_asset_index
+    ON wechat_draft_upload_images(asset_id)`,
   `CREATE TABLE IF NOT EXISTS review_snapshots (
     id TEXT PRIMARY KEY,
     article_id TEXT NOT NULL REFERENCES article_projects(id),

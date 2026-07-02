@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { and, desc, eq } from "drizzle-orm";
 
+import { assertWechatConfig, readAppConfig, type AppConfig } from "@/config/env";
 import { type ArticleStatus, assertCanTransition } from "@/domain/status";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import {
@@ -11,15 +12,23 @@ import {
   articleProjects,
   draftVersions,
   illustrationPlans,
+  wechatDraftUploadImages,
   wechatDraftUploads,
   workflowEvents,
   type ArticleAsset,
   type ArticleProject,
   type DraftVersion,
+  type WechatDraftUploadImage,
   type WechatDraftUpload
 } from "@/db/schema";
 
 import { parseIllustrationPlanPayload, type IllustrationPlanItem } from "./illustration-plans";
+import {
+  buildWechatBodyImageUploadPlan,
+  type WechatBodyImageUploadResultItem,
+  type WechatBodyImageUploadPlan
+} from "./wechat-body-images";
+import { RealWechatDraftClient } from "./wechat-draft-client";
 
 export type AssetRootOptions = {
   assetRoot?: string;
@@ -34,13 +43,17 @@ export type CoverSourceInput = {
 export type WechatDraftUploadResult = {
   mediaId: string;
   articleUrl?: string;
+  bodyImageUploads?: WechatBodyImageUploadResultItem[];
 };
 
 export type WechatDraftClient = {
+  supportsBodyImageUpload?: boolean;
   uploadDraft(input: {
     article: ArticleProject;
     draft: DraftVersion;
     htmlAsset: ArticleAsset;
+    bodyHtml: string;
+    bodyImagePlan: WechatBodyImageUploadPlan;
     coverAssets: ArticleAsset[];
   }): Promise<WechatDraftUploadResult>;
 };
@@ -52,6 +65,19 @@ export class FakeWechatDraftClient implements WechatDraftClient {
       articleUrl: `fake://wechat-draft/${input.article.id}`
     };
   }
+}
+
+export function createWechatDraftClient(config: AppConfig = readAppConfig()): WechatDraftClient {
+  if (process.env.NODE_ENV === "test" || process.env.WORKBENCH_USE_FAKE_WECHAT === "1") {
+    return new FakeWechatDraftClient();
+  }
+  assertWechatConfig(config);
+  return new RealWechatDraftClient({
+    appId: config.wechatAppId,
+    appSecret: config.wechatAppSecret,
+    author: config.wechatAuthor,
+    apiBase: config.wechatApiBase
+  });
 }
 
 type InlineIllustrationHtmlInput = {
@@ -73,6 +99,29 @@ type WechatHtmlRenderResult = {
 
 const LOCAL_INLINE_ILLUSTRATION_WARNING =
   "正文配图使用本地资产引用，无法直接进入公众号草稿箱。请先上传为微信正文图片 URL，或在公众号后台人工处理后再发布。";
+
+function hasBlockingHtmlWarnings(
+  errorMessage: string | null,
+  client: WechatDraftClient,
+  bodyImagePlan: WechatBodyImageUploadPlan
+): boolean {
+  if (!errorMessage) {
+    return false;
+  }
+  const warnings = errorMessage
+    .split(/\r?\n/)
+    .map((warning) => warning.trim())
+    .filter(Boolean);
+  if (
+    client.supportsBodyImageUpload &&
+    bodyImagePlan.images.length > 0 &&
+    bodyImagePlan.issues.length === 0 &&
+    warnings.every((warning) => warning === LOCAL_INLINE_ILLUSTRATION_WARNING)
+  ) {
+    return false;
+  }
+  return warnings.length > 0;
+}
 
 function defaultAssetRoot(): string {
   return path.join(process.cwd(), "data", "assets");
@@ -315,6 +364,18 @@ export function listWechatDraftUploads(articleId: string, db: WorkbenchDatabase 
     .from(wechatDraftUploads)
     .where(eq(wechatDraftUploads.articleId, articleId))
     .orderBy(desc(wechatDraftUploads.uploadedAt))
+    .all();
+}
+
+export function listWechatDraftUploadImages(
+  articleId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): WechatDraftUploadImage[] {
+  return db
+    .select()
+    .from(wechatDraftUploadImages)
+    .where(eq(wechatDraftUploadImages.articleId, articleId))
+    .orderBy(desc(wechatDraftUploadImages.uploadedAt))
     .all();
 }
 
@@ -561,7 +622,7 @@ function latestAsset(
 
 export async function uploadWechatDraft(
   articleId: string,
-  client: WechatDraftClient = new FakeWechatDraftClient(),
+  client: WechatDraftClient = createWechatDraftClient(),
   db: WorkbenchDatabase = getDatabase().db
 ): Promise<WechatDraftUpload> {
   const article = requireArticle(articleId, db);
@@ -579,7 +640,13 @@ export async function uploadWechatDraft(
   if (!htmlAsset || !cover21 || !cover11) {
     throw new Error("上传前必须具备 HTML 和 21:9、1:1 封面");
   }
-  if (htmlAsset.errorMessage) {
+  const bodyHtml = fs.readFileSync(htmlAsset.path, "utf8");
+  const bodyImagePlan = buildWechatBodyImageUploadPlan({
+    articleId: article.id,
+    html: bodyHtml,
+    assets: listArticleAssets(article.id, db)
+  });
+  if (hasBlockingHtmlWarnings(htmlAsset.errorMessage, client, bodyImagePlan)) {
     throw new Error(`发布包存在正文配图处理提示：${htmlAsset.errorMessage}`);
   }
 
@@ -598,7 +665,14 @@ export async function uploadWechatDraft(
   } satisfies WechatDraftUpload;
 
   try {
-    const result = await client.uploadDraft({ article, draft, htmlAsset, coverAssets: [cover21, cover11] });
+    const result = await client.uploadDraft({
+      article,
+      draft,
+      htmlAsset,
+      bodyHtml,
+      bodyImagePlan,
+      coverAssets: [cover21, cover11]
+    });
     const upload: WechatDraftUpload = {
       ...baseUpload,
       wechatMediaId: result.mediaId,
@@ -608,6 +682,27 @@ export async function uploadWechatDraft(
     };
     db.transaction(() => {
       db.insert(wechatDraftUploads).values(upload).run();
+      const imageUploads = (result.bodyImageUploads || []).map((image) => ({
+        id: randomUUID(),
+        uploadId: upload.id,
+        articleId: article.id,
+        ownerId: article.ownerId,
+        draftVersionId: draft.id,
+        htmlAssetId: htmlAsset.id,
+        assetId: image.assetId,
+        sourcePlanId: image.sourcePlanId,
+        sourcePlanItemId: image.sourcePlanItemId,
+        originalSrc: image.originalSrc,
+        wechatUrl: image.wechatUrl,
+        status: image.status,
+        errorMessage: image.errorMessage || null,
+        occurrenceCount: image.occurrenceCount,
+        altTextsJson: JSON.stringify(image.altTexts),
+        uploadedAt: upload.uploadedAt
+      }));
+      if (imageUploads.length > 0) {
+        db.insert(wechatDraftUploadImages).values(imageUploads).run();
+      }
       if (article.status === "cover_generated") {
         transitionArticle(db, article, "uploaded_to_draft_box", "upload_wechat_draft", {
           uploadId: upload.id,

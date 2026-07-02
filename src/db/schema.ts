@@ -265,6 +265,25 @@ export const wechatDraftUploads = sqliteTable("wechat_draft_uploads", {
   uploadedAt: text("uploaded_at")
 });
 
+export const wechatDraftUploadImages = sqliteTable("wechat_draft_upload_images", {
+  id: text("id").primaryKey(),
+  uploadId: text("upload_id").notNull().references(() => wechatDraftUploads.id),
+  articleId: text("article_id").notNull().references(() => articleProjects.id),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  draftVersionId: text("draft_version_id").notNull(),
+  htmlAssetId: text("html_asset_id"),
+  assetId: text("asset_id").notNull().references(() => articleAssets.id),
+  sourcePlanId: text("source_plan_id"),
+  sourcePlanItemId: text("source_plan_item_id"),
+  originalSrc: text("original_src").notNull(),
+  wechatUrl: text("wechat_url"),
+  status: text("status").notNull(),
+  errorMessage: text("error_message"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  altTextsJson: text("alt_texts_json").notNull().default("[]"),
+  uploadedAt: text("uploaded_at")
+});
+
 export const reviewSnapshots = sqliteTable("review_snapshots", {
   id: text("id").primaryKey(),
   articleId: text("article_id").notNull().references(() => articleProjects.id),
@@ -320,4 +339,5 @@ export type RequirementPreset = typeof requirementPresets.$inferSelect;
 export type AIInvocationRequirement = typeof aiInvocationRequirements.$inferSelect;
 export type ArticleAsset = typeof articleAssets.$inferSelect;
 export type WechatDraftUpload = typeof wechatDraftUploads.$inferSelect;
+export type WechatDraftUploadImage = typeof wechatDraftUploadImages.$inferSelect;
 export type PromptRunArtifact = typeof promptRunArtifacts.$inferSelect;

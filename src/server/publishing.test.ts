@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { articleAssets, wechatDraftUploads } from "@/db/schema";
+import { articleAssets, wechatDraftUploadImages, wechatDraftUploads } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { FakeAIClient } from "./ai";
@@ -32,12 +32,14 @@ import {
   FakeWechatDraftClient,
   generateCoverAssets,
   listArticleAssets,
+  listWechatDraftUploadImages,
   listWechatDraftUploads,
   markdownToWechatHtml,
   renderWechatHtmlAsset,
   uploadWechatDraft,
   type WechatDraftClient
 } from "./publishing";
+import { buildWechatBodyImageUploadPlan, type WechatBodyImageUploadPlan } from "./wechat-body-images";
 
 async function createReadyArticle(db: ReturnType<typeof createTestDatabase>["db"]) {
   const article = createArticle({ topic: "跨境支付通" }, db);
@@ -125,6 +127,18 @@ describe("publishing service", () => {
     expect(html).toContain(`data-asset-id="${inlineAsset.id}"`);
     expect(html).toContain(`/api/articles/${articleId}/assets/${inlineAsset.id}/file`);
     expect(html.indexOf("速度只是表层")).toBeLessThan(html.indexOf(`data-plan-item-id="${item.itemId}"`));
+    const bodyImagePlan = buildWechatBodyImageUploadPlan({
+      articleId,
+      html,
+      assets: listArticleAssets(articleId, db)
+    });
+    expect(bodyImagePlan.images).toEqual([
+      expect.objectContaining({
+        assetId: inlineAsset.id,
+        originalSrc: `/api/articles/${articleId}/assets/${inlineAsset.id}/file`,
+        occurrenceCount: 1
+      })
+    ]);
     expect(htmlAsset.errorMessage).toContain("正文配图使用本地资产引用");
     expect(htmlAsset.errorMessage).toContain("无法直接进入公众号草稿箱");
     expect(htmlAsset.errorMessage).toContain("微信正文图片 URL");
@@ -194,7 +208,34 @@ describe("publishing service", () => {
     expect(upload.wechatMediaId).toContain("fake_media_");
     expect(uploads).toHaveLength(1);
     expect(db.select().from(wechatDraftUploads).all()).toHaveLength(1);
+    expect(listWechatDraftUploadImages(articleId, db)).toHaveLength(0);
     expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
+  });
+
+  it("passes the prepared body image plan to the WeChat draft adapter", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    renderWechatHtmlAsset(articleId, db, { assetRoot });
+    generateCoverAssets(articleId, { filename: "source.png", mimeType: "image/png", buffer: Buffer.from("fake") }, db, { assetRoot });
+    const receivedPlans: WechatBodyImageUploadPlan[] = [];
+    const inspectingClient: WechatDraftClient = {
+      async uploadDraft(input) {
+        receivedPlans.push(input.bodyImagePlan);
+        return { mediaId: "media-with-plan" };
+      }
+    };
+
+    const upload = await uploadWechatDraft(articleId, inspectingClient, db);
+
+    expect(upload.status).toBe("success");
+    expect(receivedPlans).toHaveLength(1);
+    expect(receivedPlans[0]?.summary).toMatchObject({
+      totalImageTags: 0,
+      localImageCount: 0,
+      uploadableImageCount: 0,
+      issueCount: 0
+    });
   });
 
   it("blocks WeChat draft upload when generated HTML contains inline illustration warnings", async () => {
@@ -216,6 +257,72 @@ describe("publishing service", () => {
     await expect(uploadAttempt).rejects.toThrow("微信正文图片 URL");
     expect(db.select().from(wechatDraftUploads).all()).toHaveLength(0);
     expect(getArticle(articleId, db)?.status).toBe("cover_generated");
+  });
+
+  it("allows a body-image-capable adapter to handle local inline illustration warnings", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    const { asset: inlineAsset } = await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "放在“速度只是表层”之后"
+    });
+    renderWechatHtmlAsset(articleId, db, { assetRoot });
+    generateCoverAssets(articleId, {}, db, { assetRoot });
+    const bodyImageClient: WechatDraftClient = {
+      supportsBodyImageUpload: true,
+      async uploadDraft(input) {
+        expect(input.bodyImagePlan.images).toEqual([
+          expect.objectContaining({
+            assetId: inlineAsset.id,
+            originalSrc: `/api/articles/${articleId}/assets/${inlineAsset.id}/file`
+          })
+        ]);
+        const image = input.bodyImagePlan.images[0];
+        if (!image) {
+          throw new Error("missing body image plan item");
+        }
+        return {
+          mediaId: "media-with-body-image",
+          bodyImageUploads: [
+            {
+              assetId: image.assetId,
+              sourcePlanId: image.sourcePlanId,
+              sourcePlanItemId: image.sourcePlanItemId,
+              originalSrc: image.originalSrc,
+              wechatUrl: "https://mmbiz.qpic.cn/body-image.png",
+              status: "success",
+              occurrenceCount: image.occurrenceCount,
+              altTexts: image.altTexts
+            }
+          ]
+        };
+      }
+    };
+
+    const upload = await uploadWechatDraft(articleId, bodyImageClient, db);
+    const imageUploads = listWechatDraftUploadImages(articleId, db);
+
+    expect(upload.status).toBe("success");
+    expect(upload.wechatMediaId).toBe("media-with-body-image");
+    expect(imageUploads).toEqual([
+      expect.objectContaining({
+        uploadId: upload.id,
+        articleId,
+        draftVersionId: upload.draftVersionId,
+        htmlAssetId: upload.htmlAssetId,
+        assetId: inlineAsset.id,
+        originalSrc: `/api/articles/${articleId}/assets/${inlineAsset.id}/file`,
+        wechatUrl: "https://mmbiz.qpic.cn/body-image.png",
+        status: "success",
+        occurrenceCount: 1,
+        altTextsJson: expect.stringContaining("到账速度")
+      })
+    ]);
+    expect(db.select().from(wechatDraftUploadImages).all()).toHaveLength(1);
+    expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
   });
 
   it("records adapter failures without advancing status", async () => {

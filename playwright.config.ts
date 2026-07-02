@@ -12,7 +12,7 @@ export default defineConfig({
     trace: "on-first-retry"
   },
   webServer: {
-    command: "WORKBENCH_USE_FAKE_AI=1 npm run dev -- --port 3100",
+    command: "WORKBENCH_USE_FAKE_AI=1 WORKBENCH_USE_FAKE_WECHAT=1 npm run dev -- --port 3100",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: true,
     timeout: 120_000

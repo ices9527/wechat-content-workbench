@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { createTestDatabase } from "@/test/test-db";
 
-import { aiStyleChecks, articleAssets, articleProjects, draftVersions, illustrationPlans } from "./schema";
+import {
+  aiStyleChecks,
+  articleAssets,
+  articleProjects,
+  draftVersions,
+  illustrationPlans,
+  wechatDraftUploadImages,
+  wechatDraftUploads
+} from "./schema";
 
 describe("database migrations", () => {
   it("creates ai style check storage with queryable defaults", () => {
@@ -177,5 +185,92 @@ describe("database migrations", () => {
     expect(asset?.status).toBe("ready");
     expect(asset?.sourcePlanId).toBeNull();
     expect(asset?.provider).toBeNull();
+  });
+
+  it("creates WeChat draft body image upload summary storage", () => {
+    const { db, sqlite } = createTestDatabase();
+
+    const columns = sqlite.prepare("PRAGMA table_info(wechat_draft_upload_images)").all() as Array<{ name: string }>;
+    const indexes = sqlite.prepare("PRAGMA index_list(wechat_draft_upload_images)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "upload_id",
+        "article_id",
+        "draft_version_id",
+        "html_asset_id",
+        "asset_id",
+        "original_src",
+        "wechat_url",
+        "status",
+        "occurrence_count",
+        "alt_texts_json",
+        "uploaded_at"
+      ])
+    );
+    expect(indexes.map((index) => index.name)).toEqual(
+      expect.arrayContaining([
+        "wechat_draft_upload_images_upload_index",
+        "wechat_draft_upload_images_article_created_index",
+        "wechat_draft_upload_images_asset_index"
+      ])
+    );
+
+    db.insert(articleProjects)
+      .values({
+        id: "article-wechat-upload-image",
+        ownerId: "local_user",
+        title: "测试文章",
+        topic: "测试文章"
+      })
+      .run();
+    db.insert(draftVersions)
+      .values({
+        id: "draft-wechat-upload-image",
+        articleId: "article-wechat-upload-image",
+        ownerId: "local_user",
+        versionNo: 1,
+        draftType: "final",
+        markdown: "最终稿",
+        isFinal: true,
+        createdBy: "user"
+      })
+      .run();
+    db.insert(articleAssets)
+      .values({
+        id: "asset-wechat-upload-image",
+        articleId: "article-wechat-upload-image",
+        ownerId: "local_user",
+        draftVersionId: "draft-wechat-upload-image",
+        assetType: "inline_illustration",
+        path: "/tmp/body.png"
+      })
+      .run();
+    db.insert(wechatDraftUploads)
+      .values({
+        id: "upload-wechat-image",
+        articleId: "article-wechat-upload-image",
+        ownerId: "local_user",
+        draftVersionId: "draft-wechat-upload-image",
+        status: "success"
+      })
+      .run();
+    db.insert(wechatDraftUploadImages)
+      .values({
+        id: "upload-image-1",
+        uploadId: "upload-wechat-image",
+        articleId: "article-wechat-upload-image",
+        ownerId: "local_user",
+        draftVersionId: "draft-wechat-upload-image",
+        assetId: "asset-wechat-upload-image",
+        originalSrc: "/api/articles/article-wechat-upload-image/assets/asset-wechat-upload-image/file",
+        status: "success"
+      })
+      .run();
+
+    const record = db.select().from(wechatDraftUploadImages).get();
+
+    expect(record?.occurrenceCount).toBe(1);
+    expect(record?.altTextsJson).toBe("[]");
   });
 });

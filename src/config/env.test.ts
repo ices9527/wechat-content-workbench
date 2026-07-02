@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertAiConfig, databaseUrlToPath, readAppConfig } from "./env";
+import { assertAiConfig, assertWechatConfig, databaseUrlToPath, readAppConfig } from "./env";
 
 describe("app config", () => {
   it("uses the local SQLite database by default", () => {
@@ -11,6 +11,11 @@ describe("app config", () => {
   it("requires an AI model before AI tasks", () => {
     const config = readAppConfig({ OPENAI_API_KEY: "secret" });
     expect(() => assertAiConfig(config)).toThrow("OPENAI_MODEL");
+  });
+
+  it("requires WeChat app credentials before real draft uploads", () => {
+    const config = readAppConfig({ WECHAT_APP_ID: "app-id" });
+    expect(() => assertWechatConfig(config)).toThrow("WECHAT_APP_SECRET");
   });
 
   it("resolves relative file database URLs", () => {
