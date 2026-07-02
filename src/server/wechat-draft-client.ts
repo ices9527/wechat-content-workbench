@@ -9,6 +9,7 @@ import {
   type WechatBodyImageUploadResultItem,
   type WechatBodyImageUploadPlan
 } from "./wechat-body-images";
+import { prepareWechatUploadAsset, prepareWechatUploadFile } from "./wechat-upload-assets";
 
 export type RealWechatDraftClientOptions = {
   appId: string;
@@ -107,7 +108,12 @@ export class RealWechatDraftClient {
     const replacements: WechatBodyImageReplacement[] = [];
     const bodyImageUploads: WechatBodyImageUploadResultItem[] = [];
     for (const image of input.bodyImagePlan.images) {
-      const wechatUrl = await this.uploadBodyImage(accessToken, image.assetPath, image.mimeType);
+      const wechatUrl = await this.uploadBodyImage(accessToken, {
+        filePath: image.assetPath,
+        mimeType: image.mimeType,
+        width: image.width,
+        height: image.height
+      });
       replacements.push({
         originalSrc: image.originalSrc,
         wechatUrl
@@ -171,24 +177,29 @@ export class RealWechatDraftClient {
   }
 
   private async uploadThumb(accessToken: string, cover: ArticleAsset): Promise<string> {
+    const prepared = await prepareWechatUploadAsset(cover);
     const payload = await this.uploadMultipart(
       apiUrl(this.apiBase, "/material/add_material", {
         access_token: accessToken,
         type: "thumb"
       }),
-      cover.path,
-      cover.mimeType
+      prepared.filePath,
+      prepared.mimeType
     );
     return requiredString(payload, "media_id", "thumb media_id");
   }
 
-  private async uploadBodyImage(accessToken: string, filePath: string, mimeType: string | null): Promise<string> {
+  private async uploadBodyImage(
+    accessToken: string,
+    input: { filePath: string; mimeType: string | null; width: number | null; height: number | null }
+  ): Promise<string> {
+    const prepared = await prepareWechatUploadFile(input);
     const payload = await this.uploadMultipart(
       apiUrl(this.apiBase, "/media/uploadimg", {
         access_token: accessToken
       }),
-      filePath,
-      mimeType
+      prepared.filePath,
+      prepared.mimeType
     );
     return requiredString(payload, "url", "正文图片 URL");
   }

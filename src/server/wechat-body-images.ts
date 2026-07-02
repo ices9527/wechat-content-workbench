@@ -12,6 +12,8 @@ export type WechatBodyImageUploadItem = {
   mimeType: string | null;
   sourcePlanId: string | null;
   sourcePlanItemId: string | null;
+  width: number | null;
+  height: number | null;
   altTexts: string[];
   occurrenceCount: number;
 };
@@ -215,6 +217,8 @@ export function buildWechatBodyImageUploadPlan(input: {
       mimeType: asset.mimeType,
       sourcePlanId: asset.sourcePlanId,
       sourcePlanItemId: asset.sourcePlanItemId,
+      width: asset.width,
+      height: asset.height,
       altTexts: image.alt ? [image.alt] : [],
       occurrenceCount: 1
     });

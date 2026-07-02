@@ -39,6 +39,7 @@ import {
   uploadWechatDraft,
   type WechatDraftClient
 } from "./publishing";
+import { RealWechatDraftClient } from "./wechat-draft-client";
 import { buildWechatBodyImageUploadPlan, type WechatBodyImageUploadPlan } from "./wechat-body-images";
 
 async function createReadyArticle(db: ReturnType<typeof createTestDatabase>["db"]) {
@@ -322,6 +323,64 @@ describe("publishing service", () => {
       })
     ]);
     expect(db.select().from(wechatDraftUploadImages).all()).toHaveLength(1);
+    expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
+  });
+
+  it("locally smokes the real WeChat draft client with SVG covers and inline illustrations through mocked HTTP", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    const { asset: inlineAsset } = await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "放在“速度只是表层”之后"
+    });
+    renderWechatHtmlAsset(articleId, db, { assetRoot });
+    const covers = generateCoverAssets(articleId, {}, db, { assetRoot });
+    const uploadFilenames: string[] = [];
+    let draftBody = "";
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/token?")) {
+        return new Response(JSON.stringify({ access_token: "local-token" }), { status: 200 });
+      }
+      if (url.includes("/material/add_material") || url.includes("/media/uploadimg")) {
+        const media = (init?.body as FormData | undefined)?.get("media") as File | null;
+        uploadFilenames.push(media?.name || "");
+        if (url.includes("/material/add_material")) {
+          return new Response(JSON.stringify({ media_id: "local-thumb-media" }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ url: "https://mmbiz.qpic.cn/local-body-image.png" }), { status: 200 });
+      }
+      if (url.includes("/draft/add")) {
+        draftBody = String(init?.body || "");
+        return new Response(JSON.stringify({ media_id: "local-draft-media" }), { status: 200 });
+      }
+      throw new Error(`Unexpected local smoke URL: ${url}`);
+    };
+    const client = new RealWechatDraftClient({ appId: "local-app", appSecret: "local-secret", fetchImpl });
+
+    const upload = await uploadWechatDraft(articleId, client, db);
+    const imageUploads = listWechatDraftUploadImages(articleId, db);
+
+    expect(upload.status).toBe("success");
+    expect(upload.wechatMediaId).toBe("local-draft-media");
+    expect(uploadFilenames).toHaveLength(2);
+    expect(uploadFilenames.every((filename) => filename.endsWith(".wechat-upload.png"))).toBe(true);
+    expect(fs.existsSync(covers[0].path.replace(/\.svg$/, ".wechat-upload.png"))).toBe(true);
+    expect(fs.existsSync(inlineAsset.path.replace(/\.svg$/, ".wechat-upload.png"))).toBe(true);
+    expect(draftBody).toContain("local-thumb-media");
+    expect(draftBody).toContain("https://mmbiz.qpic.cn/local-body-image.png");
+    expect(draftBody).not.toContain(`/api/articles/${articleId}/assets/${inlineAsset.id}/file`);
+    expect(imageUploads).toEqual([
+      expect.objectContaining({
+        uploadId: upload.id,
+        assetId: inlineAsset.id,
+        wechatUrl: "https://mmbiz.qpic.cn/local-body-image.png",
+        status: "success"
+      })
+    ]);
     expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
   });
 

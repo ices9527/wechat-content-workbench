@@ -195,6 +195,54 @@ describe("RealWechatDraftClient", () => {
     expect(calls.some((url) => url.includes("/media/uploadimg"))).toBe(false);
   });
 
+  it("prepares SVG cover and body images as PNG derivatives before upload", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-real-client-"));
+    const cover = path.join(dir, "cover.svg");
+    const bodyImage = path.join(dir, "body.svg");
+    const htmlAssetPath = path.join(dir, "draft.html");
+    fs.writeFileSync(cover, '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="386"></svg>');
+    fs.writeFileSync(bodyImage, '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"></svg>');
+    fs.writeFileSync(htmlAssetPath, "<article>draft</article>");
+    const localSrc = "/api/articles/article-1/assets/asset-1/file";
+    const bodyHtml = `<article><img src="${localSrc}" alt="路径图" /></article>`;
+    const bodyImagePlan = buildWechatBodyImageUploadPlan({
+      articleId: "article-1",
+      html: bodyHtml,
+      assets: [asset({ id: "asset-1", path: bodyImage, mimeType: "image/svg+xml", width: 1200, height: 675 })]
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/token?")) {
+        return jsonResponse({ access_token: "token-1" });
+      }
+      if (url.includes("/material/add_material")) {
+        return jsonResponse({ media_id: "thumb-media-1" });
+      }
+      if (url.includes("/media/uploadimg")) {
+        return jsonResponse({ url: "https://mmbiz.qpic.cn/body-1.png" });
+      }
+      if (url.includes("/draft/add")) {
+        return jsonResponse({ media_id: "draft-media-1" });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as unknown as typeof fetch;
+
+    const client = new RealWechatDraftClient({ appId: "app-id", appSecret: "secret", fetchImpl });
+
+    const result = await client.uploadDraft({
+      article: article(),
+      draft: draft(),
+      htmlAsset: asset({ id: "html-1", assetType: "html", path: htmlAssetPath, mimeType: "text/html" }),
+      bodyHtml,
+      bodyImagePlan,
+      coverAssets: [asset({ id: "cover-1", assetType: "cover", path: cover, mimeType: "image/svg+xml", width: 900, height: 386 })]
+    });
+
+    expect(result.mediaId).toBe("draft-media-1");
+    expect(fs.existsSync(path.join(dir, "cover.wechat-upload.png"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "body.wechat-upload.png"))).toBe(true);
+  });
+
   it("turns WeChat API errors into readable adapter errors", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ errcode: 40164, errmsg: "invalid ip" })) as unknown as typeof fetch;
     const client = new RealWechatDraftClient({ appId: "app-id", appSecret: "secret", fetchImpl });
