@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 
 import { assertWechatConfig, readAppConfig, type AppConfig } from "@/config/env";
+import { resolveInlineIllustrationPosition } from "@/domain/inline-illustration-anchors";
 import { type ArticleStatus, assertCanTransition } from "@/domain/status";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import {
@@ -208,32 +209,6 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function normalizeAnchor(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function extractPositionAnchor(position: string): string {
-  const quoted = position.match(/[“"]([^”"]+)[”"]/) || position.match(/《([^》]+)》/);
-  return normalizeAnchor(quoted?.[1] || position);
-}
-
-function getPositionPlacement(position: string): "before" | "after" {
-  return /前|之前/.test(position) ? "before" : "after";
-}
-
-function getMarkdownLineAnchor(line: string): string | null {
-  if (line.startsWith("# ")) {
-    return normalizeAnchor(line.slice(2));
-  }
-  if (line.startsWith("## ")) {
-    return normalizeAnchor(line.slice(3));
-  }
-  if (line.startsWith("- ")) {
-    return normalizeAnchor(line.slice(2));
-  }
-  return normalizeAnchor(line) || null;
-}
-
 function renderInlineIllustrationFigure(input: InlineIllustrationHtmlInput): string {
   const src = `/api/articles/${input.articleId}/assets/${input.asset.id}/file`;
   const alt = input.item.purpose || input.item.imageType || "正文配图";
@@ -255,20 +230,24 @@ function renderWechatHtml(markdown: string, inlineIllustrations: InlineIllustrat
     '<article class="wechat-article" style="font-size:16px;line-height:1.8;color:#222;">'
   ];
   let inList = false;
-  const beforeAnchors = new Map<string, InlineIllustrationHtmlInput[]>();
-  const afterAnchors = new Map<string, InlineIllustrationHtmlInput[]>();
-  const unmatchedItemIds = new Set(inlineIllustrations.map((input) => input.item.itemId));
+  const beforeLines = new Map<number, InlineIllustrationHtmlInput[]>();
+  const afterLines = new Map<number, InlineIllustrationHtmlInput[]>();
   const insertedAssetIds: string[] = [];
+  const warnings: string[] = [];
 
   for (const illustration of inlineIllustrations) {
-    const anchor = extractPositionAnchor(illustration.item.position);
-    if (!anchor) {
+    const resolution = resolveInlineIllustrationPosition(markdown, illustration.item.position);
+    if (resolution.status === "unmatched" || resolution.lineIndex === null) {
+      warnings.push(`配图 ${illustration.item.itemId} ${resolution.warning || `未匹配插入位置：${illustration.item.position}`}`);
       continue;
     }
-    const target = getPositionPlacement(illustration.item.position) === "before" ? beforeAnchors : afterAnchors;
-    const current = target.get(anchor) || [];
+    if (resolution.warning) {
+      warnings.push(`配图 ${illustration.item.itemId} ${resolution.warning}`);
+    }
+    const target = resolution.placement === "before" ? beforeLines : afterLines;
+    const current = target.get(resolution.lineIndex) || [];
     current.push(illustration);
-    target.set(anchor, current);
+    target.set(resolution.lineIndex, current);
   }
 
   function closeList() {
@@ -285,35 +264,27 @@ function renderWechatHtml(markdown: string, inlineIllustrations: InlineIllustrat
     closeList();
     for (const item of items) {
       html.push(renderInlineIllustrationFigure(item));
-      unmatchedItemIds.delete(item.item.itemId);
       insertedAssetIds.push(item.asset.id);
     }
   }
 
-  for (const rawLine of lines) {
+  for (const [lineIndex, rawLine] of lines.entries()) {
     const line = rawLine.trim();
     if (!line) {
       closeList();
       continue;
     }
-    const anchor = getMarkdownLineAnchor(line);
-    if (anchor) {
-      insertIllustrations(beforeAnchors.get(anchor));
-    }
+    insertIllustrations(beforeLines.get(lineIndex));
     if (line.startsWith("# ")) {
       closeList();
       html.push(`<h1 style="font-size:24px;line-height:1.35;margin:0 0 18px;">${escapeHtml(line.slice(2))}</h1>`);
-      if (anchor) {
-        insertIllustrations(afterAnchors.get(anchor));
-      }
+      insertIllustrations(afterLines.get(lineIndex));
       continue;
     }
     if (line.startsWith("## ")) {
       closeList();
       html.push(`<h2 style="font-size:18px;line-height:1.45;margin:28px 0 12px;">${escapeHtml(line.slice(3))}</h2>`);
-      if (anchor) {
-        insertIllustrations(afterAnchors.get(anchor));
-      }
+      insertIllustrations(afterLines.get(lineIndex));
       continue;
     }
     if (line.startsWith("- ")) {
@@ -322,22 +293,15 @@ function renderWechatHtml(markdown: string, inlineIllustrations: InlineIllustrat
         inList = true;
       }
       html.push(`<li style="margin:6px 0;">${escapeHtml(line.slice(2))}</li>`);
-      if (anchor) {
-        insertIllustrations(afterAnchors.get(anchor));
-      }
+      insertIllustrations(afterLines.get(lineIndex));
       continue;
     }
     closeList();
     html.push(`<p style="margin:0 0 14px;">${escapeHtml(line)}</p>`);
-    if (anchor) {
-      insertIllustrations(afterAnchors.get(anchor));
-    }
+    insertIllustrations(afterLines.get(lineIndex));
   }
   closeList();
   html.push("</article>");
-  const warnings = inlineIllustrations
-    .filter((input) => unmatchedItemIds.has(input.item.itemId))
-    .map((input) => `未匹配插入位置：${input.item.position}`);
   return {
     html: html.join("\n"),
     warnings,

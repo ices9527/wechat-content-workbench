@@ -145,6 +145,63 @@ describe("publishing service", () => {
     expect(htmlAsset.errorMessage).toContain("微信正文图片 URL");
   });
 
+  it("injects inline illustrations when the position uses Chinese corner brackets", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    const { asset: inlineAsset, item } = await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "插入在「速度只是表层」中"
+    });
+
+    const htmlAsset = renderWechatHtmlAsset(articleId, db, { assetRoot });
+    const html = fs.readFileSync(htmlAsset.path, "utf8");
+
+    expect(html).toContain(`data-asset-id="${inlineAsset.id}"`);
+    expect(html.indexOf("速度只是表层")).toBeLessThan(html.indexOf(`data-plan-item-id="${item.itemId}"`));
+    expect(htmlAsset.errorMessage).not.toContain("未匹配插入位置");
+  });
+
+  it("injects inline illustrations after a paragraph fragment", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    const { asset: inlineAsset, item } = await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "段落「稳定路径才会改变家庭决策」之后"
+    });
+
+    const htmlAsset = renderWechatHtmlAsset(articleId, db, { assetRoot });
+    const html = fs.readFileSync(htmlAsset.path, "utf8");
+
+    expect(html).toContain(`data-asset-id="${inlineAsset.id}"`);
+    expect(html.indexOf("稳定路径才会改变家庭决策")).toBeLessThan(html.indexOf(`data-plan-item-id="${item.itemId}"`));
+    expect(htmlAsset.errorMessage).not.toContain("未匹配插入位置");
+  });
+
+  it("records a fallback warning when the paragraph anchor misses but the heading matches", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    const { asset: inlineAsset, item } = await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "插入在「速度只是表层」中，段落「不存在的段落」之后"
+    });
+
+    const htmlAsset = renderWechatHtmlAsset(articleId, db, { assetRoot });
+    const html = fs.readFileSync(htmlAsset.path, "utf8");
+
+    expect(html).toContain(`data-asset-id="${inlineAsset.id}"`);
+    expect(html.indexOf("速度只是表层")).toBeLessThan(html.indexOf(`data-plan-item-id="${item.itemId}"`));
+    expect(htmlAsset.errorMessage).toContain("回退锚点");
+  });
+
   it("keeps HTML readable and records a warning when an inline illustration anchor is missing", async () => {
     const { db } = createTestDatabase();
     const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
@@ -163,6 +220,7 @@ describe("publishing service", () => {
     expect(html).not.toContain(`data-asset-id="${inlineAsset.id}"`);
     expect(htmlAsset.status).toBe("ready");
     expect(htmlAsset.errorMessage).toContain("未匹配插入位置");
+    expect(htmlAsset.errorMessage).toContain("配图");
     expect(getArticle(articleId, db)?.status).toBe("publish_package_generated");
   });
 
