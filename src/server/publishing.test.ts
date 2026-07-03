@@ -26,7 +26,10 @@ import {
   reviseFromDiagnosis,
   runDbsContent,
   selectAngle,
-  updateIllustrationPlan
+  updateIllustrationPlan,
+  type InlineIllustrationClient,
+  type InlineIllustrationClientInput,
+  type InlineIllustrationClientResult
 } from "./articles";
 import {
   FakeWechatDraftClient,
@@ -56,11 +59,36 @@ async function createReadyArticle(db: ReturnType<typeof createTestDatabase>["db"
   return { articleId: article.id, revision };
 }
 
+class RealisticInlineIllustrationClient extends FakeInlineIllustrationClient {
+  provider = "realistic_svg_illustration";
+
+  async generate(input: InlineIllustrationClientInput): Promise<InlineIllustrationClientResult> {
+    const title = input.article.title.replace(/[<>&"]/g, "");
+    return {
+      content: [
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${input.width}" height="${input.height}" viewBox="0 0 ${input.width} ${input.height}">`,
+        '<rect width="1200" height="675" fill="#f7f6f2"/>',
+        '<rect x="72" y="72" width="1056" height="531" rx="24" fill="#fff" stroke="#d6d1c5"/>',
+        `<text x="110" y="170" font-family="Arial, sans-serif" font-size="36" font-weight="700" fill="#222">${title}</text>`,
+        `<text x="110" y="245" font-family="Arial, sans-serif" font-size="26" fill="#235f6d">${input.item.imageType}</text>`,
+        `<text x="110" y="325" font-family="Arial, sans-serif" font-size="24" fill="#6f6a60">${input.item.purpose}</text>`,
+        "</svg>"
+      ].join("\n"),
+      mimeType: "image/svg+xml",
+      provider: this.provider,
+      width: input.width,
+      height: input.height,
+      prompt: input.prompt
+    };
+  }
+}
+
 async function createReadyInlineIllustration(input: {
   db: ReturnType<typeof createTestDatabase>["db"];
   articleId: string;
   assetRoot: string;
   position: string;
+  client?: InlineIllustrationClient;
 }) {
   const plan = await generateIllustrationPlan(input.articleId, {}, new FakeAIClient(), input.db);
   const item = { ...parseIllustrationPlanPayload(plan.planJson).items[0], position: input.position };
@@ -77,7 +105,7 @@ async function createReadyInlineIllustration(input: {
   const asset = await generateInlineIllustration(
     input.articleId,
     { planId: confirmed.id, planItemId: item.itemId },
-    new FakeInlineIllustrationClient(),
+    input.client || new FakeInlineIllustrationClient(),
     input.db,
     { assetRoot: input.assetRoot }
   );
@@ -326,7 +354,8 @@ describe("publishing service", () => {
       db,
       articleId,
       assetRoot,
-      position: "放在“速度只是表层”之后"
+      position: "放在“速度只是表层”之后",
+      client: new RealisticInlineIllustrationClient()
     });
     renderWechatHtmlAsset(articleId, db, { assetRoot });
     generateCoverAssets(articleId, {}, db, { assetRoot });
@@ -384,6 +413,34 @@ describe("publishing service", () => {
     expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
   });
 
+  it("blocks placeholder inline illustrations before official WeChat draft upload", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "放在“速度只是表层”之后"
+    });
+    const htmlAsset = renderWechatHtmlAsset(articleId, db, { assetRoot });
+    generateCoverAssets(articleId, {}, db, { assetRoot });
+    const bodyImageClient: WechatDraftClient = {
+      supportsBodyImageUpload: true,
+      async uploadDraft() {
+        return { mediaId: "should-not-upload" };
+      }
+    };
+
+    const uploadAttempt = uploadWechatDraft(articleId, bodyImageClient, db);
+
+    expect(htmlAsset.errorMessage).toContain("测试占位图");
+    await expect(uploadAttempt).rejects.toThrow("发布包存在正文配图处理提示");
+    await expect(uploadAttempt).rejects.toThrow("测试占位图");
+    expect(db.select().from(wechatDraftUploads).all()).toHaveLength(0);
+    expect(getArticle(articleId, db)?.status).toBe("cover_generated");
+  });
+
   it("locally smokes the real WeChat draft client with SVG covers and inline illustrations through mocked HTTP", async () => {
     const { db } = createTestDatabase();
     const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
@@ -392,7 +449,8 @@ describe("publishing service", () => {
       db,
       articleId,
       assetRoot,
-      position: "放在“速度只是表层”之后"
+      position: "放在“速度只是表层”之后",
+      client: new RealisticInlineIllustrationClient()
     });
     renderWechatHtmlAsset(articleId, db, { assetRoot });
     const covers = generateCoverAssets(articleId, {}, db, { assetRoot });

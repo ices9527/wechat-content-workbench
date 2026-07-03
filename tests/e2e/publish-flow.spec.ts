@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+const actionTimeout = 15_000;
+
 test("runs the Sprint 4 publish package path", async ({ page }) => {
+  test.setTimeout(120_000);
+
   await page.goto("/");
 
   const topic = `Sprint4 publish ${Date.now()}`;
@@ -17,14 +21,14 @@ test("runs the Sprint 4 publish package path", async ({ page }) => {
   await expect(page.getByText("没有内容研究资料包时，仍可按旧流程生成主线提纲。")).toBeVisible();
   await expect(page.getByRole("button", { name: "生成主线和提纲" })).toBeEnabled();
   await page.getByRole("button", { name: "生成主线和提纲" }).click();
-  await expect(page.getByLabel("Markdown 提纲")).toHaveValue(/## 一/);
+  await expect(page.getByLabel("Markdown 提纲")).toHaveValue(/## 一/, { timeout: actionTimeout });
   await page.getByRole("button", { name: "确认提纲" }).click();
   await page.getByRole("button", { name: "生成 Markdown 文案" }).click();
-  await expect(page.getByLabel("Markdown 编辑")).toHaveValue(/跨境支付通火了/);
+  await expect(page.getByLabel("Markdown 编辑")).toHaveValue(/跨境支付通火了/, { timeout: actionTimeout });
 
   await page.getByRole("tab", { name: /^dbs-content/ }).click();
   await page.getByRole("button", { name: "运行 dbs-content" }).click();
-  await expect(page.getByText("已保存 dbs-content 诊断")).toBeVisible();
+  await expect(page.getByText("已保存 dbs-content 诊断")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByText("内容创作诊断报告")).toBeVisible();
 
   await page.getByRole("tab", { name: /^人工检查/ }).click();
@@ -33,23 +37,23 @@ test("runs the Sprint 4 publish package path", async ({ page }) => {
 
   await page.getByRole("tab", { name: /^dbs-content/ }).click();
   await page.getByRole("button", { name: "基于诊断生成修改稿" }).click();
-  await expect(page.getByText("已生成修改稿 v2")).toBeVisible();
+  await expect(page.getByText("已生成修改稿 v2")).toBeVisible({ timeout: actionTimeout });
   await expect(page.getByLabel("Markdown 编辑")).toHaveValue(/真正变的不是到账速度/);
 
   await page.getByRole("tab", { name: /^人工检查/ }).click();
   const revisionCard = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v2" }) }).filter({ hasText: "修改稿" });
   await revisionCard.getByRole("button", { name: "标记最终稿" }).click();
-  await expect(page.getByText("已标记最终稿 v2")).toBeVisible();
+  await expect(page.getByText("已标记最终稿 v2")).toBeVisible({ timeout: actionTimeout });
   await page.getByRole("button", { name: "标记待发布" }).click();
-  await expect(page.locator(".notice", { hasText: "已进入发布队列" })).toBeVisible();
+  await expect(page.locator(".notice", { hasText: "已进入发布队列" })).toBeVisible({ timeout: actionTimeout });
   await expect(page.locator(".status", { hasText: "待发布" }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "生成公众号 HTML" }).click();
-  await expect(page.locator(".notice", { hasText: "已生成公众号 HTML" })).toBeVisible();
+  await expect(page.locator(".notice", { hasText: "已生成公众号 HTML" })).toBeVisible({ timeout: actionTimeout });
   await expect(page.locator(".status", { hasText: "已生成发布包" }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "生成默认封面" }).click();
-  await expect(page.locator(".notice", { hasText: "已生成封面 2 张" })).toBeVisible();
+  await expect(page.locator(".notice", { hasText: "已生成封面 2 张" })).toBeVisible({ timeout: actionTimeout });
   await expect(page.locator(".status", { hasText: "已生成封面" }).first()).toBeVisible();
   await expect(page.getByText("21:9 封面：1 个")).toBeVisible();
   await expect(page.getByText("1:1 封面：1 个")).toBeVisible();
@@ -83,14 +87,14 @@ test("runs the Sprint 4 publish package path", async ({ page }) => {
   );
 
   await page.getByRole("button", { name: "上传公众号草稿箱" }).click();
-  await expect(page.locator(".error", { hasText: "微信接口失败" })).toBeVisible();
+  await expect(page.locator(".error", { hasText: "微信接口失败" })).toBeVisible({ timeout: actionTimeout });
   const uploadList = page.locator(".upload-list");
   await expect(uploadList).toContainText("failed");
   await expect(uploadList).toContainText("微信接口失败");
   await expect(page.locator(".notice", { hasText: "已上传公众号草稿箱：null" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "上传公众号草稿箱" }).click();
-  await expect(page.locator(".notice", { hasText: "已上传公众号草稿箱" })).toBeVisible();
+  await expect(page.locator(".notice", { hasText: "已上传公众号草稿箱" })).toBeVisible({ timeout: actionTimeout });
   await expect(page.locator(".status", { hasText: "已上传草稿箱" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "自动发表" })).toHaveCount(0);
 

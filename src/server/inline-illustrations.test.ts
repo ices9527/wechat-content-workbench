@@ -17,6 +17,7 @@ import {
   generateIllustrationPlan,
   generateInlineIllustration,
   getArticle,
+  isPlaceholderInlineIllustrationAsset,
   markFinalDraft,
   parseIllustrationPlanPayload,
   requireInlineIllustrationAssetFile
@@ -40,6 +41,28 @@ async function createConfirmedIllustrationPlan(db: ReturnType<typeof createTestD
 }
 
 describe("inline illustration generation service", () => {
+  it("identifies fake SVG inline illustrations as non-publishable placeholders", () => {
+    expect(
+      isPlaceholderInlineIllustrationAsset({
+        assetType: "inline_illustration",
+        provider: "fake_svg_illustration"
+      })
+    ).toBe(true);
+    expect(
+      isPlaceholderInlineIllustrationAsset({
+        assetType: "inline_illustration",
+        provider: "real_inline_illustration"
+      })
+    ).toBe(false);
+    expect(
+      isPlaceholderInlineIllustrationAsset({
+        assetType: "cover",
+        provider: "fake_svg_illustration"
+      })
+    ).toBe(false);
+    expect(isPlaceholderInlineIllustrationAsset(null)).toBe(false);
+  });
+
   it("generates a ready SVG asset for a confirmed illustration plan item", async () => {
     const { db } = createTestDatabase();
     const assetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-inline-assets-"));

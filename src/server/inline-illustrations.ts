@@ -50,6 +50,12 @@ export type InlineIllustrationAssetFile = {
 
 export type ArticleAssetFile = InlineIllustrationAssetFile;
 
+export const PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER = "fake_svg_illustration";
+
+export function isPlaceholderInlineIllustrationAsset(asset: Pick<ArticleAsset, "assetType" | "provider"> | null | undefined): boolean {
+  return Boolean(asset && asset.assetType === "inline_illustration" && asset.provider === PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER);
+}
+
 function defaultAssetRoot(): string {
   return path.join(process.cwd(), "data", "assets");
 }
@@ -121,7 +127,7 @@ function buildFakeInlineSvg(input: InlineIllustrationClientInput): string {
 }
 
 export class FakeInlineIllustrationClient implements InlineIllustrationClient {
-  provider = "fake_svg_illustration";
+  provider = PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER;
 
   async generate(input: InlineIllustrationClientInput): Promise<InlineIllustrationClientResult> {
     const prompt = input.prompt || buildInlineIllustrationPrompt(input.item);

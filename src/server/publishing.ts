@@ -23,6 +23,7 @@ import {
   type WechatDraftUpload
 } from "@/db/schema";
 
+import { isPlaceholderInlineIllustrationAsset } from "./inline-illustrations";
 import { parseIllustrationPlanPayload, type IllustrationPlanItem } from "./illustration-plans";
 import {
   buildWechatBodyImageUploadPlan,
@@ -100,6 +101,8 @@ type WechatHtmlRenderResult = {
 
 const LOCAL_INLINE_ILLUSTRATION_WARNING =
   "正文配图使用本地资产引用，无法直接进入公众号草稿箱。请先上传为微信正文图片 URL，或在公众号后台人工处理后再发布。";
+const PLACEHOLDER_INLINE_ILLUSTRATION_WARNING =
+  "正文配图包含测试占位图，不能上传公众号草稿箱。请重新生成真实图片或删除对应配图项。";
 
 function hasBlockingHtmlWarnings(
   errorMessage: string | null,
@@ -381,6 +384,9 @@ function collectConfirmedInlineIllustrations(
     if (!fs.existsSync(asset.path)) {
       warnings.push(`正文配图文件不存在，未插入：${item.position}`);
       return [];
+    }
+    if (isPlaceholderInlineIllustrationAsset(asset)) {
+      warnings.push(`配图 ${item.itemId} ${PLACEHOLDER_INLINE_ILLUSTRATION_WARNING}`);
     }
     return [{ articleId: article.id, item, asset }];
   });

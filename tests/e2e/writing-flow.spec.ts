@@ -393,6 +393,8 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(refreshedFirstIllustrationItem.getByText("provider broken for e2e")).toBeVisible();
   await refreshedFirstIllustrationItem.getByRole("button", { name: "重新生成配图 1 图片" }).click();
   await expect(page.getByText("已生成配图 1")).toBeVisible({ timeout: actionTimeout });
+  await expect(refreshedFirstIllustrationItem.locator(".inline-asset-status", { hasText: "测试占位图" })).toBeVisible();
+  await expect(refreshedFirstIllustrationItem.getByText("上传公众号草稿箱前请重新生成真实图片或删除该配图项")).toBeVisible();
   await expect(refreshedFirstIllustrationItem.getByAltText("配图 1 预览")).toBeVisible({ timeout: actionTimeout });
   await refreshedFirstIllustrationItem.getByText("查看 prompt").click();
   await expect(refreshedFirstIllustrationItem.locator(".inline-asset-details pre")).toContainText("Prompt 简报");
@@ -416,9 +418,12 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(page.getByText(/已生成公众号 HTML/)).toBeVisible({ timeout: actionTimeout });
   await expect(publishPanel.getByText("正文配图需要人工处理")).toBeVisible({ timeout: actionTimeout });
   await expect(publishPanel.getByRole("alert").getByText("正文配图使用本地资产引用")).toBeVisible();
+  await expect(publishPanel.getByRole("alert").getByText("测试占位图")).toBeVisible();
   await expect(publishPanel.getByRole("alert").getByText("微信正文图片 URL")).toBeVisible();
   await expect(publishPanel.getByText("正文配图：1 张已生成")).toBeVisible();
-  await expect(publishPanel.getByText("正文配图处理：需上传为微信正文图片 URL")).toBeVisible();
+  await expect(publishPanel.getByText("测试占位图：1 张")).toBeVisible();
+  await expect(publishPanel.getByText("可上传正文图：0 张")).toBeVisible();
+  await expect(publishPanel.getByText("正文配图处理：测试占位图需替换或删除")).toBeVisible();
   await expect(publishPanel.frameLocator('iframe[title="公众号 HTML 预览"]').locator(".wechat-inline-illustration img")).toBeVisible({
     timeout: actionTimeout
   });
@@ -426,6 +431,7 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(page.getByText("已生成封面 2 张")).toBeVisible({ timeout: actionTimeout });
   await publishPanel.getByRole("button", { name: "上传公众号草稿箱" }).click();
   await expect(page.getByText("发布包存在正文配图处理提示")).toBeVisible({ timeout: actionTimeout });
+  await expect(page.locator(".error", { hasText: "测试占位图" })).toBeVisible();
   await publishPanel.getByRole("button", { name: "检查发布 HTML 文案" }).click();
   await expect(page.getByText("已完成发布 HTML 文案清洁检查")).toBeVisible({ timeout: actionTimeout });
   await expect(publishPanel.getByText("最新发布 HTML 文案清洁检查")).toBeVisible();

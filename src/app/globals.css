@@ -1468,6 +1468,13 @@ h1 {
   line-height: 1.45;
 }
 
+.inline-asset-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 .inline-asset-status {
   display: inline-flex;
   align-items: center;
@@ -1495,6 +1502,23 @@ h1 {
   border-color: #d8caa9;
   background: #fffaf0;
   color: #7a5b16;
+}
+
+.inline-asset-status.placeholder {
+  border-color: #e0b67b;
+  background: #fff7e8;
+  color: #8a4510;
+}
+
+.inline-asset-warning {
+  margin: 0;
+  border: 1px solid #e0b67b;
+  border-radius: 8px;
+  background: #fff7e8;
+  padding: 10px 12px;
+  color: #7d3f0e;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .inline-asset-preview {

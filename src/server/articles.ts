@@ -95,6 +95,7 @@ export {
   FakeInlineIllustrationClient,
   generateInlineIllustration,
   generateInlineIllustrationInputSchema,
+  isPlaceholderInlineIllustrationAsset,
   requireArticleAssetFile,
   requireInlineIllustrationAssetFile,
   type ArticleAssetFile,

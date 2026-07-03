@@ -344,6 +344,10 @@ function getInlineIllustrationAssetStatusClass(asset: ArticleAsset | null): stri
   return "pending";
 }
 
+function isPlaceholderInlineIllustrationAsset(asset: ArticleAsset): boolean {
+  return asset.assetType === "inline_illustration" && asset.provider === "fake_svg_illustration";
+}
+
 function compareAssetCreatedDesc(left: ArticleAsset, right: ArticleAsset): number {
   return right.createdAt.localeCompare(left.createdAt);
 }
@@ -960,14 +964,18 @@ function InlineIllustrationAssetPanel({
   const canGenerate = plan.status === "confirmed";
   const actionPending = pending === inlineIllustrationPendingKey(item.itemId);
   const previewUrl = latestAsset?.status === "ready" ? `/api/articles/${articleId}/assets/${latestAsset.id}/file` : "";
+  const latestAssetIsPlaceholder = latestAsset ? isPlaceholderInlineIllustrationAsset(latestAsset) : false;
 
   return (
     <section className="inline-illustration-assets" aria-label={`配图 ${itemIndex + 1} 图片资产`}>
       <div className="inline-asset-head">
         <div>
-          <span className={`inline-asset-status ${getInlineIllustrationAssetStatusClass(latestAsset)}`}>
-            {getInlineIllustrationAssetStatusLabel(latestAsset)}
-          </span>
+          <div className="inline-asset-status-row">
+            <span className={`inline-asset-status ${getInlineIllustrationAssetStatusClass(latestAsset)}`}>
+              {getInlineIllustrationAssetStatusLabel(latestAsset)}
+            </span>
+            {latestAssetIsPlaceholder ? <span className="inline-asset-status placeholder">测试占位图</span> : null}
+          </div>
           <p>
             {latestAsset
               ? `${latestAsset.provider || "unknown"} · ${latestAsset.generatedAt ? formatTime(latestAsset.generatedAt) : formatTime(latestAsset.createdAt)}`
@@ -986,6 +994,9 @@ function InlineIllustrationAssetPanel({
       </div>
 
       {!canGenerate ? <p className="subtle">确认配图规划后可生成正文配图。</p> : null}
+      {latestAssetIsPlaceholder ? (
+        <p className="inline-asset-warning">这是本地测试占位图，只能用于预览；上传公众号草稿箱前请重新生成真实图片或删除该配图项。</p>
+      ) : null}
 
       {latestAsset?.status === "ready" ? (
         <figure className="inline-asset-preview">
@@ -1383,6 +1394,8 @@ export function ArticleWorkflow({
   const latestHtmlAsset = htmlAssets[0] || null;
   const coverAssets = assets.filter((asset) => asset.assetType === "cover");
   const readyInlineIllustrationAssets = assets.filter((asset) => asset.assetType === "inline_illustration" && asset.status === "ready");
+  const placeholderInlineIllustrationAssets = readyInlineIllustrationAssets.filter(isPlaceholderInlineIllustrationAsset);
+  const uploadableInlineIllustrationAssets = readyInlineIllustrationAssets.filter((asset) => !isPlaceholderInlineIllustrationAsset(asset));
   const inlineIllustrationAssetsByItem = useMemo(() => {
     const grouped = new Map<string, ArticleAsset[]>();
     for (const asset of assets) {
@@ -3564,7 +3577,20 @@ export function ArticleWorkflow({
               <p className={readyInlineIllustrationAssets.length > 0 ? "check-item done" : "check-item"}>
                 正文配图：{readyInlineIllustrationAssets.length > 0 ? `${readyInlineIllustrationAssets.length} 张已生成` : "未生成"}
               </p>
-              {latestHtmlAsset?.errorMessage ? <p className="check-item warning">正文配图处理：需上传为微信正文图片 URL</p> : null}
+              {placeholderInlineIllustrationAssets.length > 0 ? (
+                <p className="check-item warning">测试占位图：{placeholderInlineIllustrationAssets.length} 张，上传草稿箱前需替换或删除</p>
+              ) : null}
+              {readyInlineIllustrationAssets.length > 0 ? (
+                <p className={uploadableInlineIllustrationAssets.length > 0 ? "check-item done" : "check-item warning"}>
+                  可上传正文图：{uploadableInlineIllustrationAssets.length} 张
+                </p>
+              ) : null}
+              {latestHtmlAsset?.errorMessage ? (
+                <p className="check-item warning">
+                  正文配图处理：
+                  {placeholderInlineIllustrationAssets.length > 0 ? "测试占位图需替换或删除" : "需上传为微信正文图片 URL"}
+                </p>
+              ) : null}
               <p className={coverAssets.some((asset) => asset.variant === "wechat_21_9") ? "check-item done" : "check-item"}>
                 21:9 封面：{coverAssets.filter((asset) => asset.variant === "wechat_21_9").length} 个
               </p>
