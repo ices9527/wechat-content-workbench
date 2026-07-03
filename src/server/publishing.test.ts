@@ -22,6 +22,8 @@ import {
   getArticle,
   markFinalDraft,
   markReadyToPublish,
+  OpenAIImageInlineIllustrationClient,
+  OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER,
   parseIllustrationPlanPayload,
   reviseFromDiagnosis,
   runDbsContent,
@@ -494,6 +496,88 @@ describe("publishing service", () => {
         uploadId: upload.id,
         assetId: inlineAsset.id,
         wechatUrl: "https://mmbiz.qpic.cn/local-body-image.png",
+        status: "success"
+      })
+    ]);
+    expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
+  });
+
+  it("carries a real image provider PNG asset through HTML preview and WeChat body image upload", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = mkdtempSync(path.join(os.tmpdir(), "wechat-assets-"));
+    const { articleId } = await createReadyArticle(db);
+    const pngBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+    const imageProvider = new OpenAIImageInlineIllustrationClient({
+      apiKey: "local-image-key",
+      model: "local-image-model",
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+    });
+    const { asset: inlineAsset } = await createReadyInlineIllustration({
+      db,
+      articleId,
+      assetRoot,
+      position: "放在“速度只是表层”之后",
+      client: imageProvider
+    });
+    const htmlAsset = renderWechatHtmlAsset(articleId, db, { assetRoot });
+    const html = fs.readFileSync(htmlAsset.path, "utf8");
+    const covers = generateCoverAssets(articleId, {}, db, { assetRoot });
+    const uploadCalls: { url: string; filename: string }[] = [];
+    let draftBody = "";
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/token?")) {
+        return new Response(JSON.stringify({ access_token: "local-token" }), { status: 200 });
+      }
+      if (url.includes("/material/add_material") || url.includes("/media/uploadimg")) {
+        const media = (init?.body as FormData | undefined)?.get("media") as File | null;
+        uploadCalls.push({ url, filename: media?.name || "" });
+        if (url.includes("/material/add_material")) {
+          return new Response(JSON.stringify({ media_id: "local-thumb-media" }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ url: "https://mmbiz.qpic.cn/real-provider-body-image.png" }), { status: 200 });
+      }
+      if (url.includes("/draft/add")) {
+        draftBody = String(init?.body || "");
+        return new Response(JSON.stringify({ media_id: "local-draft-media" }), { status: 200 });
+      }
+      throw new Error(`Unexpected real provider smoke URL: ${url}`);
+    };
+    const client = new RealWechatDraftClient({ appId: "local-app", appSecret: "local-secret", fetchImpl });
+
+    expect(inlineAsset.provider).toBe(OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER);
+    expect(inlineAsset.mimeType).toBe("image/png");
+    expect(inlineAsset.path).toMatch(/\.png$/);
+    expect(html).toContain(`data-asset-id="${inlineAsset.id}"`);
+    expect(html).toContain(`/api/articles/${articleId}/assets/${inlineAsset.id}/file`);
+    expect(htmlAsset.errorMessage).toContain("正文配图使用本地资产引用");
+    expect(htmlAsset.errorMessage).not.toContain("测试占位图");
+
+    const upload = await uploadWechatDraft(articleId, client, db);
+    const imageUploads = listWechatDraftUploadImages(articleId, db);
+    const storedInlineAsset = listArticleAssets(articleId, db).find((asset) => asset.id === inlineAsset.id);
+
+    expect(upload.status).toBe("success");
+    expect(upload.wechatMediaId).toBe("local-draft-media");
+    expect(uploadCalls).toHaveLength(2);
+    expect(uploadCalls.find((call) => call.url.includes("/material/add_material"))?.filename).toBe("wechat_21_9.wechat-upload.png");
+    expect(uploadCalls.find((call) => call.url.includes("/media/uploadimg"))?.filename).toBe(path.basename(inlineAsset.path));
+    expect(fs.existsSync(covers[0].path.replace(/\.svg$/, ".wechat-upload.png"))).toBe(true);
+    expect(inlineAsset.path.endsWith(".wechat-upload.png")).toBe(false);
+    expect(draftBody).toContain("https://mmbiz.qpic.cn/real-provider-body-image.png");
+    expect(draftBody).not.toContain(`/api/articles/${articleId}/assets/${inlineAsset.id}/file`);
+    expect(storedInlineAsset?.provider).toBe(OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER);
+    expect(imageUploads).toEqual([
+      expect.objectContaining({
+        uploadId: upload.id,
+        assetId: inlineAsset.id,
+        originalSrc: `/api/articles/${articleId}/assets/${inlineAsset.id}/file`,
+        wechatUrl: "https://mmbiz.qpic.cn/real-provider-body-image.png",
         status: "success"
       })
     ]);
