@@ -105,6 +105,10 @@ export {
   type InlineIllustrationClientInput,
   type InlineIllustrationClientResult
 } from "./inline-illustrations";
+export {
+  buildRealInlineIllustrationPrompt,
+  type RealInlineIllustrationPromptInput
+} from "./inline-illustration-prompts";
 export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";

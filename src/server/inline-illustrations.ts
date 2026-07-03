@@ -10,6 +10,7 @@ import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { articleAssets, workflowEvents, type ArticleAsset, type ArticleProject, type DraftVersion } from "@/db/schema";
 
 import { requireArticle, requireDraft } from "./article-records";
+import { buildRealInlineIllustrationPrompt } from "./inline-illustration-prompts";
 import { parseIllustrationPlanPayload, requireIllustrationPlan, type IllustrationPlanItem } from "./illustration-plans";
 
 export const generateInlineIllustrationInputSchema = z.object({
@@ -83,20 +84,6 @@ function safePathPart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "item";
 }
 
-function buildInlineIllustrationPrompt(item: IllustrationPlanItem): string {
-  return [
-    `图片类型：${item.imageType}`,
-    `插入位置：${item.position}`,
-    `图片作用：${item.purpose}`,
-    `画面说明：${item.visualBrief}`,
-    `Prompt 简报：${item.promptBrief}`,
-    item.doNotVisualize ? `不要画：${item.doNotVisualize}` : "",
-    item.riskNotes ? `风险提醒：${item.riskNotes}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function buildFakeInlineSvg(input: InlineIllustrationClientInput): string {
   const title = escapeXml(compactText(input.article.title, 32));
   const imageType = escapeXml(compactText(input.item.imageType, 24));
@@ -130,7 +117,7 @@ export class FakeInlineIllustrationClient implements InlineIllustrationClient {
   provider = PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER;
 
   async generate(input: InlineIllustrationClientInput): Promise<InlineIllustrationClientResult> {
-    const prompt = input.prompt || buildInlineIllustrationPrompt(input.item);
+    const prompt = input.prompt || buildRealInlineIllustrationPrompt(input);
     return {
       content: buildFakeInlineSvg({ ...input, prompt }),
       mimeType: "image/svg+xml",
@@ -222,7 +209,7 @@ export async function generateInlineIllustration(
   const draft = requireDraft(article.id, plan.finalDraftVersionId, db);
   const width = 1200;
   const height = 675;
-  const prompt = buildInlineIllustrationPrompt(item);
+  const prompt = buildRealInlineIllustrationPrompt({ article, draft, item, width, height });
   const pendingAsset = createPendingInlineAsset({
     article,
     draft,

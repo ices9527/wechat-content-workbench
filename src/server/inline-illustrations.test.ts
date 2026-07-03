@@ -11,6 +11,7 @@ import { createTestDatabase } from "@/test/test-db";
 import { FakeAIClient } from "./ai";
 import { createArticleWithDraft } from "./articles-test-utils";
 import {
+  buildRealInlineIllustrationPrompt,
   confirmIllustrationPlan,
   createArticle,
   FakeInlineIllustrationClient,
@@ -41,6 +42,44 @@ async function createConfirmedIllustrationPlan(db: ReturnType<typeof createTestD
 }
 
 describe("inline illustration generation service", () => {
+  it("builds a real inline illustration prompt from article context, plan item, and style constraints", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft, item } = await createConfirmedIllustrationPlan(db);
+
+    const prompt = buildRealInlineIllustrationPrompt({ article, draft, item, width: 1200, height: 675 });
+
+    expect(prompt).toContain("Generate one standalone 16:9 horizontal Chinese article illustration");
+    expect(prompt).toContain("Pure white background");
+    expect(prompt).toContain("Minimalist black hand-drawn line art");
+    expect(prompt).toContain("小黑 must perform the core conceptual action");
+    expect(prompt).toContain(article.title);
+    expect(prompt).toContain(article.topic);
+    expect(prompt).toContain(item.position);
+    expect(prompt).toContain(item.purpose);
+    expect(prompt).toContain(item.visualBrief);
+    expect(prompt).toContain(item.promptBrief);
+    expect(prompt).toContain("at most 5-8 short handwritten Chinese labels");
+    expect(prompt).toContain("Do not make a PPT infographic");
+    expect(prompt).toContain("Do not include the words Fake SVG");
+  });
+
+  it("puts compliance and visualization boundaries into the real inline illustration prompt", async () => {
+    const { db } = createTestDatabase();
+    const { article, draft, item } = await createConfirmedIllustrationPlan(db);
+    const riskyItem = {
+      ...item,
+      doNotVisualize: "不要画成开户绿色通道，也不要画确定到账。",
+      riskNotes: "只表达生活资金路径更清楚，不承诺收益、身份或审批结果。"
+    };
+
+    const prompt = buildRealInlineIllustrationPrompt({ article, draft, item: riskyItem, width: 1200, height: 675 });
+
+    expect(prompt).toContain("不要画成开户绿色通道，也不要画确定到账。");
+    expect(prompt).toContain("只表达生活资金路径更清楚，不承诺收益、身份或审批结果。");
+    expect(prompt).toContain("Do not promise收益、开户、身份、审批、到账、交易、投资结果");
+    expect(prompt).toContain("Do not copy prior examples");
+  });
+
   it("identifies fake SVG inline illustrations as non-publishable placeholders", () => {
     expect(
       isPlaceholderInlineIllustrationAsset({
@@ -87,6 +126,9 @@ describe("inline illustration generation service", () => {
     expect(asset.sourcePlanItemId).toBe(item.itemId);
     expect(asset.provider).toBe("fake_svg_illustration");
     expect(asset.promptSnapshot).toContain(item.promptBrief);
+    expect(asset.promptSnapshot).toContain(article.title);
+    expect(asset.promptSnapshot).toContain("Pure white background");
+    expect(asset.promptSnapshot).toContain("Do not include the words Fake SVG");
     expect(asset.generatedAt).toBeTruthy();
     expect(saved?.status).toBe("ready");
     expect(fs.existsSync(asset.path)).toBe(true);
