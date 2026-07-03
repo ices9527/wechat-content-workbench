@@ -92,10 +92,13 @@ export {
   type UpdateIllustrationPlanInput
 } from "./illustration-plans";
 export {
+  createInlineIllustrationClient,
   FakeInlineIllustrationClient,
   generateInlineIllustration,
   generateInlineIllustrationInputSchema,
   isPlaceholderInlineIllustrationAsset,
+  MockRealInlineIllustrationClient,
+  MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER,
   requireArticleAssetFile,
   requireInlineIllustrationAssetFile,
   type ArticleAssetFile,

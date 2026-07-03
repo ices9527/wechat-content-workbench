@@ -14,12 +14,15 @@ import {
   buildRealInlineIllustrationPrompt,
   confirmIllustrationPlan,
   createArticle,
+  createInlineIllustrationClient,
   FakeInlineIllustrationClient,
   generateIllustrationPlan,
   generateInlineIllustration,
   getArticle,
   isPlaceholderInlineIllustrationAsset,
   markFinalDraft,
+  MockRealInlineIllustrationClient,
+  MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER,
   parseIllustrationPlanPayload,
   requireInlineIllustrationAssetFile
 } from "./articles";
@@ -42,6 +45,14 @@ async function createConfirmedIllustrationPlan(db: ReturnType<typeof createTestD
 }
 
 describe("inline illustration generation service", () => {
+  it("selects the inline illustration provider from configuration", () => {
+    expect(createInlineIllustrationClient("")).toBeInstanceOf(FakeInlineIllustrationClient);
+    expect(createInlineIllustrationClient("fake_svg_illustration")).toBeInstanceOf(FakeInlineIllustrationClient);
+    expect(createInlineIllustrationClient("mock_real")).toBeInstanceOf(MockRealInlineIllustrationClient);
+    expect(createInlineIllustrationClient(MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER)).toBeInstanceOf(MockRealInlineIllustrationClient);
+    expect(() => createInlineIllustrationClient("unknown_provider")).toThrow("不支持的正文配图 provider");
+  });
+
   it("builds a real inline illustration prompt from article context, plan item, and style constraints", async () => {
     const { db } = createTestDatabase();
     const { article, draft, item } = await createConfirmedIllustrationPlan(db);
@@ -139,6 +150,62 @@ describe("inline illustration generation service", () => {
     const file = requireInlineIllustrationAssetFile(article.id, asset.id, db);
     expect(file.contentType).toBe("image/svg+xml");
     expect(file.content.toString("utf8")).toContain("Fake SVG");
+  });
+
+  it("generates a ready mock real PNG asset for a confirmed illustration plan item", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-inline-assets-"));
+    const { article, draft, plan, item } = await createConfirmedIllustrationPlan(db);
+
+    const asset = await generateInlineIllustration(
+      article.id,
+      { planId: plan.id, planItemId: item.itemId },
+      new MockRealInlineIllustrationClient(),
+      db,
+      { assetRoot }
+    );
+
+    const saved = db.select().from(articleAssets).where(eq(articleAssets.id, asset.id)).get();
+    const file = requireInlineIllustrationAssetFile(article.id, asset.id, db);
+
+    expect(asset.assetType).toBe("inline_illustration");
+    expect(asset.status).toBe("ready");
+    expect(asset.draftVersionId).toBe(draft.id);
+    expect(asset.provider).toBe(MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER);
+    expect(asset.mimeType).toBe("image/png");
+    expect(asset.path).toMatch(/\.png$/);
+    expect(asset.promptSnapshot).toContain("Pure white background");
+    expect(asset.promptSnapshot).toContain(item.promptBrief);
+    expect(saved?.path).toBe(asset.path);
+    expect(saved?.mimeType).toBe("image/png");
+    expect(fs.existsSync(asset.path)).toBe(true);
+    expect(fs.readFileSync(asset.path).subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect(isPlaceholderInlineIllustrationAsset(asset)).toBe(false);
+    expect(file.contentType).toBe("image/png");
+  });
+
+  it("uses the configured mock real provider when no client is passed", async () => {
+    const previousProvider = process.env.INLINE_ILLUSTRATION_PROVIDER;
+    process.env.INLINE_ILLUSTRATION_PROVIDER = MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER;
+    try {
+      const { db } = createTestDatabase();
+      const assetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-inline-assets-"));
+      const { article, plan, item } = await createConfirmedIllustrationPlan(db);
+
+      const asset = await generateInlineIllustration(article.id, { planId: plan.id, planItemId: item.itemId }, undefined, db, {
+        assetRoot
+      });
+
+      expect(asset.provider).toBe(MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER);
+      expect(asset.mimeType).toBe("image/png");
+      expect(asset.path).toMatch(/\.png$/);
+    } finally {
+      if (previousProvider === undefined) {
+        delete process.env.INLINE_ILLUSTRATION_PROVIDER;
+      } else {
+        process.env.INLINE_ILLUSTRATION_PROVIDER = previousProvider;
+      }
+    }
   });
 
   it("keeps old inline illustration assets when regenerating the same plan item", async () => {

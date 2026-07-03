@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
+import sharp from "sharp";
 import { z } from "zod";
 
 import type { ArticleStatus } from "@/domain/status";
@@ -52,6 +53,7 @@ export type InlineIllustrationAssetFile = {
 export type ArticleAssetFile = InlineIllustrationAssetFile;
 
 export const PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER = "fake_svg_illustration";
+export const MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER = "mock_real_inline_illustration";
 
 export function isPlaceholderInlineIllustrationAsset(asset: Pick<ArticleAsset, "assetType" | "provider"> | null | undefined): boolean {
   return Boolean(asset && asset.assetType === "inline_illustration" && asset.provider === PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER);
@@ -82,6 +84,29 @@ function compactText(value: string, maxLength: number): string {
 
 function safePathPart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "item";
+}
+
+function extensionForMimeType(mimeType: string): string | null {
+  const normalized = mimeType.toLowerCase();
+  if (normalized === "image/svg+xml") {
+    return ".svg";
+  }
+  if (normalized === "image/png") {
+    return ".png";
+  }
+  if (normalized === "image/jpeg" || normalized === "image/jpg") {
+    return ".jpg";
+  }
+  return null;
+}
+
+function pathForMimeType(filePath: string, mimeType: string): string {
+  const extension = extensionForMimeType(mimeType);
+  if (!extension) {
+    return filePath;
+  }
+  const parsed = path.parse(filePath);
+  return path.join(parsed.dir, `${parsed.name}${extension}`);
 }
 
 function buildFakeInlineSvg(input: InlineIllustrationClientInput): string {
@@ -127,6 +152,62 @@ export class FakeInlineIllustrationClient implements InlineIllustrationClient {
       prompt
     };
   }
+}
+
+function buildMockRealInlineSvg(input: InlineIllustrationClientInput): string {
+  const title = escapeXml(compactText(input.article.title, 28));
+  const action = escapeXml(compactText(input.item.purpose, 26));
+  const note = escapeXml(compactText(input.item.visualBrief, 24));
+  const label = escapeXml(compactText(input.item.imageType, 12));
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${input.width}" height="${input.height}" viewBox="0 0 ${input.width} ${input.height}">`,
+    `<rect width="${input.width}" height="${input.height}" fill="#ffffff"/>`,
+    '<path d="M110 110 C210 86 284 94 362 128" fill="none" stroke="#1f1d19" stroke-width="5" stroke-linecap="round"/>',
+    '<path d="M214 486 C350 420 438 408 560 452 C686 497 796 426 914 350" fill="none" stroke="#d97832" stroke-width="7" stroke-linecap="round" stroke-dasharray="1 18"/>',
+    '<path d="M910 350 l-38 -5 M910 350 l-18 34" fill="none" stroke="#d97832" stroke-width="7" stroke-linecap="round"/>',
+    '<ellipse cx="248" cy="372" rx="48" ry="58" fill="#1f1d19"/>',
+    '<circle cx="232" cy="360" r="5" fill="#ffffff"/>',
+    '<circle cx="264" cy="360" r="5" fill="#ffffff"/>',
+    '<path d="M232 432 l-18 36 M266 432 l18 36" stroke="#1f1d19" stroke-width="7" stroke-linecap="round"/>',
+    '<rect x="458" y="242" width="202" height="112" rx="20" fill="none" stroke="#1f1d19" stroke-width="4"/>',
+    '<rect x="730" y="188" width="222" height="124" rx="24" fill="none" stroke="#1f1d19" stroke-width="4"/>',
+    '<path d="M432 526 C590 568 782 556 976 500" fill="none" stroke="#1f1d19" stroke-width="3" stroke-linecap="round"/>',
+    `<text x="118" y="172" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#1f1d19">${title}</text>`,
+    `<text x="472" y="306" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#235f6d">${label}</text>`,
+    `<text x="744" y="256" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#b13b2e">${action}</text>`,
+    `<text x="382" y="412" font-family="Arial, sans-serif" font-size="24" fill="#235f6d">${note}</text>`,
+    "</svg>"
+  ].join("\n");
+}
+
+export class MockRealInlineIllustrationClient implements InlineIllustrationClient {
+  provider = MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER;
+
+  async generate(input: InlineIllustrationClientInput): Promise<InlineIllustrationClientResult> {
+    const prompt = input.prompt || buildRealInlineIllustrationPrompt(input);
+    const svg = buildMockRealInlineSvg({ ...input, prompt });
+    const content = await sharp(Buffer.from(svg)).png().toBuffer();
+    return {
+      content,
+      mimeType: "image/png",
+      provider: this.provider,
+      width: input.width,
+      height: input.height,
+      prompt
+    };
+  }
+}
+
+export function createInlineIllustrationClient(provider = process.env.INLINE_ILLUSTRATION_PROVIDER || ""): InlineIllustrationClient {
+  const normalized = provider.trim().toLowerCase();
+  if (!normalized || normalized === PLACEHOLDER_INLINE_ILLUSTRATION_PROVIDER || normalized === "fake" || normalized === "placeholder") {
+    return new FakeInlineIllustrationClient();
+  }
+  if (normalized === MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER || normalized === "mock_real" || normalized === "mock-real") {
+    return new MockRealInlineIllustrationClient();
+  }
+  throw new Error(`不支持的正文配图 provider：${provider}`);
 }
 
 function recordWorkflowEvent(
@@ -190,7 +271,7 @@ function createPendingInlineAsset(input: {
 export async function generateInlineIllustration(
   articleId: string,
   input: GenerateInlineIllustrationInput,
-  client: InlineIllustrationClient = new FakeInlineIllustrationClient(),
+  client: InlineIllustrationClient = createInlineIllustrationClient(),
   db: WorkbenchDatabase = getDatabase().db,
   options: { assetRoot?: string } = {}
 ): Promise<ArticleAsset> {
@@ -227,9 +308,11 @@ export async function generateInlineIllustration(
   try {
     const result = await client.generate({ article, draft, item, prompt, width, height });
     const now = new Date().toISOString();
-    writeAssetFile(pendingAsset.path, result.content);
+    const assetPath = pathForMimeType(pendingAsset.path, result.mimeType);
+    writeAssetFile(assetPath, result.content);
     const updates = {
       status: "ready",
+      path: assetPath,
       mimeType: result.mimeType,
       provider: result.provider,
       promptSnapshot: result.prompt,
