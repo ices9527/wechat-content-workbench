@@ -12,6 +12,10 @@ import { articleAssets, workflowEvents, type ArticleAsset, type ArticleProject, 
 
 import { requireArticle, requireDraft } from "./article-records";
 import { buildRealInlineIllustrationPrompt } from "./inline-illustration-prompts";
+import {
+  openAIImageInlineIllustrationClientFromEnv,
+  OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER
+} from "./inline-illustration-image-provider";
 import { parseIllustrationPlanPayload, requireIllustrationPlan, type IllustrationPlanItem } from "./illustration-plans";
 
 export const generateInlineIllustrationInputSchema = z.object({
@@ -206,6 +210,14 @@ export function createInlineIllustrationClient(provider = process.env.INLINE_ILL
   }
   if (normalized === MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER || normalized === "mock_real" || normalized === "mock-real") {
     return new MockRealInlineIllustrationClient();
+  }
+  if (
+    normalized === OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER ||
+    normalized === "openai_image" ||
+    normalized === "openai-images" ||
+    normalized === "image_api"
+  ) {
+    return openAIImageInlineIllustrationClientFromEnv();
   }
   throw new Error(`不支持的正文配图 provider：${provider}`);
 }

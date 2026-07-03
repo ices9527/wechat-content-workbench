@@ -23,6 +23,8 @@ import {
   markFinalDraft,
   MockRealInlineIllustrationClient,
   MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER,
+  OpenAIImageInlineIllustrationClient,
+  OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER,
   parseIllustrationPlanPayload,
   requireInlineIllustrationAssetFile
 } from "./articles";
@@ -50,6 +52,8 @@ describe("inline illustration generation service", () => {
     expect(createInlineIllustrationClient("fake_svg_illustration")).toBeInstanceOf(FakeInlineIllustrationClient);
     expect(createInlineIllustrationClient("mock_real")).toBeInstanceOf(MockRealInlineIllustrationClient);
     expect(createInlineIllustrationClient(MOCK_REAL_INLINE_ILLUSTRATION_PROVIDER)).toBeInstanceOf(MockRealInlineIllustrationClient);
+    expect(createInlineIllustrationClient("openai_image")).toBeInstanceOf(OpenAIImageInlineIllustrationClient);
+    expect(createInlineIllustrationClient(OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER)).toBeInstanceOf(OpenAIImageInlineIllustrationClient);
     expect(() => createInlineIllustrationClient("unknown_provider")).toThrow("不支持的正文配图 provider");
   });
 
@@ -206,6 +210,82 @@ describe("inline illustration generation service", () => {
         process.env.INLINE_ILLUSTRATION_PROVIDER = previousProvider;
       }
     }
+  });
+
+  it("generates a ready PNG asset through the OpenAI-compatible image provider with mocked HTTP", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-inline-assets-"));
+    const { article, plan, item } = await createConfirmedIllustrationPlan(db);
+    const pngBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+    const requests: { url: string; body: Record<string, unknown>; authorization: string | null }[] = [];
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+        authorization: init?.headers instanceof Headers ? init.headers.get("authorization") : ((init?.headers as Record<string, string>)?.Authorization ?? null)
+      });
+      return new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+    const client = new OpenAIImageInlineIllustrationClient({
+      apiKey: "test-image-key",
+      baseUrl: "https://image.example/v1/",
+      model: "test-image-model",
+      size: "1200x675",
+      fetchImpl
+    });
+
+    const asset = await generateInlineIllustration(article.id, { planId: plan.id, planItemId: item.itemId }, client, db, {
+      assetRoot
+    });
+    const saved = db.select().from(articleAssets).where(eq(articleAssets.id, asset.id)).get();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      url: "https://image.example/v1/images/generations",
+      authorization: "Bearer test-image-key"
+    });
+    expect(requests[0]?.body).toMatchObject({
+      model: "test-image-model",
+      size: "1200x675",
+      n: 1,
+      response_format: "b64_json"
+    });
+    expect(String(requests[0]?.body.prompt)).toContain(item.promptBrief);
+    expect(asset.provider).toBe(OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER);
+    expect(asset.mimeType).toBe("image/png");
+    expect(asset.path).toMatch(/\.png$/);
+    expect(asset.promptSnapshot).toContain("Pure white background");
+    expect(saved?.provider).toBe(OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER);
+    expect(saved?.mimeType).toBe("image/png");
+    expect(fs.existsSync(asset.path)).toBe(true);
+    expect(fs.readFileSync(asset.path).subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect(isPlaceholderInlineIllustrationAsset(asset)).toBe(false);
+  });
+
+  it("records a failed asset when the configured real image provider is missing an API key", async () => {
+    const { db } = createTestDatabase();
+    const assetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wechat-inline-assets-"));
+    const { article, plan, item } = await createConfirmedIllustrationPlan(db);
+    const client = new OpenAIImageInlineIllustrationClient({
+      model: "test-image-model",
+      fetchImpl: async () => new Response("{}")
+    });
+
+    await expect(
+      generateInlineIllustration(article.id, { planId: plan.id, planItemId: item.itemId }, client, db, {
+        assetRoot
+      })
+    ).rejects.toThrow("缺少 INLINE_ILLUSTRATION_IMAGE_API_KEY");
+
+    const asset = db.select().from(articleAssets).where(eq(articleAssets.assetType, "inline_illustration")).get();
+    expect(asset?.status).toBe("failed");
+    expect(asset?.provider).toBe(OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER);
+    expect(asset?.errorMessage).toContain("缺少 INLINE_ILLUSTRATION_IMAGE_API_KEY");
+    expect(asset?.path ? fs.existsSync(asset.path) : false).toBe(false);
   });
 
   it("keeps old inline illustration assets when regenerating the same plan item", async () => {

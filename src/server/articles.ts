@@ -112,6 +112,12 @@ export {
   buildRealInlineIllustrationPrompt,
   type RealInlineIllustrationPromptInput
 } from "./inline-illustration-prompts";
+export {
+  OpenAIImageInlineIllustrationClient,
+  OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER,
+  openAIImageInlineIllustrationClientFromEnv,
+  type OpenAIImageInlineIllustrationClientConfig
+} from "./inline-illustration-image-provider";
 export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";
