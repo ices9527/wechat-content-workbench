@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { extractMarkdownAnchors, resolveInlineIllustrationPosition } from "./inline-illustration-anchors";
+import {
+  buildInlineIllustrationPositionOptions,
+  extractMarkdownAnchors,
+  formatInlineIllustrationPosition,
+  resolveInlineIllustrationPosition
+} from "./inline-illustration-anchors";
 
 const markdown = [
   "# 香港账户还能不能开？真正变了的不是开户，是资金路径",
@@ -144,5 +149,39 @@ describe("inline illustration anchors", () => {
         warning: "插入位置为空"
       })
     );
+  });
+
+  it("builds selectable insertion positions from the current markdown", () => {
+    expect(buildInlineIllustrationPositionOptions(markdown)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "heading-4",
+          label: "标题：二、真正变紧的，是银行对资金路径的持续观察",
+          matchType: "heading",
+          positionAfter: "在“二、真正变紧的，是银行对资金路径的持续观察”之后",
+          positionBefore: "在“二、真正变紧的，是银行对资金路径的持续观察”之前"
+        }),
+        expect.objectContaining({
+          id: "paragraph-6",
+          label: "段落：一笔钱进入香港账户以后，银行真正关心的不是它有没有进来，",
+          matchType: "paragraph",
+          positionAfter: "在“一笔钱进入香港账户以后，银行真正关心的不是它有没有进来，而是它从哪里来、为什么来、之”之后"
+        }),
+        expect.objectContaining({
+          id: "list_item-8",
+          label: "列表：资金来源是否解释得通。",
+          matchType: "list_item",
+          positionAfter: "在“资金来源是否解释得通。”之后"
+        })
+      ])
+    );
+  });
+
+  it("formats insertion positions with truncated long anchors", () => {
+    expect(
+      formatInlineIllustrationPosition({
+        anchor: "这是一段非常长的正文段落，用来测试候选位置不会把整段文章都塞进插入位置输入框里，同时仍然保留可匹配片段"
+      })
+    ).toBe("在“这是一段非常长的正文段落，用来测试候选位置不会把整段文章都塞进插入位置输入框里，同时”之后");
   });
 });

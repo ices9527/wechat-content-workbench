@@ -24,6 +24,12 @@ import type { ArticleStatus } from "@/domain/status";
 import type { RequirementStage } from "@/domain/stages";
 import type { ArticleListItem } from "@/server/articles";
 import type { PromptRecipe } from "@/server/prompt-recipes";
+import {
+  buildInlineIllustrationPositionOptions,
+  resolveInlineIllustrationPosition,
+  type InlineIllustrationPositionOption,
+  type InlineIllustrationPositionResolution
+} from "@/domain/inline-illustration-anchors";
 import { MarkdownPreview } from "./markdown-preview";
 import { PromptRecipeDialog } from "./prompts/prompt-recipe-dialog";
 import { STAGE_PROMPT_UI } from "./prompts/prompt-ui";
@@ -165,6 +171,17 @@ type IllustrationPlanItemView = {
   riskNotes: string;
 };
 
+type IllustrationPositionCheck = {
+  status: "matched" | "fallback" | "unmatched" | "unavailable";
+  label: string;
+  className: string;
+  targetAnchor: string;
+  placementLabel: string;
+  matchedLine: string;
+  matchTypeLabel: string;
+  warning: string | null;
+};
+
 function formatTopicDiagnosisVerdict(verdict: string | null | undefined): string {
   if (!verdict) {
     return "未诊断";
@@ -256,6 +273,46 @@ function inlineIllustrationAssetKey(planId: string, itemId: string): string {
 
 function inlineIllustrationPendingKey(itemId: string): string {
   return `generate-inline-illustration-${itemId}`;
+}
+
+function getInlineIllustrationMatchTypeLabel(matchType: InlineIllustrationPositionResolution["matchType"]): string {
+  if (matchType === "heading") {
+    return "标题";
+  }
+  if (matchType === "paragraph") {
+    return "段落";
+  }
+  if (matchType === "list_item") {
+    return "列表项";
+  }
+  return "未匹配";
+}
+
+function toIllustrationPositionCheck(item: IllustrationPlanItemView, finalDraft: DraftVersion | null): IllustrationPositionCheck {
+  if (!finalDraft) {
+    return {
+      status: "unavailable",
+      label: "不可检查",
+      className: "unavailable",
+      targetAnchor: item.position || "未填写",
+      placementLabel: "未确定",
+      matchedLine: "请先标记最终稿",
+      matchTypeLabel: "无最终稿",
+      warning: "没有最终稿，暂时不能检查插入位置。"
+    };
+  }
+
+  const resolution = resolveInlineIllustrationPosition(finalDraft.markdown, item.position);
+  return {
+    status: resolution.status,
+    label: resolution.status === "matched" ? "已匹配" : resolution.status === "fallback" ? "可能匹配，需确认" : "未匹配",
+    className: resolution.status,
+    targetAnchor: resolution.anchor || item.position || "未填写",
+    placementLabel: resolution.placement === "before" ? "之前" : "之后",
+    matchedLine: resolution.matchedLine || "没有匹配到最终稿内容",
+    matchTypeLabel: getInlineIllustrationMatchTypeLabel(resolution.matchType),
+    warning: resolution.warning
+  };
 }
 
 function getInlineIllustrationAssetStatusLabel(asset: ArticleAsset | null): string {
@@ -810,6 +867,77 @@ function IllustrationPanel({
   );
 }
 
+function IllustrationPositionStatus({ check }: { check: IllustrationPositionCheck }) {
+  return (
+    <section className={`illustration-position-check ${check.className}`} aria-label="位置匹配状态">
+      <div className="illustration-position-check-head">
+        <strong>{check.label}</strong>
+        <span>{check.matchTypeLabel}</span>
+      </div>
+      <dl>
+        <div>
+          <dt>目标锚点</dt>
+          <dd>{check.targetAnchor}</dd>
+        </div>
+        <div>
+          <dt>插入方向</dt>
+          <dd>{check.placementLabel}</dd>
+        </div>
+        <div>
+          <dt>匹配内容</dt>
+          <dd>{check.matchedLine}</dd>
+        </div>
+      </dl>
+      {check.warning ? <p>{check.warning}</p> : null}
+    </section>
+  );
+}
+
+function IllustrationPositionSelector({
+  options,
+  disabled,
+  onSelect
+}: {
+  options: InlineIllustrationPositionOption[];
+  disabled: boolean;
+  onSelect: (position: string) => void;
+}) {
+  return (
+    <details className="illustration-position-selector">
+      <summary>选择位置</summary>
+      {options.length > 0 ? (
+        <div className="illustration-position-options">
+          {options.map((option) => (
+            <div className="illustration-position-option" key={option.id}>
+              <span>{option.label}</span>
+              <div className="inline-actions">
+                <button
+                  className="button secondary compact-button"
+                  disabled={disabled}
+                  onClick={() => onSelect(option.positionBefore)}
+                  type="button"
+                >
+                  之前
+                </button>
+                <button
+                  className="button secondary compact-button"
+                  disabled={disabled}
+                  onClick={() => onSelect(option.positionAfter)}
+                  type="button"
+                >
+                  之后
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="subtle">当前最终稿没有可选位置。</p>
+      )}
+    </details>
+  );
+}
+
 function InlineIllustrationAssetPanel({
   articleId,
   plan,
@@ -1271,6 +1399,23 @@ export function ArticleWorkflow({
     }
     return grouped;
   }, [assets]);
+  const illustrationPositionOptions = useMemo(
+    () => (finalDraft ? buildInlineIllustrationPositionOptions(finalDraft.markdown) : []),
+    [finalDraft]
+  );
+  const illustrationPositionChecks = useMemo(
+    () => new Map(illustrationPlanItems.map((item) => [item.itemId, toIllustrationPositionCheck(item, finalDraft)])),
+    [finalDraft, illustrationPlanItems]
+  );
+  const selectedIllustrationPlanFinalDraftChanged = Boolean(
+    selectedIllustrationPlan && finalDraft && selectedIllustrationPlan.finalDraftVersionId !== finalDraft.id
+  );
+  const blockedIllustrationPlanItems = illustrationPlanItems.filter(
+    (item) => {
+      const status = illustrationPositionChecks.get(item.itemId)?.status;
+      return status === "unmatched" || status === "unavailable";
+    }
+  );
   const visibleUploads = useMemo(() => {
     const merged: WechatDraftUpload[] = [];
     const seen = new Set<string>();
@@ -3029,6 +3174,9 @@ export function ArticleWorkflow({
                 <div className="illustration-plan-status-row">
                   <span className="source-pill">{getIllustrationPlanStatusLabel(selectedIllustrationPlan.status)}</span>
                   <span className="subtle">来源最终稿：{getDraftLabel(selectedIllustrationPlan.finalDraftVersionId)}</span>
+                  {selectedIllustrationPlanFinalDraftChanged ? (
+                    <span className="source-pill warning">需要重新检查插入位置</span>
+                  ) : null}
                 </div>
 
                 <label className="field">
@@ -3046,6 +3194,7 @@ export function ArticleWorkflow({
                     const itemAssets = selectedIllustrationPlan
                       ? inlineIllustrationAssetsByItem.get(inlineIllustrationAssetKey(selectedIllustrationPlan.id, item.itemId)) || []
                       : [];
+                    const positionCheck = illustrationPositionChecks.get(item.itemId) || toIllustrationPositionCheck(item, finalDraft);
                     return (
                     <article className="mini-card illustration-plan-item" key={item.itemId}>
                       <div className="mini-card-head">
@@ -3081,6 +3230,12 @@ export function ArticleWorkflow({
                           />
                         </label>
                       </div>
+                      <IllustrationPositionStatus check={positionCheck} />
+                      <IllustrationPositionSelector
+                        disabled={!selectedIllustrationPlanEditable || pending !== null || !finalDraft}
+                        options={illustrationPositionOptions}
+                        onSelect={(position) => updateIllustrationPlanItem(index, "position", position)}
+                      />
                       <label className="field">
                         <span className="label">图片作用</span>
                         <textarea
@@ -3174,6 +3329,9 @@ export function ArticleWorkflow({
                     disabled={!selectedIllustrationPlanEditable || pending !== null}
                     onClick={() =>
                       runAction("confirm-illustration-plan", async () => {
+                        if (blockedIllustrationPlanItems.length > 0) {
+                          throw new Error(`还有 ${blockedIllustrationPlanItems.length} 张配图未匹配插入位置，请先选择或修正位置。`);
+                        }
                         await postJson<IllustrationPlan>(`/api/articles/${article.id}/confirm-illustration-plan`, {
                           planId: selectedIllustrationPlan.id
                         });

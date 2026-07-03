@@ -9,6 +9,17 @@ export type MarkdownAnchor = {
   matchType: Exclude<InlineIllustrationAnchorMatchType, "none">;
 };
 
+export type InlineIllustrationPositionOption = {
+  id: string;
+  anchor: string;
+  line: string;
+  lineIndex: number;
+  matchType: Exclude<InlineIllustrationAnchorMatchType, "none">;
+  label: string;
+  positionBefore: string;
+  positionAfter: string;
+};
+
 export type InlineIllustrationPositionResolution = {
   status: InlineIllustrationPositionStatus;
   anchor: string;
@@ -26,6 +37,7 @@ type PositionCandidate = {
 };
 
 const QUOTED_ANCHOR_PATTERN = /[“"「《]([^”"」》]+)[”"」》]/g;
+const DEFAULT_POSITION_OPTION_ANCHOR_LENGTH = 42;
 
 export function normalizeInlineIllustrationAnchor(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -70,6 +82,42 @@ export function extractMarkdownAnchors(markdown: string): MarkdownAnchor[] {
     .split(/\r?\n/)
     .map((line, lineIndex) => markdownLineToAnchor(line, lineIndex))
     .filter((anchor): anchor is MarkdownAnchor => Boolean(anchor));
+}
+
+function truncateAnchorForPosition(anchor: string, maxLength = DEFAULT_POSITION_OPTION_ANCHOR_LENGTH): string {
+  const normalized = normalizeInlineIllustrationAnchor(anchor);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return normalized.slice(0, maxLength).trim();
+}
+
+function formatPositionOptionLabel(anchor: MarkdownAnchor): string {
+  const prefix =
+    anchor.matchType === "heading"
+      ? "标题"
+      : anchor.matchType === "list_item"
+        ? "列表"
+        : "段落";
+  return `${prefix}：${truncateAnchorForPosition(anchor.anchor, 28)}`;
+}
+
+export function formatInlineIllustrationPosition(
+  anchor: Pick<MarkdownAnchor, "anchor">,
+  placement: InlineIllustrationPlacement = "after"
+): string {
+  const normalizedAnchor = truncateAnchorForPosition(anchor.anchor);
+  return `在“${normalizedAnchor}”${placement === "before" ? "之前" : "之后"}`;
+}
+
+export function buildInlineIllustrationPositionOptions(markdown: string): InlineIllustrationPositionOption[] {
+  return extractMarkdownAnchors(markdown).map((anchor) => ({
+    ...anchor,
+    id: `${anchor.matchType}-${anchor.lineIndex}`,
+    label: formatPositionOptionLabel(anchor),
+    positionBefore: formatInlineIllustrationPosition(anchor, "before"),
+    positionAfter: formatInlineIllustrationPosition(anchor, "after")
+  }));
 }
 
 function inferPlacement(position: string): InlineIllustrationPlacement {

@@ -358,7 +358,16 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(illustrationPanel.getByText("配图 1")).toBeVisible();
   const firstIllustrationItem = illustrationPanel.locator(".illustration-plan-item").first();
   await expect(firstIllustrationItem.getByLabel("图片类型")).toHaveValue("流程示意图");
-  await firstIllustrationItem.getByLabel("插入位置").fill("放在“速度只是入口”之后");
+  await firstIllustrationItem.getByLabel("插入位置").fill("放在“不存在的小标题”之后");
+  await expect(firstIllustrationItem.locator(".illustration-position-check")).toContainText("未匹配");
+  await illustrationPanel.getByRole("button", { name: "确认配图规划" }).click();
+  await expect(page.getByText(/还有 \d+ 张配图未匹配插入位置/)).toBeVisible();
+  await firstIllustrationItem.locator(".illustration-position-selector summary").click();
+  const speedPositionOption = firstIllustrationItem.locator(".illustration-position-option", { hasText: "速度只是入口" }).first();
+  await expect(speedPositionOption).toBeVisible();
+  await speedPositionOption.getByRole("button", { name: "之后" }).click();
+  await expect(firstIllustrationItem.getByLabel("插入位置")).toHaveValue(/速度只是入口/);
+  await expect(firstIllustrationItem.locator(".illustration-position-check")).toContainText("已匹配");
   await firstIllustrationItem.getByLabel("图片作用").fill("人工修改：帮助读者先看懂资金路径边界。");
   await illustrationPanel.locator(".illustration-plan-item").nth(1).getByRole("button", { name: "删除配图 2" }).click();
   await expect(illustrationPanel.locator(".illustration-plan-item")).toHaveCount(1);
