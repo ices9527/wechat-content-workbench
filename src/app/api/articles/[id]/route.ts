@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { jsonError, withJsonErrorBoundary, zodOrJsonError } from "@/app/api/_utils/route-errors";
-import { ensureAppDataReady, getArticle, updateArticle } from "@/server/articles";
+import { ensureAppDataReady, getArticle, updateArticle, updateArticleInputSchema } from "@/server/articles";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   return withJsonErrorBoundary(async () => {
@@ -20,13 +20,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     ensureAppDataReady();
     try {
       const { id } = await params;
-      const body = (await request.json()) as Record<string, string | undefined>;
-      const article = updateArticle(id, {
-        topic: body.topic,
-        targetReader: body.targetReader,
-        coreProblem: body.coreProblem,
-        hotAnchor: body.hotAnchor
-      });
+      const body = (await request.json()) as unknown;
+      const article = updateArticle(id, updateArticleInputSchema.parse(body));
 
       if (!article) {
         return jsonError(new Error("文章不存在"), { status: 404 });

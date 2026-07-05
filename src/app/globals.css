@@ -520,6 +520,44 @@ h1 {
   font-size: 14px;
 }
 
+.topic-edit-form,
+.topic-version-history,
+.topic-version-list {
+  display: grid;
+  gap: 12px;
+}
+
+.topic-edit-form {
+  margin-bottom: 18px;
+}
+
+.topic-version-history {
+  margin-top: 18px;
+}
+
+.topic-version-head,
+.section-title-row,
+.icon-button-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.section-title-row {
+  justify-content: space-between;
+}
+
+.section-title-row h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.topic-version-card {
+  display: grid;
+  gap: 10px;
+}
+
 .workflow-stack {
   display: flex;
   flex-direction: column;

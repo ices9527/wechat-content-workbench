@@ -62,6 +62,49 @@ test("blocks downstream angle actions when topic diagnosis is hold", async ({ pa
   await expectNoRuntimeErrorOverlay(page);
 });
 
+test("requires rerunning topic diagnosis after editing the topic", async ({ page }) => {
+  await page.goto("/");
+
+  const stamp = Date.now();
+  const topic = `Sprint14A stale topic ${stamp}`;
+  const updatedTopic = `Sprint14A updated topic ${stamp}`;
+  await page.getByLabel("主题").fill(topic);
+  await page.getByLabel("目标读者").fill("正在安排香港账户和跨境资金的家庭");
+  await page.getByLabel("核心问题").fill("资金路径是否能解释清楚");
+  await page.getByRole("button", { name: "新建文章" }).click();
+  await page.waitForURL(/\/articles\//);
+
+  const topicDiagnosisPanel = page.locator("#workflow-panel-topic-diagnosis");
+  await topicDiagnosisPanel.getByPlaceholder("例如：重点判断是否有今天点开的理由，不要泛泛讲香港账户").fill("重点检查是否有今天点开的理由。");
+  await topicDiagnosisPanel.getByRole("button", { name: "运行 DBS 选题诊断" }).click();
+  await expect(page.getByText("已完成选题诊断")).toBeVisible({ timeout: actionTimeout });
+
+  await page.getByRole("tab", { name: /^主题/ }).click();
+  const topicPanel = page.locator("#workflow-panel-topic");
+  await topicPanel.getByRole("button", { name: "编辑主题" }).click();
+  await topicPanel.getByRole("textbox", { name: "主题" }).fill(updatedTopic);
+  await topicPanel.getByRole("button", { name: "保存主题" }).click();
+  await expect(page.getByText("已保存主题。请重新运行选题诊断后继续。")).toBeVisible({ timeout: actionTimeout });
+  await expect(topicPanel.getByText("v2")).toBeVisible();
+  await expect(topicPanel.getByText("v1")).toBeVisible();
+  await expect(topicPanel.getByText(updatedTopic)).toHaveCount(2);
+
+  await page.getByRole("tab", { name: /^角度/ }).click();
+  await expect(page.getByText("主题已修改，需要重新运行选题诊断后继续。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "AI 生成角度" })).toBeDisabled();
+
+  await page.getByRole("tab", { name: /^选题诊断/ }).click();
+  await expect(page.getByRole("tab", { name: /^选题诊断/ })).toContainText("需重诊");
+  await expect(topicDiagnosisPanel.getByText("主题已修改，需要重新运行选题诊断后继续。")).toBeVisible();
+  await topicDiagnosisPanel.getByRole("button", { name: "运行 DBS 选题诊断" }).click();
+  await expect(page.getByText("已完成选题诊断")).toBeVisible({ timeout: actionTimeout });
+
+  await page.getByRole("tab", { name: /^角度/ }).click();
+  await expect(page.getByText("主题已修改，需要重新运行选题诊断后继续。")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "AI 生成角度" })).toBeEnabled();
+  await expectNoRuntimeErrorOverlay(page);
+});
+
 test("shows topic diagnosis status in the article library", async ({ page }) => {
   await page.goto("/");
 

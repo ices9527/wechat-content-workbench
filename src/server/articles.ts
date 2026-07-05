@@ -22,6 +22,7 @@ import {
   promptRunArtifacts,
   researchVersions,
   topicDiagnoses,
+  topicVersions,
   wechatDraftUploads,
   workflowEvents,
   type AngleCandidate,
@@ -35,7 +36,8 @@ import {
   type AIInvocationRequirement,
   type AIStyleCheck,
   type StagePromptDefault,
-  type TopicDiagnosis
+  type TopicDiagnosis,
+  type TopicVersion
 } from "@/db/schema";
 
 import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
@@ -47,7 +49,7 @@ import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
 import {
-  assertTopicDiagnosisAllowsDownstreamFlow,
+  assertTopicDiagnosisContextAllowsDownstreamFlow,
   formatTopicDiagnosisContextForPrompt,
   getLatestTopicDiagnosisContext,
   toUpstreamContextSnapshot,
@@ -118,7 +120,7 @@ export {
   openAIImageInlineIllustrationClientFromEnv,
   type OpenAIImageInlineIllustrationClientConfig
 } from "./inline-illustration-image-provider";
-export { getLatestTopicDiagnosisContext } from "./topic-diagnosis-context";
+export { getLatestTopicDiagnosisContext, isTopicDiagnosisStaleForArticle } from "./topic-diagnosis-context";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";
 export type { TopicDiagnosisContext } from "./topic-diagnosis-context";
@@ -135,6 +137,15 @@ export const createArticleInputSchema = z.object({
 });
 
 export type CreateArticleInput = z.infer<typeof createArticleInputSchema>;
+
+export const updateArticleInputSchema = z.object({
+  topic: z.string().trim().min(1, "主题不能为空").optional(),
+  targetReader: z.string().trim().optional(),
+  coreProblem: z.string().trim().optional(),
+  hotAnchor: z.string().trim().optional()
+});
+
+export type UpdateArticleInput = z.infer<typeof updateArticleInputSchema>;
 
 export type ArticleListItem = ArticleProject & {
   statusLabel: string;
@@ -646,6 +657,37 @@ function formatAIStyleCheckIssuesForPrompt(check: AIStyleCheck): string {
 
 // Article read models and queries
 
+function createTopicVersionRecord(
+  article: Pick<ArticleProject, "id" | "ownerId" | "topic" | "targetReader" | "coreProblem" | "hotAnchor">,
+  versionNo: number,
+  createdBy: "initial" | "user_edit",
+  createdAt: string
+): TopicVersion {
+  return {
+    id: randomUUID(),
+    articleId: article.id,
+    ownerId: article.ownerId,
+    versionNo,
+    topic: article.topic,
+    targetReader: article.targetReader,
+    coreProblem: article.coreProblem,
+    hotAnchor: article.hotAnchor,
+    createdBy,
+    createdAt
+  };
+}
+
+function latestTopicVersionNo(articleId: string, db: WorkbenchDatabase): number {
+  return (
+    db
+      .select()
+      .from(topicVersions)
+      .where(eq(topicVersions.articleId, articleId))
+      .orderBy(desc(topicVersions.versionNo))
+      .get()?.versionNo || 0
+  );
+}
+
 export function createArticle(input: CreateArticleInput, db: WorkbenchDatabase = getDatabase().db): ArticleProject {
   const parsed = createArticleInputSchema.parse(input);
   const now = new Date().toISOString();
@@ -665,7 +707,10 @@ export function createArticle(input: CreateArticleInput, db: WorkbenchDatabase =
     updatedAt: now
   };
 
-  db.insert(articleProjects).values(article).run();
+  db.transaction(() => {
+    db.insert(articleProjects).values(article).run();
+    db.insert(topicVersions).values(createTopicVersionRecord(article, 1, "initial", now)).run();
+  });
   return article;
 }
 
@@ -782,6 +827,15 @@ export function listTopicDiagnoses(articleId: string, db: WorkbenchDatabase = ge
     .all();
 }
 
+export function listTopicVersions(articleId: string, db: WorkbenchDatabase = getDatabase().db): TopicVersion[] {
+  return db
+    .select()
+    .from(topicVersions)
+    .where(eq(topicVersions.articleId, articleId))
+    .orderBy(desc(topicVersions.versionNo))
+    .all();
+}
+
 export function listPromptRunArtifacts(
   articleId: string,
   input: { stage?: Extract<RequirementStage, "pre_publish" | "review"> } = {},
@@ -847,7 +901,7 @@ export function createManualAngle(
 ): AngleCandidate {
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
   const parsed = manualAngleInputSchema.parse(input);
   const angle: AngleCandidate = {
     id: randomUUID(),
@@ -970,7 +1024,7 @@ export async function generateAngles(
   const parsed = generateWithPromptInputSchema.parse(input);
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
   const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   const stagePrompt = getStagePromptDefault("angle", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "angle", db);
@@ -1060,7 +1114,7 @@ export function selectAngle(articleId: string, angleId: string, db: WorkbenchDat
     throw new Error("角度不存在");
   }
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
 
   db.transaction(() => {
     db.update(angleCandidates).set({ selected: false }).where(eq(angleCandidates.articleId, articleId)).run();
@@ -1086,7 +1140,7 @@ export async function generateContentResearch(
   const parsed = generateContentResearchInputSchema.parse(input);
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
   const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   if (!article.selectedAngleId) {
     throw new Error("请先选择一个角度");
@@ -1241,7 +1295,7 @@ export async function generateOutline(
   const parsed = generateOutlineInputSchema.parse(input);
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
   const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   if (!article.selectedAngleId) {
     throw new Error("请先选择一个角度");
@@ -1426,7 +1480,7 @@ export async function generateDraft(
   const parsed = generateWithPromptInputSchema.parse(input);
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  assertTopicDiagnosisAllowsDownstreamFlow(topicDiagnosisContext);
+  assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
   const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   const outline = db
     .select()
@@ -2251,22 +2305,52 @@ export function listPublishQueueArticles(db: WorkbenchDatabase = getDatabase().d
 
 export function updateArticle(
   id: string,
-  input: Partial<Pick<ArticleProject, "topic" | "targetReader" | "coreProblem" | "hotAnchor">>,
+  input: UpdateArticleInput,
   db: WorkbenchDatabase = getDatabase().db
 ): ArticleProject | null {
+  const parsed = updateArticleInputSchema.parse(input);
   const existing = getArticle(id, db);
   if (!existing) {
     return null;
   }
+  const hasValue = (key: keyof UpdateArticleInput) => Object.prototype.hasOwnProperty.call(parsed, key);
   const values = {
-    topic: input.topic ?? existing.topic,
-    title: input.topic ? titleFromTopic(input.topic) : existing.title,
-    targetReader: input.targetReader ?? existing.targetReader,
-    coreProblem: input.coreProblem ?? existing.coreProblem,
-    hotAnchor: input.hotAnchor ?? existing.hotAnchor,
+    topic: hasValue("topic") ? (parsed.topic as string) : existing.topic,
+    title: hasValue("topic") ? titleFromTopic(parsed.topic as string) : existing.title,
+    targetReader: hasValue("targetReader") ? parsed.targetReader || null : existing.targetReader,
+    coreProblem: hasValue("coreProblem") ? parsed.coreProblem || null : existing.coreProblem,
+    hotAnchor: hasValue("hotAnchor") ? parsed.hotAnchor || null : existing.hotAnchor,
     updatedAt: new Date().toISOString()
   };
-  db.update(articleProjects).set(values).where(eq(articleProjects.id, id)).run();
+
+  const topicFieldsChanged =
+    values.topic !== existing.topic ||
+    values.targetReader !== existing.targetReader ||
+    values.coreProblem !== existing.coreProblem ||
+    values.hotAnchor !== existing.hotAnchor;
+
+  db.transaction(() => {
+    db.update(articleProjects).set(values).where(eq(articleProjects.id, id)).run();
+    if (topicFieldsChanged) {
+      db.insert(topicVersions)
+        .values(
+          createTopicVersionRecord(
+            {
+              id: existing.id,
+              ownerId: existing.ownerId,
+              topic: values.topic,
+              targetReader: values.targetReader,
+              coreProblem: values.coreProblem,
+              hotAnchor: values.hotAnchor
+            },
+            latestTopicVersionNo(existing.id, db) + 1,
+            "user_edit",
+            values.updatedAt
+          )
+        )
+        .run();
+    }
+  });
   return db.select().from(articleProjects).where(eq(articleProjects.id, id)).get() ?? null;
 }
 

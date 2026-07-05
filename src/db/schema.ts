@@ -156,6 +156,19 @@ export const topicDiagnoses = sqliteTable("topic_diagnoses", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
 });
 
+export const topicVersions = sqliteTable("topic_versions", {
+  id: text("id").primaryKey(),
+  articleId: text("article_id").notNull().references(() => articleProjects.id),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  versionNo: integer("version_no").notNull(),
+  topic: text("topic").notNull(),
+  targetReader: text("target_reader"),
+  coreProblem: text("core_problem"),
+  hotAnchor: text("hot_anchor"),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+});
+
 export const aiInvocations = sqliteTable("ai_invocations", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull().references(() => users.id),
@@ -333,6 +346,7 @@ export type ContentDiagnosis = typeof contentDiagnoses.$inferSelect;
 export type AIStyleCheck = typeof aiStyleChecks.$inferSelect;
 export type IllustrationPlan = typeof illustrationPlans.$inferSelect;
 export type TopicDiagnosis = typeof topicDiagnoses.$inferSelect;
+export type TopicVersion = typeof topicVersions.$inferSelect;
 export type AIInvocation = typeof aiInvocations.$inferSelect;
 export type StagePromptDefault = typeof stagePromptDefaults.$inferSelect;
 export type RequirementPreset = typeof requirementPresets.$inferSelect;

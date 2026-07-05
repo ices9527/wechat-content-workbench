@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { createTestDatabase } from "@/test/test-db";
 
+import { migrateDatabase } from "./migrate";
 import {
   aiStyleChecks,
   articleAssets,
   articleProjects,
   draftVersions,
   illustrationPlans,
+  topicVersions,
   wechatDraftUploadImages,
   wechatDraftUploads
 } from "./schema";
@@ -272,5 +274,57 @@ describe("database migrations", () => {
 
     expect(record?.occurrenceCount).toBe(1);
     expect(record?.altTextsJson).toBe("[]");
+  });
+
+  it("creates topic version storage and backfills existing articles once", () => {
+    const { db, sqlite } = createTestDatabase();
+
+    const columns = sqlite.prepare("PRAGMA table_info(topic_versions)").all() as Array<{ name: string }>;
+    const indexes = sqlite.prepare("PRAGMA index_list(topic_versions)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "article_id",
+        "owner_id",
+        "version_no",
+        "topic",
+        "target_reader",
+        "core_problem",
+        "hot_anchor",
+        "created_by",
+        "created_at"
+      ])
+    );
+    expect(indexes.map((index) => index.name)).toEqual(expect.arrayContaining(["topic_versions_article_version_index"]));
+
+    db.insert(articleProjects)
+      .values({
+        id: "article-topic-backfill",
+        ownerId: "local_user",
+        title: "旧文章",
+        topic: "旧文章",
+        targetReader: "跨境家庭",
+        coreProblem: "旧问题",
+        hotAnchor: "旧热点",
+        createdAt: "2026-07-01T00:00:00.000Z"
+      })
+      .run();
+
+    migrateDatabase(sqlite);
+    migrateDatabase(sqlite);
+
+    const versions = db.select().from(topicVersions).all();
+
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      articleId: "article-topic-backfill",
+      versionNo: 1,
+      topic: "旧文章",
+      targetReader: "跨境家庭",
+      coreProblem: "旧问题",
+      hotAnchor: "旧热点",
+      createdBy: "initial",
+      createdAt: "2026-07-01T00:00:00.000Z"
+    });
   });
 });

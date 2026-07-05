@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize2, ScrollText, Trash2, X } from "lucide-react";
+import { Maximize2, Pencil, ScrollText, Trash2, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +18,7 @@ import type {
   RequirementPreset,
   StagePromptDefault,
   TopicDiagnosis,
+  TopicVersion,
   WechatDraftUpload
 } from "@/db/schema";
 import type { ArticleStatus } from "@/domain/status";
@@ -398,6 +399,30 @@ function isBlockingTopicDiagnosisVerdict(verdict: string | null | undefined): bo
   return verdict === "hold" || verdict === "drop";
 }
 
+function normalizeTopicValue(value: string | null | undefined): string {
+  return (value || "").trim();
+}
+
+function isTopicDiagnosisStale(article: ArticleListItem, diagnosis: TopicDiagnosis | null): boolean {
+  if (!diagnosis) {
+    return false;
+  }
+
+  return (
+    normalizeTopicValue(article.topic) !== normalizeTopicValue(diagnosis.topicSnapshot) ||
+    normalizeTopicValue(article.targetReader) !== normalizeTopicValue(diagnosis.targetReaderSnapshot) ||
+    normalizeTopicValue(article.coreProblem) !== normalizeTopicValue(diagnosis.coreProblemSnapshot) ||
+    normalizeTopicValue(article.hotAnchor) !== normalizeTopicValue(diagnosis.hotAnchorSnapshot)
+  );
+}
+
+type TopicFormDraft = {
+  topic: string;
+  targetReader: string;
+  coreProblem: string;
+  hotAnchor: string;
+};
+
 type WorkflowTabId =
   | "topic"
   | "topic-diagnosis"
@@ -518,27 +543,129 @@ function WorkflowPanel({
   );
 }
 
-function TopicPanel({ article }: { article: ArticleListItem }) {
+function TopicPanel({
+  article,
+  topicVersions,
+  draft,
+  editing,
+  pending,
+  onEdit,
+  onCancel,
+  onChange,
+  onSave
+}: {
+  article: ArticleListItem;
+  topicVersions: TopicVersion[];
+  draft: TopicFormDraft;
+  editing: boolean;
+  pending: string | null;
+  onEdit: () => void;
+  onCancel: () => void;
+  onChange: (field: keyof TopicFormDraft, value: string) => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+}) {
   return (
-    <WorkflowPanel tabId="topic" title="主题" status={article.statusLabel}>
-      <dl className="detail-grid">
-        <div className="detail-item">
-          <dt>主题</dt>
-          <dd>{article.topic}</dd>
+    <WorkflowPanel
+      tabId="topic"
+      title="主题"
+      headActions={
+        editing ? (
+          <span className="status">{article.statusLabel}</span>
+        ) : (
+          <button className="button secondary compact-button icon-button-text" onClick={onEdit} type="button">
+            <Pencil size={17} aria-hidden="true" />
+            编辑主题
+          </button>
+        )
+      }
+    >
+      {editing ? (
+        <form className="topic-edit-form" onSubmit={onSave}>
+          <label>
+            <span className="label">主题</span>
+            <input className="input" required value={draft.topic} onChange={(event) => onChange("topic", event.target.value)} />
+          </label>
+          <label>
+            <span className="label">目标读者</span>
+            <input className="input" value={draft.targetReader} onChange={(event) => onChange("targetReader", event.target.value)} />
+          </label>
+          <label>
+            <span className="label">核心问题</span>
+            <textarea className="textarea" value={draft.coreProblem} onChange={(event) => onChange("coreProblem", event.target.value)} />
+          </label>
+          <label>
+            <span className="label">热点锚点</span>
+            <input className="input" value={draft.hotAnchor} onChange={(event) => onChange("hotAnchor", event.target.value)} />
+          </label>
+          <div className="inline-actions">
+            <button className="button" disabled={pending !== null} type="submit">
+              {pending === "save-topic" ? "保存中" : "保存主题"}
+            </button>
+            <button className="button secondary" disabled={pending !== null} onClick={onCancel} type="button">
+              取消
+            </button>
+          </div>
+        </form>
+      ) : (
+        <dl className="detail-grid">
+          <div className="detail-item">
+            <dt>主题</dt>
+            <dd>{article.topic}</dd>
+          </div>
+          <div className="detail-item">
+            <dt>目标读者</dt>
+            <dd>{article.targetReader || "未填写"}</dd>
+          </div>
+          <div className="detail-item">
+            <dt>核心问题</dt>
+            <dd>{article.coreProblem || "未填写"}</dd>
+          </div>
+          <div className="detail-item">
+            <dt>热点锚点</dt>
+            <dd>{article.hotAnchor || "未填写"}</dd>
+          </div>
+        </dl>
+      )}
+
+      <section className="topic-version-history" aria-label="主题版本历史">
+        <div className="section-title-row">
+          <h3>主题版本历史</h3>
+          <span className="source-pill">{topicVersions.length} 个版本</span>
         </div>
-        <div className="detail-item">
-          <dt>目标读者</dt>
-          <dd>{article.targetReader || "未填写"}</dd>
-        </div>
-        <div className="detail-item">
-          <dt>核心问题</dt>
-          <dd>{article.coreProblem || "未填写"}</dd>
-        </div>
-        <div className="detail-item">
-          <dt>热点锚点</dt>
-          <dd>{article.hotAnchor || "未填写"}</dd>
-        </div>
-      </dl>
+        {topicVersions.length > 0 ? (
+          <div className="topic-version-list">
+            {topicVersions.map((version) => (
+              <article className="mini-card topic-version-card" key={version.id}>
+                <div className="topic-version-head">
+                  <strong>v{version.versionNo}</strong>
+                  <span className="source-pill">{version.createdBy === "initial" ? "初始主题" : "人工修改"}</span>
+                  <span className="subtle">{formatTime(version.createdAt)}</span>
+                </div>
+                <dl className="detail-grid compact">
+                  <div className="detail-item">
+                    <dt>主题</dt>
+                    <dd>{version.topic}</dd>
+                  </div>
+                  <div className="detail-item">
+                    <dt>目标读者</dt>
+                    <dd>{version.targetReader || "未填写"}</dd>
+                  </div>
+                  <div className="detail-item">
+                    <dt>核心问题</dt>
+                    <dd>{version.coreProblem || "未填写"}</dd>
+                  </div>
+                  <div className="detail-item">
+                    <dt>热点锚点</dt>
+                    <dd>{version.hotAnchor || "未填写"}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="subtle">暂无主题版本记录。</p>
+        )}
+      </section>
     </WorkflowPanel>
   );
 }
@@ -546,6 +673,7 @@ function TopicPanel({ article }: { article: ArticleListItem }) {
 function TopicDiagnosisPanel({
   latestTopicDiagnosis,
   topicDiagnoses,
+  staleWarning,
   requirements,
   selectedRequirementIds,
   customInstruction,
@@ -560,6 +688,7 @@ function TopicDiagnosisPanel({
 }: {
   latestTopicDiagnosis: TopicDiagnosis | null;
   topicDiagnoses: TopicDiagnosis[];
+  staleWarning: string | null;
   requirements: RequirementPreset[];
   selectedRequirementIds: string[];
   customInstruction: string;
@@ -610,6 +739,8 @@ function TopicDiagnosisPanel({
           {pending === "run-topic-diagnosis" ? "诊断中" : "运行 DBS 选题诊断"}
         </button>
       </div>
+
+      {staleWarning ? <p className="error">{staleWarning}</p> : null}
 
       {latestTopicDiagnosis ? (
         <div className="topic-diagnosis-stack">
@@ -1193,6 +1324,7 @@ export function ArticleWorkflow({
   aiStyleChecks,
   illustrationPlans,
   topicDiagnoses,
+  topicVersions,
   assets,
   uploads,
   stagePrompts,
@@ -1208,6 +1340,7 @@ export function ArticleWorkflow({
   aiStyleChecks: AIStyleCheck[];
   illustrationPlans: IllustrationPlan[];
   topicDiagnoses: TopicDiagnosis[];
+  topicVersions: TopicVersion[];
   assets: ArticleAsset[];
   uploads: WechatDraftUpload[];
   stagePrompts: StagePromptDefault[];
@@ -1223,6 +1356,13 @@ export function ArticleWorkflow({
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkflowTabId>(initialTab);
+  const [topicEditing, setTopicEditing] = useState(false);
+  const [topicDraft, setTopicDraft] = useState<TopicFormDraft>({
+    topic: article.topic,
+    targetReader: article.targetReader || "",
+    coreProblem: article.coreProblem || "",
+    hotAnchor: article.hotAnchor || ""
+  });
   const latestOutline = outlines[0] || null;
   const latestResearch = researchVersions[0] || null;
   const acceptedOutline = outlines.find((outline) => outline.accepted) || null;
@@ -1443,10 +1583,11 @@ export function ArticleWorkflow({
   }, [optimisticUploads, uploads]);
   const latestUpload = visibleUploads[0] || null;
   const canMarkFinal = drafts.length > 0 && canMarkFinalDraft(articleStatus);
-  const topicDiagnosisWarning = latestTopicDiagnosis
-    ? TOPIC_DIAGNOSIS_WARNING_COPY[latestTopicDiagnosis.verdict] || null
-    : null;
-  const topicDiagnosisBlocksDownstream = isBlockingTopicDiagnosisVerdict(latestTopicDiagnosis?.verdict);
+  const topicDiagnosisIsStale = isTopicDiagnosisStale(article, latestTopicDiagnosis);
+  const staleTopicDiagnosisWarning = topicDiagnosisIsStale ? "主题已修改，需要重新运行选题诊断后继续。" : null;
+  const topicDiagnosisWarning =
+    staleTopicDiagnosisWarning || (latestTopicDiagnosis ? TOPIC_DIAGNOSIS_WARNING_COPY[latestTopicDiagnosis.verdict] || null : null);
+  const topicDiagnosisBlocksDownstream = topicDiagnosisIsStale || isBlockingTopicDiagnosisVerdict(latestTopicDiagnosis?.verdict);
 
   function setDefaultPromptDraftForStage(stage: RequirementStage, value: string) {
     setDefaultPromptDrafts((current) => ({ ...current, [stage]: value }));
@@ -1465,6 +1606,9 @@ export function ArticleWorkflow({
       return "已建";
     }
     if (tabId === "topic-diagnosis") {
+      if (topicDiagnosisIsStale) {
+        return "需重诊";
+      }
       return latestTopicDiagnosis ? formatTopicDiagnosisVerdict(latestTopicDiagnosis.verdict) : "待做";
     }
     if (tabId === "angles") {
@@ -1522,6 +1666,18 @@ export function ArticleWorkflow({
     const query = params.toString();
     router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
   }
+
+  useEffect(() => {
+    if (topicEditing) {
+      return;
+    }
+    setTopicDraft({
+      topic: article.topic,
+      targetReader: article.targetReader || "",
+      coreProblem: article.coreProblem || "",
+      hotAnchor: article.hotAnchor || ""
+    });
+  }, [article.topic, article.targetReader, article.coreProblem, article.hotAnchor, topicEditing]);
 
   useEffect(() => {
     setSelectedOutlineId((current) => {
@@ -1665,6 +1821,38 @@ export function ArticleWorkflow({
     } finally {
       setPending(null);
     }
+  }
+
+  function resetTopicDraft() {
+    setTopicDraft({
+      topic: article.topic,
+      targetReader: article.targetReader || "",
+      coreProblem: article.coreProblem || "",
+      hotAnchor: article.hotAnchor || ""
+    });
+  }
+
+  function updateTopicDraft(field: keyof TopicFormDraft, value: string) {
+    setTopicDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function startTopicEditing() {
+    resetTopicDraft();
+    setTopicEditing(true);
+  }
+
+  function cancelTopicEditing() {
+    resetTopicDraft();
+    setTopicEditing(false);
+  }
+
+  async function saveTopic(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runAction("save-topic", async () => {
+      await patchJson(`/api/articles/${article.id}`, topicDraft);
+      setTopicEditing(false);
+      setNotice(latestTopicDiagnosis ? "已保存主题。请重新运行选题诊断后继续。" : "已保存主题");
+    });
   }
 
   async function submitManualAngle(event: FormEvent<HTMLFormElement>) {
@@ -1941,12 +2129,25 @@ export function ArticleWorkflow({
       </div>
 
       <div className="workflow-tab-panels">
-        {activeTab === "topic" ? <TopicPanel article={article} /> : null}
+        {activeTab === "topic" ? (
+          <TopicPanel
+            article={article}
+            topicVersions={topicVersions}
+            draft={topicDraft}
+            editing={topicEditing}
+            pending={pending}
+            onEdit={startTopicEditing}
+            onCancel={cancelTopicEditing}
+            onChange={updateTopicDraft}
+            onSave={saveTopic}
+          />
+        ) : null}
 
         {activeTab === "topic-diagnosis" ? (
           <TopicDiagnosisPanel
             latestTopicDiagnosis={latestTopicDiagnosis}
             topicDiagnoses={topicDiagnoses}
+            staleWarning={staleTopicDiagnosisWarning}
             requirements={topicRequirements}
             selectedRequirementIds={selectedTopicRequirementIds}
             customInstruction={topicDiagnosisCustomInstruction}

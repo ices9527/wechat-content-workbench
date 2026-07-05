@@ -170,6 +170,47 @@ const statements = [
     ON topic_diagnoses(article_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS topic_diagnoses_source_invocation_index
     ON topic_diagnoses(source_invocation_id)`,
+  `CREATE TABLE IF NOT EXISTS topic_versions (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    version_no INTEGER NOT NULL,
+    topic TEXT NOT NULL,
+    target_reader TEXT,
+    core_problem TEXT,
+    hot_anchor TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS topic_versions_article_version_index
+    ON topic_versions(article_id, version_no)`,
+  `INSERT INTO topic_versions (
+      id,
+      article_id,
+      owner_id,
+      version_no,
+      topic,
+      target_reader,
+      core_problem,
+      hot_anchor,
+      created_by,
+      created_at
+    )
+    SELECT
+      'topic-version-' || article_projects.id || '-v1',
+      article_projects.id,
+      article_projects.owner_id,
+      1,
+      article_projects.topic,
+      article_projects.target_reader,
+      article_projects.core_problem,
+      article_projects.hot_anchor,
+      'initial',
+      article_projects.created_at
+    FROM article_projects
+    WHERE NOT EXISTS (
+      SELECT 1 FROM topic_versions WHERE topic_versions.article_id = article_projects.id
+    )`,
   `CREATE TABLE IF NOT EXISTS ai_invocations (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL REFERENCES users(id),

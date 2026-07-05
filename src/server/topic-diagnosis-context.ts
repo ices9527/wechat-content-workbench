@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 
 import { type WorkbenchDatabase } from "@/db/client";
-import { topicDiagnoses } from "@/db/schema";
+import { topicDiagnoses, type ArticleProject } from "@/db/schema";
 
 export type TopicDiagnosisContext = {
   diagnosisId: string;
@@ -60,6 +60,26 @@ export function isBlockingTopicDiagnosis(context: TopicDiagnosisContext | null):
   return context?.verdict === "hold" || context?.verdict === "drop";
 }
 
+function normalizeSnapshotValue(value: string | null | undefined): string {
+  return (value || "").trim();
+}
+
+export function isTopicDiagnosisStaleForArticle(
+  article: Pick<ArticleProject, "topic" | "targetReader" | "coreProblem" | "hotAnchor">,
+  context: TopicDiagnosisContext | null
+): boolean {
+  if (!context) {
+    return false;
+  }
+
+  return (
+    normalizeSnapshotValue(article.topic) !== normalizeSnapshotValue(context.topicSnapshot) ||
+    normalizeSnapshotValue(article.targetReader) !== normalizeSnapshotValue(context.targetReaderSnapshot) ||
+    normalizeSnapshotValue(article.coreProblem) !== normalizeSnapshotValue(context.coreProblemSnapshot) ||
+    normalizeSnapshotValue(article.hotAnchor) !== normalizeSnapshotValue(context.hotAnchorSnapshot)
+  );
+}
+
 export function assertTopicDiagnosisAllowsAngleFlow(context: TopicDiagnosisContext | null): void {
   if (!isBlockingTopicDiagnosis(context)) {
     return;
@@ -70,6 +90,25 @@ export function assertTopicDiagnosisAllowsAngleFlow(context: TopicDiagnosisConte
 }
 
 export const assertTopicDiagnosisAllowsDownstreamFlow = assertTopicDiagnosisAllowsAngleFlow;
+
+export function assertTopicDiagnosisFreshForArticle(
+  article: Pick<ArticleProject, "topic" | "targetReader" | "coreProblem" | "hotAnchor">,
+  context: TopicDiagnosisContext | null
+): void {
+  if (!isTopicDiagnosisStaleForArticle(article, context)) {
+    return;
+  }
+
+  throw new Error("主题已修改，需要重新运行选题诊断后继续。");
+}
+
+export function assertTopicDiagnosisContextAllowsDownstreamFlow(
+  article: Pick<ArticleProject, "topic" | "targetReader" | "coreProblem" | "hotAnchor">,
+  context: TopicDiagnosisContext | null
+): void {
+  assertTopicDiagnosisFreshForArticle(article, context);
+  assertTopicDiagnosisAllowsDownstreamFlow(context);
+}
 
 export function toUpstreamContextSnapshot(context: TopicDiagnosisContext | null): UpstreamContextSnapshot | null {
   return context ? { topicDiagnosis: context } : null;

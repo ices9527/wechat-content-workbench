@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocationRequirements, aiInvocations, requirementPresets, topicDiagnoses, workflowEvents } from "@/db/schema";
+import { aiInvocationRequirements, aiInvocations, requirementPresets, topicDiagnoses, topicVersions, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import {
@@ -16,6 +16,7 @@ import {
   createArticle,
   createRequirementPreset,
   deleteRequirementPreset,
+  generateAngles,
   getArticle,
   getLatestTopicDiagnosisContext,
   listArticles,
@@ -23,8 +24,10 @@ import {
   listRequirementPresets,
   listStagePromptDefaults,
   listTopicDiagnoses,
+  listTopicVersions,
   resolveSelectedRequirements,
   runTopicDiagnosis,
+  updateArticle,
   updateRequirementPreset
 } from "./articles";
 
@@ -36,6 +39,69 @@ describe("article service basics", () => {
     expect(article.status).toBe("topic_created");
     expect(article.ownerId).toBe("local_user");
     expect(article.title).toBe("香港教育身份规划");
+  });
+
+  it("creates an initial topic version when creating an article", () => {
+    const { db } = createTestDatabase();
+    const article = createArticle(
+      {
+        topic: "香港教育身份规划",
+        targetReader: "家长",
+        coreProblem: "教育路径怎么选",
+        hotAnchor: "升学季"
+      },
+      db
+    );
+    const versions = listTopicVersions(article.id, db);
+
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      articleId: article.id,
+      versionNo: 1,
+      topic: "香港教育身份规划",
+      targetReader: "家长",
+      coreProblem: "教育路径怎么选",
+      hotAnchor: "升学季",
+      createdBy: "initial"
+    });
+    expect(db.select().from(topicVersions).all()).toHaveLength(1);
+  });
+
+  it("records topic versions when article topic fields are edited", () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港教育身份规划", targetReader: "家长" }, db);
+
+    const updated = updateArticle(
+      article.id,
+      {
+        topic: "香港教育身份和现金流规划",
+        targetReader: "跨境家庭",
+        coreProblem: "教育和现金流怎么一起安排"
+      },
+      db
+    );
+    const versions = listTopicVersions(article.id, db);
+
+    expect(updated?.title).toBe("香港教育身份和现金流规划");
+    expect(versions.map((version) => version.versionNo)).toEqual([2, 1]);
+    expect(versions[0]).toMatchObject({
+      topic: "香港教育身份和现金流规划",
+      targetReader: "跨境家庭",
+      coreProblem: "教育和现金流怎么一起安排",
+      createdBy: "user_edit"
+    });
+    expect(versions[1]).toMatchObject({
+      topic: "香港教育身份规划",
+      targetReader: "家长",
+      createdBy: "initial"
+    });
+  });
+
+  it("rejects empty topic updates", () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港教育身份规划" }, db);
+
+    expect(() => updateArticle(article.id, { topic: "   " }, db)).toThrow("主题不能为空");
   });
 
   it("seeds stage default prompts", () => {
@@ -267,6 +333,16 @@ describe("article service basics", () => {
     expect(invocations[0].response || "").toContain("targetReaderCheck");
     expect(updated?.status).toBe("topic_diagnosed");
     expect(updated?.nextAction).toBe("生成角度或手动创建角度");
+  });
+
+  it("blocks downstream generation when the latest topic diagnosis snapshot is stale", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+
+    await runTopicDiagnosis(article.id, {}, new PassTopicDiagnosisClient(), db);
+    updateArticle(article.id, { topic: "香港账户还能不能开，资金路径怎么解释" }, db);
+
+    await expect(generateAngles(article.id, new FakeAIClient(), db)).rejects.toThrow("主题已修改，需要重新运行选题诊断后继续");
   });
 
   it("records selected topic requirements in topic diagnosis invocations", async () => {

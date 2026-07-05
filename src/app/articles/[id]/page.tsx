@@ -12,7 +12,8 @@ import {
   listOutlines,
   listPromptRunArtifacts,
   listResearchVersions,
-  listTopicDiagnoses
+  listTopicDiagnoses,
+  listTopicVersions
 } from "@/server/articles";
 import { listRequirementPresets } from "@/server/requirements";
 import { listStagePromptDefaults } from "@/server/stage-prompts";
@@ -37,6 +38,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const aiStyleChecks = listAIStyleChecks(article.id);
   const illustrationPlans = listIllustrationPlans(article.id);
   const topicDiagnoses = listTopicDiagnoses(article.id);
+  const topicVersions = listTopicVersions(article.id);
   const assets = listArticleAssets(article.id);
   const uploads = listWechatDraftUploads(article.id);
   const stagePrompts = listStagePromptDefaults();
@@ -75,6 +77,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         aiStyleChecks={aiStyleChecks}
         illustrationPlans={illustrationPlans}
         topicDiagnoses={topicDiagnoses}
+        topicVersions={topicVersions}
         assets={assets}
         uploads={uploads}
         stagePrompts={stagePrompts}
