@@ -8,6 +8,8 @@ import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { LOCAL_USER_ID } from "@/db/seed";
 import { requirementPresets, type RequirementPreset } from "@/db/schema";
 
+import { REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH } from "./prompt-limits";
+
 export const requirementTypeSchema = z.enum(["must", "avoid", "prefer", "check", "compliance"]);
 
 export const createRequirementInputSchema = z.object({
@@ -16,7 +18,7 @@ export const createRequirementInputSchema = z.object({
   type: requirementTypeSchema,
   label: z.string().trim().min(1, "标签不能为空").max(80, "标签不能超过 80 字"),
   description: z.string().trim().max(240, "说明不能超过 240 字").optional(),
-  promptFragment: z.string().trim().min(1, "提示词不能为空").max(2000, "提示词不能超过 2000 字"),
+  promptFragment: z.string().trim().min(1, "提示词不能为空").max(REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH, `提示词不能超过 ${REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH} 字`),
   defaultEnabled: z.boolean().optional().default(false),
   priority: z.coerce.number().int().min(0).max(9999).optional().default(500)
 });
@@ -27,7 +29,7 @@ export const updateRequirementInputSchema = z.object({
   type: requirementTypeSchema.optional(),
   label: z.string().trim().min(1, "标签不能为空").max(80, "标签不能超过 80 字").optional(),
   description: z.string().trim().max(240, "说明不能超过 240 字").optional(),
-  promptFragment: z.string().trim().min(1, "提示词不能为空").max(2000, "提示词不能超过 2000 字").optional(),
+  promptFragment: z.string().trim().min(1, "提示词不能为空").max(REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH, `提示词不能超过 ${REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH} 字`).optional(),
   defaultEnabled: z.boolean().optional(),
   enabled: z.boolean().optional(),
   archived: z.boolean().optional(),

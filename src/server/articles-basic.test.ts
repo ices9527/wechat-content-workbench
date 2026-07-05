@@ -14,9 +14,13 @@ import {
 } from "./articles-test-utils";
 import {
   createArticle,
+  createRequirementInputSchema,
   createRequirementPreset,
+  CUSTOM_INSTRUCTION_MAX_LENGTH,
   deleteRequirementPreset,
   generateAngles,
+  generateIllustrationPlanInputSchema,
+  generateWithPromptInputSchema,
   getArticle,
   getLatestTopicDiagnosisContext,
   listArticles,
@@ -26,8 +30,10 @@ import {
   listTopicDiagnoses,
   listTopicVersions,
   resolveSelectedRequirements,
+  REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH,
   runTopicDiagnosis,
   updateArticle,
+  updateRequirementInputSchema,
   updateRequirementPreset
 } from "./articles";
 
@@ -221,6 +227,50 @@ describe("article service basics", () => {
     expect(deleted.archived).toBe(true);
     expect(db.select().from(requirementPresets).where(eq(requirementPresets.id, created.id)).all()).toHaveLength(1);
     expect(listRequirementPresets({ stage: "draft" }, db).some((item) => item.id === created.id)).toBe(false);
+  });
+
+  it("allows longer custom instructions while keeping a clear upper bound", () => {
+    const validInstruction = "文".repeat(CUSTOM_INSTRUCTION_MAX_LENGTH);
+    const tooLongInstruction = `${validInstruction}多`;
+
+    expect(generateWithPromptInputSchema.parse({ customInstruction: validInstruction }).customInstruction).toHaveLength(CUSTOM_INSTRUCTION_MAX_LENGTH);
+    expect(generateIllustrationPlanInputSchema.parse({ customInstruction: validInstruction }).customInstruction).toHaveLength(CUSTOM_INSTRUCTION_MAX_LENGTH);
+    expect(() => generateWithPromptInputSchema.parse({ customInstruction: tooLongInstruction })).toThrow(
+      `本次提示词不能超过 ${CUSTOM_INSTRUCTION_MAX_LENGTH} 字`
+    );
+    expect(() => generateIllustrationPlanInputSchema.parse({ customInstruction: tooLongInstruction })).toThrow(
+      `本次提示词不能超过 ${CUSTOM_INSTRUCTION_MAX_LENGTH} 字`
+    );
+  });
+
+  it("allows longer requirement prompt fragments while keeping reusable presets bounded", () => {
+    const validFragment = "要".repeat(REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH);
+    const tooLongFragment = `${validFragment}多`;
+
+    expect(
+      createRequirementInputSchema.parse({
+        stage: "draft",
+        category: "长提示词",
+        type: "prefer",
+        label: "长提示词片段",
+        description: "用于验证 5000 字边界",
+        promptFragment: validFragment
+      }).promptFragment
+    ).toHaveLength(REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH);
+    expect(updateRequirementInputSchema.parse({ promptFragment: validFragment }).promptFragment).toHaveLength(REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH);
+    expect(() =>
+      createRequirementInputSchema.parse({
+        stage: "draft",
+        category: "长提示词",
+        type: "prefer",
+        label: "长提示词片段",
+        description: "用于验证 5001 字边界",
+        promptFragment: tooLongFragment
+      })
+    ).toThrow(`提示词不能超过 ${REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH} 字`);
+    expect(() => updateRequirementInputSchema.parse({ promptFragment: tooLongFragment })).toThrow(
+      `提示词不能超过 ${REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH} 字`
+    );
   });
 
   it("lists articles with next action labels", () => {

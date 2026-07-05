@@ -45,6 +45,7 @@ import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
 import { htmlToPlainText } from "./html-text";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
+import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
@@ -121,6 +122,7 @@ export {
   type OpenAIImageInlineIllustrationClientConfig
 } from "./inline-illustration-image-provider";
 export { getLatestTopicDiagnosisContext, isTopicDiagnosisStaleForArticle } from "./topic-diagnosis-context";
+export { CUSTOM_INSTRUCTION_MAX_LENGTH, REQUIREMENT_PROMPT_FRAGMENT_MAX_LENGTH } from "./prompt-limits";
 export type { CreateRequirementInput, UpdateRequirementInput } from "./requirements";
 export type { PromptRecipe, PromptRecipeRequirement } from "./prompt-recipes";
 export type { TopicDiagnosisContext } from "./topic-diagnosis-context";
@@ -203,7 +205,7 @@ const promptControlInputShape = {
   customInstruction: z
     .string()
     .trim()
-    .max(2000, "本次提示词不能超过 2000 字")
+    .max(CUSTOM_INSTRUCTION_MAX_LENGTH, `本次提示词不能超过 ${CUSTOM_INSTRUCTION_MAX_LENGTH} 字`)
     .optional()
     .transform((value) => value || undefined),
   selectedRequirementIds: z.array(z.string().trim().min(1, "可选提示词 ID 不能为空")).optional().default([])

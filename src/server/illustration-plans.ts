@@ -22,6 +22,7 @@ import {
 import type { AIClient, GeneratedIllustrationPlan, GeneratedIllustrationPlanItem } from "./ai";
 import { getAIClient } from "./ai";
 import { requireArticle, requireDraft } from "./article-records";
+import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
@@ -31,7 +32,7 @@ const promptControlInputShape = {
   customInstruction: z
     .string()
     .trim()
-    .max(2000, "本次提示词不能超过 2000 字")
+    .max(CUSTOM_INSTRUCTION_MAX_LENGTH, `本次提示词不能超过 ${CUSTOM_INSTRUCTION_MAX_LENGTH} 字`)
     .optional()
     .transform((value) => value || undefined),
   selectedRequirementIds: z.array(z.string().trim().min(1, "可选提示词 ID 不能为空")).optional().default([])

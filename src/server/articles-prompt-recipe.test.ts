@@ -16,6 +16,7 @@ import {
   acceptOutline,
   createArticle,
   createManualAngle,
+  CUSTOM_INSTRUCTION_MAX_LENGTH,
   deleteRequirementPreset,
   generateDraft,
   generateContentResearch,
@@ -94,6 +95,24 @@ describe("article prompt recipe service", () => {
     expect(recipeAfterPromptEdits.selectedRequirements[0].promptFragment).toBe(draftRequirement.promptFragment);
     expect(recipeAfterPromptEdits.finalPrompt).toContain(draftRequirement.promptFragment);
     expect(recipeAfterPromptEdits.finalPrompt).not.toContain("后来改掉的可选提示词");
+  });
+
+  it("keeps long draft custom instructions in AI invocation and prompt recipe snapshots", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是第一眼" }, db);
+    selectAngle(article.id, angle.id, db);
+    const outline = await generateOutline(article.id, new FakeAIClient(), db);
+    acceptOutline(article.id, outline.id, db);
+    const customInstruction = "请".repeat(CUSTOM_INSTRUCTION_MAX_LENGTH);
+
+    const draft = await generateDraft(article.id, new FakeAIClient(), db, { customInstruction });
+    const invocation = db.select().from(aiInvocations).where(eq(aiInvocations.id, draft.sourceInvocationId || "")).get();
+    const recipe = getPromptRecipeForDraft(article.id, draft.id, db);
+
+    expect(invocation?.customInstruction).toBe(customInstruction);
+    expect(recipe.customInstruction).toBe(customInstruction);
+    expect(recipe.finalPrompt).toContain(customInstruction);
   });
 
   it("shows upstream topic diagnosis snapshots in outline and draft prompt recipes", async () => {
