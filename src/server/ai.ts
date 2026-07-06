@@ -1,4 +1,5 @@
 import { readAppConfig } from "@/config/env";
+import type { QualityGateResult } from "@/domain/quality-gates";
 
 import {
   normalizeGeneratedContentResearch,
@@ -55,6 +56,7 @@ export type GeneratedTopicDiagnosis = {
   riskSummary: string;
   suggestionsMarkdown: string;
   nextAction: string;
+  qualityGate: QualityGateResult;
 };
 
 export type GeneratedContentResearch = {
@@ -125,6 +127,30 @@ function parseJsonContent(content: string): Record<string, unknown> {
   return JSON.parse(fenced ? fenced[1] : trimmed) as Record<string, unknown>;
 }
 
+function fakeTopicQualityGate(verdict: TopicDiagnosisVerdict, summaryForDownstream: string): QualityGateResult {
+  const hasIssue = verdict === "revise" || verdict === "hold" || verdict === "drop";
+  return {
+    stage: "topic",
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "topic.precondition",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "选题前置条件需要补强。" : "选题具备进入后续生产线的前置条件。",
+        suggestion: hasIssue ? "先补齐读者、真实问题和今天点开的理由。" : null
+      },
+      {
+        checkId: "topic.value",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "选题价值需要进一步收敛。" : "选题具备明确读者、问题和行动价值。",
+        suggestion: hasIssue ? "把主题压到家庭现金流、用途边界和合规核验。" : null
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream
+  };
+}
+
 export class FakeAIClient implements AIClient {
   model = "fake-content-model";
   baseUrl = "fake://local";
@@ -175,7 +201,8 @@ export class FakeAIClient implements AIClient {
         actionabilityCheck: "暂时不适合进入后续生产流程。",
         riskSummary: "继续写容易变成资料解释。",
         suggestionsMarkdown: "## 暂缓建议\n- 先补清楚读者为什么今天要看。",
-        nextAction: "修改主题或重新运行选题诊断。"
+        nextAction: "修改主题或重新运行选题诊断。",
+        qualityGate: fakeTopicQualityGate("hold", "暂缓进入角度生成；先补清楚目标读者、真实问题和今天点开的理由。")
       };
     }
     if (prompt.includes("强制放弃") || normalizedPrompt.includes("force drop") || normalizedPrompt.includes("verdict: drop")) {
@@ -187,7 +214,8 @@ export class FakeAIClient implements AIClient {
         actionabilityCheck: "不建议进入后续生产流程。",
         riskSummary: "继续写会变成无明确读者的资料整理。",
         suggestionsMarkdown: "## 放弃建议\n- 换一个更具体的主题。",
-        nextAction: "放弃当前主题，重新立题。"
+        nextAction: "放弃当前主题，重新立题。",
+        qualityGate: fakeTopicQualityGate("drop", "放弃当前主题；重新立一个有明确读者和真实问题的选题。")
       };
     }
     return {
@@ -203,7 +231,8 @@ export class FakeAIClient implements AIClient {
         "- 标题不要只问能不能开，要直接指出真正变化在资金路径。",
         "- 后续角度优先检查生活场景、额度边界和用途边界。"
       ].join("\n"),
-      nextAction: "先补一句读者场景，再生成角度。"
+      nextAction: "先补一句读者场景，再生成角度。",
+      qualityGate: fakeTopicQualityGate("revise", "角度生成必须聚焦跨境家庭的生活资金路径、用途边界和合规核验，不要写成开户攻略。")
     };
   }
 

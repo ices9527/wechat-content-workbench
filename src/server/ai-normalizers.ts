@@ -7,9 +7,9 @@ import type {
   GeneratedIllustrationPlan,
   GeneratedIllustrationPlanItem,
   GeneratedOutline,
-  GeneratedTopicDiagnosis,
-  TopicDiagnosisVerdict
+  GeneratedTopicDiagnosis
 } from "./ai";
+import { normalizeQualityGateResult } from "./quality-gate-results";
 
 function stringifyPromptValue(value: unknown): string {
   if (typeof value === "string") {
@@ -53,6 +53,10 @@ function firstRawValue(json: Record<string, unknown>, keys: string[]): unknown {
     }
   }
   return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function parsePromptNumber(value: unknown): number | null {
@@ -435,34 +439,17 @@ export function normalizeGeneratedIllustrationPlan(json: Record<string, unknown>
   };
 }
 
-function normalizeTopicDiagnosisVerdict(value: string): TopicDiagnosisVerdict {
-  const normalized = value.trim().toLocaleLowerCase();
-  if (normalized.includes("修改后通过") || normalized.includes("revise") || normalized.includes("修改") || normalized.includes("待改")) {
-    return "revise";
-  }
-  if (normalized.includes("暂缓") || normalized.includes("hold") || normalized.includes("暂停") || normalized.includes("观望")) {
-    return "hold";
-  }
-  if (normalized.includes("放弃") || normalized.includes("drop") || normalized.includes("不建议") || normalized.includes("不要做")) {
-    return "drop";
-  }
-  if (normalized.includes("通过") || normalized.includes("pass") || normalized.includes("可以做") || normalized.includes("值得做")) {
-    return "pass";
-  }
-  return "revise";
-}
-
 export function normalizeGeneratedTopicDiagnosis(json: Record<string, unknown>): GeneratedTopicDiagnosis {
-  const verdict = normalizeTopicDiagnosisVerdict(
-    firstPromptValue(json, ["verdict", "decision", "conclusion", "status", "结论", "选题结论", "诊断结论"])
-  );
+  const qualityGate = normalizeQualityGateResult(json, "topic");
+  const artifact = asRecord(firstRawValue(json, ["artifact", "topicDiagnosis", "topic_diagnosis", "选题诊断"])) || json;
+  const verdict = qualityGate.verdict;
   const targetReaderCheck = firstPromptValue(json, [
     "targetReaderCheck",
     "target_reader_check",
     "targetReader",
     "目标读者判断",
     "目标读者"
-  ]);
+  ]) || firstPromptValue(artifact, ["targetReaderCheck", "target_reader_check", "targetReader", "目标读者判断", "目标读者"]);
   const readerProblemCheck = firstPromptValue(json, [
     "readerProblemCheck",
     "reader_problem_check",
@@ -470,25 +457,27 @@ export function normalizeGeneratedTopicDiagnosis(json: Record<string, unknown>):
     "读者问题判断",
     "真实问题",
     "核心问题判断"
-  ]);
+  ]) || firstPromptValue(artifact, ["readerProblemCheck", "reader_problem_check", "realProblemCheck", "读者问题判断", "真实问题", "核心问题判断"]);
   const timelinessCheck = firstPromptValue(json, [
     "timelinessCheck",
     "timeliness",
     "clickReasonCheck",
     "点击理由判断",
     "今天点开的理由"
-  ]);
+  ]) || firstPromptValue(artifact, ["timelinessCheck", "timeliness", "clickReasonCheck", "点击理由判断", "今天点开的理由"]);
   const actionabilityCheck = firstPromptValue(json, [
     "actionabilityCheck",
     "actionability",
     "行动建议判断",
     "行动性判断",
     "可行动性"
-  ]);
-  const riskSummary = firstPromptValue(json, ["riskSummary", "risks", "主要风险", "风险"]);
+  ]) || firstPromptValue(artifact, ["actionabilityCheck", "actionability", "行动建议判断", "行动性判断", "可行动性"]);
+  const riskSummary = firstPromptValue(json, ["riskSummary", "risks", "主要风险", "风险"]) || firstPromptValue(artifact, ["riskSummary", "risks", "主要风险", "风险"]);
   const suggestionsMarkdown =
-    firstPromptValue(json, ["suggestionsMarkdown", "suggestions", "修改建议", "建议"]) || topicDiagnosisObjectToMarkdown(json);
-  const nextAction = firstPromptValue(json, ["nextAction", "next_action", "推荐下一步", "下一步"]);
+    firstPromptValue(json, ["suggestionsMarkdown", "suggestions", "修改建议", "建议"]) ||
+    firstPromptValue(artifact, ["suggestionsMarkdown", "suggestions", "修改建议", "建议"]) ||
+    topicDiagnosisObjectToMarkdown(artifact);
+  const nextAction = firstPromptValue(json, ["nextAction", "next_action", "推荐下一步", "下一步"]) || firstPromptValue(artifact, ["nextAction", "next_action", "推荐下一步", "下一步"]);
 
   return {
     verdict,
@@ -498,7 +487,8 @@ export function normalizeGeneratedTopicDiagnosis(json: Record<string, unknown>):
     actionabilityCheck,
     riskSummary,
     suggestionsMarkdown,
-    nextAction
+    nextAction,
+    qualityGate
   };
 }
 

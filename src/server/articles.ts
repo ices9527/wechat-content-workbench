@@ -47,6 +47,7 @@ import { htmlToPlainText } from "./html-text";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
+import { buildPromptWithQualityGate } from "./quality-gate-prompts";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
 import {
@@ -884,6 +885,7 @@ function buildRequirementComplianceMarkdown(markdown: string, requirements: AIIn
 
 function hasUsefulTopicDiagnosis(generated: GeneratedTopicDiagnosis): boolean {
   return [
+    generated.qualityGate.summaryForDownstream,
     generated.targetReaderCheck,
     generated.readerProblemCheck,
     generated.timelinessCheck,
@@ -933,12 +935,15 @@ export async function runTopicDiagnosis(
   const article = requireArticle(articleId, db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "topic", db);
   const prompt = buildLayeredPrompt(
-    renderPrompt("topic_diagnosis", {
-      topic: article.topic,
-      targetReader: article.targetReader,
-      coreProblem: article.coreProblem,
-      hotAnchor: article.hotAnchor
-    }),
+    buildPromptWithQualityGate(
+      renderPrompt("topic_diagnosis", {
+        topic: article.topic,
+        targetReader: article.targetReader,
+        coreProblem: article.coreProblem,
+        hotAnchor: article.hotAnchor
+      }),
+      "topic"
+    ),
     {
       selectedRequirements,
       customInstruction: parsed.customInstruction
@@ -961,7 +966,7 @@ export async function runTopicDiagnosis(
       coreProblemSnapshot: article.coreProblem,
       hotAnchorSnapshot: article.hotAnchor,
       customInstructionSnapshot: parsed.customInstruction || null,
-      verdict: generated.verdict,
+      verdict: generated.qualityGate.verdict,
       targetReaderCheck: generated.targetReaderCheck || null,
       readerProblemCheck: generated.readerProblemCheck || null,
       timelinessCheck: generated.timelinessCheck || null,

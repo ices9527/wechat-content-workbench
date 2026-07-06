@@ -23,6 +23,7 @@ describe("quality gate prompt builder", () => {
     expect(owned).not.toContain("draft.text_cleanliness");
     expect(excluded).toContain("outline.cognitive_gap");
     expect(excluded).toContain("draft.text_cleanliness");
+    expect(section).toContain("artifact");
     expect(section).toContain("qualityGate");
     expect(section).toContain("upstreamRework");
   });

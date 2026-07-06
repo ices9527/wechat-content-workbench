@@ -49,8 +49,11 @@ describe("article angle and outline service", () => {
     expect(angles[0].source).toBe("ai");
     expect(angleInvocation?.prompt).toContain("这次只要家庭现金流角度。");
     expect(angleInvocation?.prompt).toContain(requirement.promptFragment);
-    expect(angleInvocation?.prompt).toContain("上游选题诊断快照");
-    expect(angleInvocation?.upstreamContextJson || "").toContain('"verdict":"revise"');
+    expect(angleInvocation?.prompt).toContain("上游选题诊断质量门");
+    expect(angleInvocation?.prompt).toContain("角度生成必须聚焦跨境家庭的生活资金路径");
+    expect(angleInvocation?.prompt).not.toContain("主要风险是写成资料解释或工具宣传");
+    expect(angleInvocation?.upstreamContextJson || "").toContain('"qualityGate"');
+    expect(angleInvocation?.upstreamContextJson || "").toContain('"summaryForDownstream"');
     expect(snapshots[0].labelSnapshot).toBe(requirement.label);
     expect(updated?.status).toBe("angles_generated");
   });

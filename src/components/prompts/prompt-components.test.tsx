@@ -221,6 +221,26 @@ describe("prompt components", () => {
         riskSummary: "容易写成工具宣传。",
         suggestionsMarkdown: "补强家庭场景。",
         nextAction: "先补一句读者场景。",
+        qualityGate: {
+          stage: "topic",
+          verdict: "revise",
+          ownedChecks: [
+            {
+              checkId: "topic.precondition",
+              status: "issue",
+              evidence: "目标读者需要更具体。",
+              suggestion: "补强家庭场景。"
+            },
+            {
+              checkId: "topic.value",
+              status: "issue",
+              evidence: "选题容易写成工具宣传。",
+              suggestion: "把角度收束到资金路径。"
+            }
+          ],
+          upstreamRework: [],
+          summaryForDownstream: "后续节点要聚焦家庭资金路径。"
+        },
         topicSnapshot: "跨境支付通",
         targetReaderSnapshot: "跨境家庭",
         coreProblemSnapshot: "资金路径",

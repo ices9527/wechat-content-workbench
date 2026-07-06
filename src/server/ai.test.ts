@@ -144,19 +144,42 @@ describe("fake AI client", () => {
     expect(draft.markdown).toContain("账户不是终点");
   });
 
-  it("normalizes topic diagnosis responses with Chinese field names", () => {
+  it("normalizes topic diagnosis responses with artifact and qualityGate", () => {
     const diagnosis = normalizeGeneratedTopicDiagnosis({
-      选题结论: "暂缓",
-      目标读者判断: "读者太泛，需要收窄。",
-      真实问题: "还没有落到家庭正在处理的问题。",
-      今天点开的理由: "热点存在，但和读者关系不够强。",
-      可行动性: "需要补充边界和下一步。",
-      风险: "容易写成资料罗列。",
-      建议: ["先收窄读者", "再补场景"],
-      下一步: "改完再生成角度。"
+      artifact: {
+        目标读者判断: "读者太泛，需要收窄。",
+        真实问题: "还没有落到家庭正在处理的问题。",
+        今天点开的理由: "热点存在，但和读者关系不够强。",
+        可行动性: "需要补充边界和下一步。",
+        风险: "容易写成资料罗列。",
+        建议: ["先收窄读者", "再补场景"],
+        下一步: "改完再生成角度。"
+      },
+      qualityGate: {
+        stage: "topic",
+        verdict: "暂缓",
+        ownedChecks: [
+          {
+            checkId: "topic.precondition",
+            status: "issue",
+            evidence: "读者太泛。",
+            suggestion: "先收窄读者。"
+          },
+          {
+            checkId: "topic.value",
+            status: "issue",
+            evidence: "今天点开的理由不够强。",
+            suggestion: "补场景。"
+          }
+        ],
+        upstreamRework: [],
+        summaryForDownstream: "先收窄读者，再补场景后才能生成角度。"
+      }
     });
 
     expect(diagnosis.verdict).toBe("hold");
+    expect(diagnosis.qualityGate.verdict).toBe("hold");
+    expect(diagnosis.qualityGate.summaryForDownstream).toContain("生成角度");
     expect(diagnosis.targetReaderCheck).toContain("收窄");
     expect(diagnosis.suggestionsMarkdown).toContain("先收窄读者");
     expect(diagnosis.nextAction).toContain("生成角度");

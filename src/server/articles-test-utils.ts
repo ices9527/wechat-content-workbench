@@ -1,4 +1,5 @@
 import type { createTestDatabase } from "@/test/test-db";
+import type { QualityGateResult } from "@/domain/quality-gates";
 
 import { FakeAIClient, type GeneratedTopicDiagnosis } from "./ai";
 import { acceptOutline, createArticle, createManualAngle, generateDraft, generateOutline, selectAngle } from "./articles";
@@ -23,6 +24,30 @@ export class FailingTopicDiagnosisClient extends FakeAIClient {
   }
 }
 
+function topicQualityGate(verdict: GeneratedTopicDiagnosis["verdict"], summaryForDownstream: string): QualityGateResult {
+  const hasIssue = verdict === "revise" || verdict === "hold" || verdict === "drop";
+  return {
+    stage: "topic",
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "topic.precondition",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "前置条件仍需补充。" : "前置条件充分。",
+        suggestion: hasIssue ? "补清楚目标读者和真实问题。" : null
+      },
+      {
+        checkId: "topic.value",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "选题价值需要收敛。" : "选题价值明确。",
+        suggestion: hasIssue ? "把选题压到可行动判断。" : null
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream
+  };
+}
+
 export class PassTopicDiagnosisClient extends FakeAIClient {
   async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
     return {
@@ -33,7 +58,8 @@ export class PassTopicDiagnosisClient extends FakeAIClient {
       actionabilityCheck: "可以进入后续内容生产。",
       riskSummary: "选题可以继续推进。",
       suggestionsMarkdown: "## 通过\n- 保持当前边界。",
-      nextAction: "进入角度生成。"
+      nextAction: "进入角度生成。",
+      qualityGate: topicQualityGate("pass", "选题可进入角度生成，角度要承接家庭现金流和合规边界。")
     };
   }
 }
@@ -48,7 +74,8 @@ export class HoldTopicDiagnosisClient extends FakeAIClient {
       actionabilityCheck: "暂时不适合进入后续生产流程。",
       riskSummary: "继续写容易变成资料解释。",
       suggestionsMarkdown: "## 暂缓建议\n- 先补清楚读者为什么今天要看。",
-      nextAction: "修改主题或重新运行选题诊断。"
+      nextAction: "修改主题或重新运行选题诊断。",
+      qualityGate: topicQualityGate("hold", "暂缓进入角度生成；先补清楚读者为什么今天要看。")
     };
   }
 }
@@ -63,7 +90,8 @@ export class DropTopicDiagnosisClient extends FakeAIClient {
       actionabilityCheck: "不适合进入生产线。",
       riskSummary: "继续写会变成空泛解释。",
       suggestionsMarkdown: "## 放弃建议\n- 换一个更具体的选题。",
-      nextAction: "放弃当前选题。"
+      nextAction: "放弃当前选题。",
+      qualityGate: topicQualityGate("drop", "放弃当前选题，重新立一个具体读者和真实问题都成立的主题。")
     };
   }
 }

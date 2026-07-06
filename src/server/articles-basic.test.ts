@@ -378,9 +378,14 @@ describe("article service basics", () => {
     expect(listTopicDiagnoses(article.id, db)).toHaveLength(1);
     expect(getLatestTopicDiagnosisContext(article.id, db)?.diagnosisId).toBe(diagnosis.id);
     expect(getLatestTopicDiagnosisContext(article.id, db)?.riskSummary).toContain("资料解释");
+    expect(getLatestTopicDiagnosisContext(article.id, db)?.qualityGate?.summaryForDownstream).toContain("资金路径");
     expect(invocations).toHaveLength(1);
     expect(invocations[0].prompt).toContain("重点检查是否有今天点开的理由");
+    expect(invocations[0].prompt).toContain("## 节点质量门");
+    expect(invocations[0].prompt).toContain("topic.precondition");
+    expect(invocations[0].prompt).toContain("artifact");
     expect(invocations[0].response || "").toContain("targetReaderCheck");
+    expect(invocations[0].response || "").toContain("qualityGate");
     expect(updated?.status).toBe("topic_diagnosed");
     expect(updated?.nextAction).toBe("生成角度或手动创建角度");
   });
@@ -393,6 +398,36 @@ describe("article service basics", () => {
     updateArticle(article.id, { topic: "香港账户还能不能开，资金路径怎么解释" }, db);
 
     await expect(generateAngles(article.id, new FakeAIClient(), db)).rejects.toThrow("主题已修改，需要重新运行选题诊断后继续");
+  });
+
+  it("requires rerunning topic diagnosis when the latest diagnosis has no quality gate", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+
+    db.insert(topicDiagnoses)
+      .values({
+        id: "legacy-topic-diagnosis",
+        articleId: article.id,
+        ownerId: article.ownerId,
+        topicSnapshot: article.topic,
+        targetReaderSnapshot: article.targetReader,
+        coreProblemSnapshot: article.coreProblem,
+        hotAnchorSnapshot: article.hotAnchor,
+        customInstructionSnapshot: null,
+        verdict: "revise",
+        targetReaderCheck: "旧诊断目标读者判断。",
+        readerProblemCheck: "旧诊断读者问题判断。",
+        timelinessCheck: "旧诊断点开理由。",
+        actionabilityCheck: "旧诊断行动性。",
+        riskSummary: "旧诊断风险。",
+        suggestionsMarkdown: "旧诊断建议。",
+        nextAction: "旧诊断下一步。",
+        sourceInvocationId: null,
+        createdAt: new Date().toISOString()
+      })
+      .run();
+
+    await expect(generateAngles(article.id, new FakeAIClient(), db)).rejects.toThrow("最新选题诊断缺少质量门结果");
   });
 
   it("records selected topic requirements in topic diagnosis invocations", async () => {

@@ -1,7 +1,10 @@
 import { desc, eq } from "drizzle-orm";
 
 import { type WorkbenchDatabase } from "@/db/client";
-import { topicDiagnoses, type ArticleProject } from "@/db/schema";
+import { aiInvocations, topicDiagnoses, type ArticleProject } from "@/db/schema";
+import type { QualityGateResult } from "@/domain/quality-gates";
+
+import { extractQualityGateResultFromResponse } from "./quality-gate-results";
 
 export type TopicDiagnosisContext = {
   diagnosisId: string;
@@ -13,6 +16,7 @@ export type TopicDiagnosisContext = {
   riskSummary: string | null;
   suggestionsMarkdown: string | null;
   nextAction: string | null;
+  qualityGate: QualityGateResult | null;
   topicSnapshot: string;
   targetReaderSnapshot: string | null;
   coreProblemSnapshot: string | null;
@@ -36,6 +40,9 @@ export function getLatestTopicDiagnosisContext(articleId: string, db: WorkbenchD
   if (!diagnosis) {
     return null;
   }
+  const invocation = diagnosis.sourceInvocationId
+    ? db.select().from(aiInvocations).where(eq(aiInvocations.id, diagnosis.sourceInvocationId)).get()
+    : null;
 
   return {
     diagnosisId: diagnosis.id,
@@ -47,6 +54,7 @@ export function getLatestTopicDiagnosisContext(articleId: string, db: WorkbenchD
     riskSummary: diagnosis.riskSummary,
     suggestionsMarkdown: diagnosis.suggestionsMarkdown,
     nextAction: diagnosis.nextAction,
+    qualityGate: extractQualityGateResultFromResponse(invocation?.response || null, "topic"),
     topicSnapshot: diagnosis.topicSnapshot,
     targetReaderSnapshot: diagnosis.targetReaderSnapshot,
     coreProblemSnapshot: diagnosis.coreProblemSnapshot,
@@ -57,7 +65,7 @@ export function getLatestTopicDiagnosisContext(articleId: string, db: WorkbenchD
 }
 
 export function isBlockingTopicDiagnosis(context: TopicDiagnosisContext | null): boolean {
-  return context?.verdict === "hold" || context?.verdict === "drop";
+  return context?.qualityGate?.verdict === "hold" || context?.qualityGate?.verdict === "drop";
 }
 
 function normalizeSnapshotValue(value: string | null | undefined): string {
@@ -81,11 +89,14 @@ export function isTopicDiagnosisStaleForArticle(
 }
 
 export function assertTopicDiagnosisAllowsAngleFlow(context: TopicDiagnosisContext | null): void {
+  if (context && !context.qualityGate) {
+    throw new Error("最新选题诊断缺少质量门结果，请重新运行选题诊断后继续。");
+  }
   if (!isBlockingTopicDiagnosis(context)) {
     return;
   }
 
-  const label = context?.verdict === "drop" ? "放弃" : "暂缓";
+  const label = context?.qualityGate?.verdict === "drop" ? "放弃" : "暂缓";
   throw new Error(`最新选题诊断结论为“${label}”，请修改主题或重新运行选题诊断后继续。`);
 }
 
@@ -121,6 +132,9 @@ export function formatTopicDiagnosisContextForPrompt(
   if (!context) {
     return "";
   }
+  if (!context.qualityGate) {
+    throw new Error("最新选题诊断缺少质量门结果，请重新运行选题诊断后继续。");
+  }
 
   const stageInstruction = {
     angle: "生成角度时必须承接诊断中的真实读者、真实问题和点开理由；如果结论为 revise，要优先补强诊断指出的薄弱处。",
@@ -130,19 +144,13 @@ export function formatTopicDiagnosisContextForPrompt(
   }[stage];
 
   return [
-    "## 上游选题诊断快照",
-    `诊断结论：${context.verdict}`,
+    "## 上游选题诊断质量门",
+    `质量门结论：${context.qualityGate.verdict}`,
+    `下游摘要：${context.qualityGate.summaryForDownstream}`,
     `主题快照：${context.topicSnapshot}`,
     `目标读者快照：${context.targetReaderSnapshot || "未填写"}`,
     `核心问题快照：${context.coreProblemSnapshot || "未填写"}`,
     `热点锚点快照：${context.hotAnchorSnapshot || "未填写"}`,
-    `目标读者判断：${context.targetReaderCheck || "未填写"}`,
-    `读者问题判断：${context.readerProblemCheck || "未填写"}`,
-    `点击理由判断：${context.timelinessCheck || "未填写"}`,
-    `行动边界判断：${context.actionabilityCheck || "未填写"}`,
-    `主要风险：${context.riskSummary || "未填写"}`,
-    `修改建议：${context.suggestionsMarkdown || "未填写"}`,
-    `下一步建议：${context.nextAction || "未填写"}`,
     `本阶段约束：${stageInstruction}`
   ].join("\n");
 }
