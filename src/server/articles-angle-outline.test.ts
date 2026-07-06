@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { aiInvocationRequirements, aiInvocations, angleCandidates, draftVersions, outlineVersions, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
-import { FakeAIClient, HoldTopicDiagnosisClient, IncompleteOutlineClient } from "./articles-test-utils";
+import { FakeAIClient, HoldTopicDiagnosisClient, IncompleteOutlineClient, ReviseOutlineQualityGateClient } from "./articles-test-utils";
 import {
   acceptOutline,
   createArticle,
@@ -16,6 +16,7 @@ import {
   listRequirementPresets,
   runTopicDiagnosis,
   saveDraftVersion,
+  saveOutlineVersion,
   selectAngle,
   updateOutlineVersion
 } from "./articles";
@@ -150,12 +151,50 @@ describe("article angle and outline service", () => {
     acceptOutline(article.id, outline.id, db);
     const draft = await generateDraft(article.id, new FakeAIClient(), db);
     const saved = saveDraftVersion(article.id, { markdown: `${draft.markdown}\n\n人工补充。` }, db);
+    const invocations = db.select().from(aiInvocations).all();
+    const outlineInvocation = invocations.find((invocation) => invocation.taskType === "generate_outline");
+    const draftInvocation = invocations.find((invocation) => invocation.taskType === "generate_draft");
 
     expect(db.select().from(outlineVersions).all()).toHaveLength(1);
     expect(db.select().from(draftVersions).all()).toHaveLength(2);
     expect(draft.sourceOutlineId).toBe(outline.id);
+    expect(outlineInvocation?.prompt).toContain("outline.cognitive_gap");
+    expect(outlineInvocation?.response || "").toContain("qualityGate");
+    expect(draftInvocation?.prompt).toContain("上游主线提纲质量门");
+    expect(draftInvocation?.prompt).toContain("文案必须围绕");
+    expect(draftInvocation?.upstreamContextJson || "").toContain("outlineQualityGate");
     expect(saved.versionNo).toBe(2);
     expect(getArticle(article.id, db)?.status).toBe("draft_generated");
+  });
+
+  it("blocks draft generation when the accepted outline quality gate needs revision", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是第一眼" }, db);
+    selectAngle(article.id, angle.id, db);
+
+    const outline = await generateOutline(article.id, new ReviseOutlineQualityGateClient(), db);
+    acceptOutline(article.id, outline.id, db);
+
+    await expect(generateDraft(article.id, new FakeAIClient(), db)).rejects.toThrow("主线和提纲质量门结论为“修改”");
+    expect(db.select().from(draftVersions).all()).toHaveLength(0);
+  });
+
+  it("blocks draft generation when the accepted outline has no quality gate", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const outline = saveOutlineVersion(
+      article.id,
+      {
+        mainline: "人工主线。",
+        outlineMarkdown: "## 人工提纲"
+      },
+      db
+    );
+    acceptOutline(article.id, outline.id, db);
+
+    await expect(generateDraft(article.id, new FakeAIClient(), db)).rejects.toThrow("已确认提纲缺少质量门结果");
+    expect(db.select().from(draftVersions).all()).toHaveLength(0);
   });
 
   it("records failed outline invocations when AI returns incomplete structure", async () => {

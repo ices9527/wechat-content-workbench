@@ -325,7 +325,9 @@ function normalizeIllustrationPlanItems(value: unknown): GeneratedIllustrationPl
 }
 
 export function normalizeGeneratedOutline(json: Record<string, unknown>): GeneratedOutline {
-  const mainline = firstPromptValue(json, [
+  const qualityGate = normalizeQualityGateResult(json, "outline");
+  const artifact = asRecord(firstRawValue(json, ["artifact", "outline", "outlineArtifact", "主线提纲"])) || json;
+  const mainline = firstPromptValue(artifact, [
     "mainline",
     "mainLine",
     "articleMainline",
@@ -335,7 +337,7 @@ export function normalizeGeneratedOutline(json: Record<string, unknown>): Genera
     "主线判断"
   ]);
   const outlineMarkdown =
-    firstPromptValue(json, [
+    firstPromptValue(artifact, [
       "outlineMarkdown",
       "outline_markdown",
       "markdownOutline",
@@ -344,9 +346,9 @@ export function normalizeGeneratedOutline(json: Record<string, unknown>): Genera
       "Markdown 提纲",
       "提纲",
       "文章提纲"
-    ]) || outlineObjectToMarkdown(json);
+    ]) || outlineObjectToMarkdown(artifact);
 
-  return { mainline, outlineMarkdown };
+  return { mainline, outlineMarkdown, qualityGate };
 }
 
 export function normalizeGeneratedDraft(json: Record<string, unknown>): GeneratedDraft {

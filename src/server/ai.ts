@@ -29,6 +29,7 @@ export type GeneratedAngle = {
 export type GeneratedOutline = {
   mainline: string;
   outlineMarkdown: string;
+  qualityGate: QualityGateResult;
 };
 
 export type GeneratedDraft = {
@@ -144,6 +145,36 @@ function fakeTopicQualityGate(verdict: TopicDiagnosisVerdict, summaryForDownstre
         status: hasIssue ? "issue" : "pass",
         evidence: hasIssue ? "选题价值需要进一步收敛。" : "选题具备明确读者、问题和行动价值。",
         suggestion: hasIssue ? "把主题压到家庭现金流、用途边界和合规核验。" : null
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream
+  };
+}
+
+function fakeOutlineQualityGate(verdict: QualityGateResult["verdict"], summaryForDownstream: string): QualityGateResult {
+  const hasIssue = verdict === "revise" || verdict === "hold" || verdict === "drop";
+  return {
+    stage: "outline",
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "outline.cognitive_gap",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "认知落差还需要压实。" : "文章能从旧理解推进到新判断。",
+        suggestion: hasIssue ? "先明确读者原本误解和文章要替换成的新判断。" : null
+      },
+      {
+        checkId: "outline.mainline_judgment",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "主线还不够像一句判断。" : "主线是一句可承载全文的判断。",
+        suggestion: hasIssue ? "把主线改成一句判断，不写成资料主题。" : null
+      },
+      {
+        checkId: "outline.structure_load",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "提纲结构还不能充分承载主线。" : "提纲章节顺序可以承载主线推进。",
+        suggestion: hasIssue ? "让每一节只承载一个判断，并按读者理解顺序推进。" : null
       }
     ],
     upstreamRework: [],
@@ -296,7 +327,11 @@ export class FakeAIClient implements AIClient {
         "- 能不能用。",
         "- 该不该用。",
         "- 用之前要核验什么。"
-      ].join("\n")
+      ].join("\n"),
+      qualityGate: fakeOutlineQualityGate(
+        "pass",
+        "文案必须围绕“到账速度只是表层，家庭跨境资金路径更可操作”展开，并按场景边界、额度合规边界、家庭现金流安排推进。"
+      )
     };
   }
 

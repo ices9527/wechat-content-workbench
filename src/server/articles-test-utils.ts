@@ -48,6 +48,36 @@ function topicQualityGate(verdict: GeneratedTopicDiagnosis["verdict"], summaryFo
   };
 }
 
+function outlineQualityGate(verdict: QualityGateResult["verdict"], summaryForDownstream: string): QualityGateResult {
+  const hasIssue = verdict === "revise" || verdict === "hold" || verdict === "drop";
+  return {
+    stage: "outline",
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "outline.cognitive_gap",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "认知落差不够清楚。" : "认知落差成立。",
+        suggestion: hasIssue ? "补清楚旧理解和新判断。" : null
+      },
+      {
+        checkId: "outline.mainline_judgment",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "主线还不够像一句判断。" : "主线是一句判断。",
+        suggestion: hasIssue ? "把主线改成一句判断。" : null
+      },
+      {
+        checkId: "outline.structure_load",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "结构不能承载主线。" : "结构能承载主线。",
+        suggestion: hasIssue ? "调整章节顺序。" : null
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream
+  };
+}
+
 export class PassTopicDiagnosisClient extends FakeAIClient {
   async diagnoseTopic(): Promise<GeneratedTopicDiagnosis> {
     return {
@@ -100,7 +130,18 @@ export class IncompleteOutlineClient extends FakeAIClient {
   async generateOutline() {
     return {
       mainline: "",
-      outlineMarkdown: "## 只有提纲，没有主线"
+      outlineMarkdown: "## 只有提纲，没有主线",
+      qualityGate: outlineQualityGate("revise", "主线为空，不能生成文案。")
+    };
+  }
+}
+
+export class ReviseOutlineQualityGateClient extends FakeAIClient {
+  async generateOutline() {
+    return {
+      mainline: "这篇文章暂时只是资料主题，还没有形成判断。",
+      outlineMarkdown: "## 一、资料背景\n- 还没有形成判断推进。",
+      qualityGate: outlineQualityGate("revise", "主线仍像资料主题，必须先改成一句判断，再生成文案。")
     };
   }
 }

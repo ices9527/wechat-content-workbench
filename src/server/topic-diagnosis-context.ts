@@ -26,7 +26,8 @@ export type TopicDiagnosisContext = {
 };
 
 export type UpstreamContextSnapshot = {
-  topicDiagnosis: TopicDiagnosisContext | null;
+  topicDiagnosis?: TopicDiagnosisContext | null;
+  outlineQualityGate?: unknown;
 };
 
 export function getLatestTopicDiagnosisContext(articleId: string, db: WorkbenchDatabase): TopicDiagnosisContext | null {

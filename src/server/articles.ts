@@ -44,6 +44,11 @@ import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopic
 import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
 import { htmlToPlainText } from "./html-text";
+import {
+  assertOutlineQualityGateAllowsDraft,
+  formatOutlineQualityGateContextForPrompt,
+  requireOutlineQualityGateContext
+} from "./outline-quality-gate-context";
 import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
@@ -1325,13 +1330,16 @@ export async function generateOutline(
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "outline", db);
   const prompt = buildLayeredPrompt(
     [
-      renderPrompt("generate_outline", {
-        topic: article.topic,
-        angleTitle: angle.angleTitle,
-        readerPain: angle.readerPain,
-        promise: angle.promise,
-        researchSummary: formatResearchForOutlinePrompt(research || null)
-      }),
+      buildPromptWithQualityGate(
+        renderPrompt("generate_outline", {
+          topic: article.topic,
+          angleTitle: angle.angleTitle,
+          readerPain: angle.readerPain,
+          promise: angle.promise,
+          researchSummary: formatResearchForOutlinePrompt(research || null)
+        }),
+        "outline"
+      ),
       formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "outline")
     ]
       .filter(Boolean)
@@ -1488,7 +1496,7 @@ export async function generateDraft(
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
   assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
-  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
+  const topicUpstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   const outline = db
     .select()
     .from(outlineVersions)
@@ -1497,6 +1505,12 @@ export async function generateDraft(
   if (!outline) {
     throw new Error("请先确认提纲");
   }
+  const outlineQualityGateContext = requireOutlineQualityGateContext(outline, db);
+  assertOutlineQualityGateAllowsDraft(outlineQualityGateContext);
+  const upstreamContext = {
+    ...(topicUpstreamContext || {}),
+    outlineQualityGate: outlineQualityGateContext
+  };
   const stagePrompt = getStagePromptDefault("draft", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "draft", db);
   const prompt = buildLayeredPrompt(
@@ -1506,7 +1520,8 @@ export async function generateDraft(
         mainline: outline.mainline,
         outlineMarkdown: outline.outlineMarkdown
       }),
-      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "draft")
+      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "draft"),
+      formatOutlineQualityGateContextForPrompt(outlineQualityGateContext)
     ]
       .filter(Boolean)
       .join("\n\n"),

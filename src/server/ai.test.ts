@@ -95,22 +95,79 @@ describe("fake AI client", () => {
 
   it("normalizes outline responses with Chinese field names", () => {
     const outline = normalizeGeneratedOutline({
-      文章标题: "香港账户还能不能开",
-      目标读者: "一线城市中产家庭",
-      文章主线: "真正变了的不是开户，而是资金路径能不能解释清楚。",
-      提纲: "## 一、账户不是终点\n- 路径才是长期问题。"
+      artifact: {
+        文章标题: "香港账户还能不能开",
+        目标读者: "一线城市中产家庭",
+        文章主线: "真正变了的不是开户，而是资金路径能不能解释清楚。",
+        提纲: "## 一、账户不是终点\n- 路径才是长期问题。"
+      },
+      qualityGate: {
+        stage: "outline",
+        verdict: "pass",
+        ownedChecks: [
+          {
+            checkId: "outline.cognitive_gap",
+            status: "pass",
+            evidence: "从开户问题推进到资金路径。",
+            suggestion: null
+          },
+          {
+            checkId: "outline.mainline_judgment",
+            status: "pass",
+            evidence: "主线是一句判断。",
+            suggestion: null
+          },
+          {
+            checkId: "outline.structure_load",
+            status: "pass",
+            evidence: "提纲能承载主线。",
+            suggestion: null
+          }
+        ],
+        upstreamRework: [],
+        summaryForDownstream: "文案要围绕资金路径展开。"
+      }
     });
 
     expect(outline.mainline).toContain("资金路径");
     expect(outline.outlineMarkdown).toContain("账户不是终点");
+    expect(outline.qualityGate.summaryForDownstream).toContain("资金路径");
   });
 
   it("builds outline markdown from structured object responses", () => {
     const outline = normalizeGeneratedOutline({
-      主线判断: "账户只是工具，路径才是判断。",
-      文章标题: "香港账户还能不能开",
-      开头场景: "很多人先问还能不能开户。",
-      小标题: ["账户不是终点", "入金和长期使用是两件事"]
+      artifact: {
+        主线判断: "账户只是工具，路径才是判断。",
+        文章标题: "香港账户还能不能开",
+        开头场景: "很多人先问还能不能开户。",
+        小标题: ["账户不是终点", "入金和长期使用是两件事"]
+      },
+      qualityGate: {
+        stage: "outline",
+        verdict: "pass",
+        ownedChecks: [
+          {
+            checkId: "outline.cognitive_gap",
+            status: "pass",
+            evidence: "认知落差成立。",
+            suggestion: null
+          },
+          {
+            checkId: "outline.mainline_judgment",
+            status: "pass",
+            evidence: "主线是一句判断。",
+            suggestion: null
+          },
+          {
+            checkId: "outline.structure_load",
+            status: "pass",
+            evidence: "结构承载成立。",
+            suggestion: null
+          }
+        ],
+        upstreamRework: [],
+        summaryForDownstream: "文案要按账户工具到资金路径判断推进。"
+      }
     });
 
     expect(outline.mainline).toContain("路径");
