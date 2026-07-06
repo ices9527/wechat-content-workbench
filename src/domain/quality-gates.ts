@@ -15,6 +15,14 @@ export const QUALITY_BLOCKING_LEVELS = ["block", "warn", "inform"] as const;
 
 export type QualityBlockingLevel = (typeof QUALITY_BLOCKING_LEVELS)[number];
 
+export const QUALITY_GATE_VERDICTS = ["pass", "revise", "hold", "drop"] as const;
+
+export type QualityGateVerdict = (typeof QUALITY_GATE_VERDICTS)[number];
+
+export const QUALITY_CHECK_RESULT_STATUSES = ["pass", "issue", "not_applicable"] as const;
+
+export type QualityCheckResultStatus = (typeof QUALITY_CHECK_RESULT_STATUSES)[number];
+
 export type QualityCheck = {
   id: string;
   ownerStage: QualityGateStage;
@@ -126,6 +134,28 @@ export const QUALITY_CHECKS = [
 
 export type QualityCheckId = (typeof QUALITY_CHECKS)[number]["id"];
 
+export type QualityCheckResult = {
+  checkId: QualityCheckId;
+  status: QualityCheckResultStatus;
+  evidence: string | null;
+  suggestion: string | null;
+};
+
+export type QualityGateUpstreamRework = {
+  targetStage: QualityGateStage;
+  checkId: QualityCheckId;
+  reason: string;
+  suggestedAction: string;
+};
+
+export type QualityGateResult = {
+  stage: QualityGateStage;
+  verdict: QualityGateVerdict;
+  ownedChecks: QualityCheckResult[];
+  upstreamRework: QualityGateUpstreamRework[];
+  summaryForDownstream: string;
+};
+
 export function listQualityChecks(ownerStage?: QualityGateStage): QualityCheck[] {
   const checks = [...QUALITY_CHECKS];
   if (!ownerStage) {
@@ -140,4 +170,26 @@ export function getQualityCheck(id: string): QualityCheck | undefined {
 
 export function hasDuplicateQualityCheckIds(checks: readonly Pick<QualityCheck, "id">[]): boolean {
   return new Set(checks.map((check) => check.id)).size !== checks.length;
+}
+
+export function checkBelongsToStage(checkId: QualityCheckId, ownerStage: QualityGateStage): boolean {
+  return getQualityCheck(checkId)?.ownerStage === ownerStage;
+}
+
+export function findQualityGateResultContractIssues(result: Pick<QualityGateResult, "stage" | "ownedChecks" | "upstreamRework">): string[] {
+  const issues: string[] = [];
+
+  for (const check of result.ownedChecks) {
+    if (!checkBelongsToStage(check.checkId, result.stage)) {
+      issues.push(`ownedChecks includes ${check.checkId}, but its owner is ${getQualityCheck(check.checkId)?.ownerStage ?? "unknown"}`);
+    }
+  }
+
+  for (const rework of result.upstreamRework) {
+    if (!checkBelongsToStage(rework.checkId, rework.targetStage)) {
+      issues.push(`upstreamRework routes ${rework.checkId} to ${rework.targetStage}, but its owner is ${getQualityCheck(rework.checkId)?.ownerStage ?? "unknown"}`);
+    }
+  }
+
+  return issues;
 }
