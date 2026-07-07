@@ -17,8 +17,9 @@ test("creates an article and shows it in the Linear workbench", async ({ page })
   await expect(page.getByRole("tab", { name: /^选题诊断/ })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("tab", { name: /^主题/ }).click();
   await expect(page).toHaveURL(/tab=topic/);
-  await expect(page.getByRole("tabpanel", { name: /^主题/ })).toBeVisible();
-  await expect(page.getByRole("tabpanel", { name: /^主题/ }).getByText("公众号作者")).toBeVisible();
+  const topicPanel = page.getByRole("tabpanel", { name: /^主题/ });
+  await expect(topicPanel).toBeVisible();
+  await expect(topicPanel.getByText("公众号作者").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "下一步动作" })).toHaveCount(0);
   await expectNoRuntimeErrorOverlay(page);
 });

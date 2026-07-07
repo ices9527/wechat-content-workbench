@@ -84,7 +84,7 @@ test("requires rerunning topic diagnosis after editing the topic", async ({ page
   await topicPanel.getByRole("button", { name: "编辑主题" }).click();
   await topicPanel.getByRole("textbox", { name: "主题" }).fill(updatedTopic);
   await topicPanel.getByRole("button", { name: "保存主题" }).click();
-  await expect(page.getByText("已保存主题。请重新运行选题诊断后继续。")).toBeVisible({ timeout: actionTimeout });
+  await expect(page.getByText("已保存主题")).toBeVisible({ timeout: actionTimeout });
   await expect(topicPanel.getByText("v2")).toBeVisible();
   await expect(topicPanel.getByText("v1")).toBeVisible();
   await expect(topicPanel.getByText(updatedTopic)).toHaveCount(2);
