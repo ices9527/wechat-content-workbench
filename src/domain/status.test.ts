@@ -37,6 +37,8 @@ describe("article status machine", () => {
   it("maps each status to a next action", () => {
     expect(getNextAction("topic_diagnosed")).toBe("生成角度或手动创建角度");
     expect(getNextAction("angles_generated")).toBe("选择一个写作角度");
+    expect(getNextAction("draft_generated")).toBe("运行文案清洁检查");
+    expect(getNextAction("dbs_checking")).toBe("检查并标记最终稿");
   });
 
   it("identifies publish queue states", () => {

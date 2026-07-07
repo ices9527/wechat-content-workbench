@@ -25,25 +25,16 @@ test("runs the Sprint 4 publish package path", async ({ page }) => {
   await page.getByRole("button", { name: "确认提纲" }).click();
   await page.getByRole("button", { name: "生成 Markdown 文案" }).click();
   await expect(page.getByLabel("Markdown 编辑")).toHaveValue(/跨境支付通火了/, { timeout: actionTimeout });
-
-  await page.getByRole("tab", { name: /^dbs-content/ }).click();
-  await page.getByRole("button", { name: "运行 dbs-content" }).click();
-  await expect(page.getByText("已保存 dbs-content 诊断")).toBeVisible({ timeout: actionTimeout });
-  await expect(page.getByText("内容创作诊断报告")).toBeVisible();
-
-  await page.getByRole("tab", { name: /^人工检查/ }).click();
-  const draftCardAfterDiagnosis = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v1" }) });
-  await expect(draftCardAfterDiagnosis.getByRole("button", { name: "标记最终稿" })).toBeEnabled();
-
-  await page.getByRole("tab", { name: /^dbs-content/ }).click();
-  await page.getByRole("button", { name: "基于诊断生成修改稿" }).click();
-  await expect(page.getByText("已生成修改稿 v2")).toBeVisible({ timeout: actionTimeout });
-  await expect(page.getByLabel("Markdown 编辑")).toHaveValue(/真正变的不是到账速度/);
+  await expect(page.getByRole("tab", { name: /^dbs-content/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "运行 dbs-content" })).toHaveCount(0);
+  await expect(page.locator(".status", { hasText: "待文案清洁检查" }).first()).toBeVisible();
+  await expect(page.getByText("运行文案清洁检查").first()).toBeVisible();
 
   await page.getByRole("tab", { name: /^人工检查/ }).click();
-  const revisionCard = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v2" }) }).filter({ hasText: "修改稿" });
-  await revisionCard.getByRole("button", { name: "标记最终稿" }).click();
-  await expect(page.getByText("已标记最终稿 v2")).toBeVisible({ timeout: actionTimeout });
+  const draftCard = page.locator(".mini-card", { has: page.getByRole("heading", { name: "v1" }) });
+  await expect(draftCard.getByText("未运行文案清洁检查")).toBeVisible();
+  await draftCard.getByRole("button", { name: "标记最终稿" }).click();
+  await expect(page.getByText("已标记最终稿 v1")).toBeVisible({ timeout: actionTimeout });
   await page.getByRole("button", { name: "标记待发布" }).click();
   await expect(page.locator(".notice", { hasText: "已进入发布队列" })).toBeVisible({ timeout: actionTimeout });
   await expect(page.locator(".status", { hasText: "待发布" }).first()).toBeVisible();

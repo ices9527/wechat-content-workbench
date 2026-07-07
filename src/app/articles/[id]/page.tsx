@@ -6,7 +6,6 @@ import {
   getArticle,
   listAIStyleChecks,
   listAngles,
-  listDiagnoses,
   listDrafts,
   listIllustrationPlans,
   listOutlines,
@@ -34,7 +33,6 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   const outlines = listOutlines(article.id);
   const researchVersions = listResearchVersions(article.id);
   const drafts = listDrafts(article.id);
-  const diagnoses = listDiagnoses(article.id);
   const aiStyleChecks = listAIStyleChecks(article.id);
   const illustrationPlans = listIllustrationPlans(article.id);
   const topicDiagnoses = listTopicDiagnoses(article.id);
@@ -49,7 +47,6 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
     ...listRequirementPresets({ stage: "outline", includeArchived: true }),
     ...listRequirementPresets({ stage: "draft", includeArchived: true }),
     ...listRequirementPresets({ stage: "ai_style_check", includeArchived: true }),
-    ...listRequirementPresets({ stage: "dbs", includeArchived: true }),
     ...listRequirementPresets({ stage: "illustration_plan", includeArchived: true }),
     ...listRequirementPresets({ stage: "pre_publish", includeArchived: true }),
     ...listRequirementPresets({ stage: "review", includeArchived: true })
@@ -73,7 +70,6 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         outlines={outlines}
         researchVersions={researchVersions}
         drafts={drafts}
-        diagnoses={diagnoses}
         aiStyleChecks={aiStyleChecks}
         illustrationPlans={illustrationPlans}
         topicDiagnoses={topicDiagnoses}

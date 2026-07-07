@@ -178,6 +178,9 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await expect(page.getByText("已载入提纲 v2")).toBeVisible();
   await expect(page.getByLabel("主线判断")).toHaveValue(/覆盖修改/);
 
+  await page.getByLabel("切换提纲版本").selectOption({ label: "v1" });
+  await expect(page.getByText("已载入提纲 v1")).toBeVisible();
+
   await page.getByRole("button", { name: "确认提纲" }).click();
   await expect(page.locator(".status", { hasText: "提纲已确认" }).first()).toBeVisible({ timeout: actionTimeout });
 
@@ -252,10 +255,10 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await aiStyleRecipeDialog.getByRole("button", { name: "关闭提示词配方" }).click();
   await expect(aiStyleRecipeDialog).toHaveCount(0);
 
-  await page.getByRole("tab", { name: /^dbs-content/ }).click();
-  await expect(page).toHaveURL(/tab=diagnosis/);
-  await page.reload();
-  await expect(page.getByRole("tab", { name: /^dbs-content/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /^dbs-content/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "运行 dbs-content" })).toHaveCount(0);
+  await page.goto(`${page.url().split("?")[0]}?tab=diagnosis`);
+  await expect(page.getByRole("tab", { name: /^dbs-content/ })).toHaveCount(0);
   await page.getByRole("tab", { name: /^Markdown 文案/ }).click();
   await expect(page).toHaveURL(/tab=draft/);
 

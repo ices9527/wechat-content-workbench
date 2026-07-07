@@ -9,7 +9,6 @@ import type {
   AngleCandidate,
   AIStyleCheck,
   ArticleAsset,
-  ContentDiagnosis,
   DraftVersion,
   IllustrationPlan,
   OutlineVersion,
@@ -430,7 +429,6 @@ type WorkflowTabId =
   | "research"
   | "outline"
   | "draft"
-  | "diagnosis"
   | "final"
   | "illustration"
   | "publish"
@@ -443,7 +441,6 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "research", label: "内容研究" },
   { id: "outline", label: "主线提纲" },
   { id: "draft", label: "Markdown 文案" },
-  { id: "diagnosis", label: "dbs-content" },
   { id: "final", label: "人工检查/最终稿" },
   { id: "illustration", label: "配图规划" },
   { id: "publish", label: "发布" },
@@ -457,7 +454,6 @@ const PROMPT_STAGES: RequirementStage[] = [
   "outline",
   "draft",
   "ai_style_check",
-  "dbs",
   "illustration_plan",
   "pre_publish",
   "review"
@@ -484,7 +480,7 @@ function defaultTabForStatus(status: ArticleStatus): WorkflowTabId {
     return "draft";
   }
   if (status === "dbs_checking") {
-    return "diagnosis";
+    return "final";
   }
   if (status === "revision_generated" || status === "human_review") {
     return "final";
@@ -968,14 +964,6 @@ function DraftPanel({ headActions, children }: { headActions: ReactNode; childre
   );
 }
 
-function DiagnosisPanel({ count, children }: { count: number; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="diagnosis" title="dbs-content 诊断" status={count > 0 ? `${count} 次` : null} className="diagnosis-panel">
-      {children}
-    </WorkflowPanel>
-  );
-}
-
 function FinalPanel({ finalDraft, children }: { finalDraft: DraftVersion | null; children: ReactNode }) {
   return (
     <WorkflowPanel tabId="final" title="版本链和最终稿" status={finalDraft ? `最终稿 v${finalDraft.versionNo}` : null}>
@@ -1320,7 +1308,6 @@ export function ArticleWorkflow({
   outlines,
   researchVersions,
   drafts,
-  diagnoses,
   aiStyleChecks,
   illustrationPlans,
   topicDiagnoses,
@@ -1336,7 +1323,6 @@ export function ArticleWorkflow({
   outlines: OutlineVersion[];
   researchVersions: ResearchVersion[];
   drafts: DraftVersion[];
-  diagnoses: ContentDiagnosis[];
   aiStyleChecks: AIStyleCheck[];
   illustrationPlans: IllustrationPlan[];
   topicDiagnoses: TopicDiagnosis[];
@@ -1406,7 +1392,6 @@ export function ArticleWorkflow({
   const outlineRequirements = requirementsByStage.outline;
   const draftRequirements = requirementsByStage.draft;
   const aiStyleCheckRequirements = requirementsByStage.ai_style_check;
-  const dbsRequirements = requirementsByStage.dbs;
   const illustrationPlanRequirements = requirementsByStage.illustration_plan;
   const prePublishRequirements = requirementsByStage.pre_publish;
   const reviewRequirements = requirementsByStage.review;
@@ -1441,7 +1426,6 @@ export function ArticleWorkflow({
   const outlineDefaultPrompt = defaultPromptDrafts.outline;
   const draftDefaultPrompt = defaultPromptDrafts.draft;
   const aiStyleCheckDefaultPrompt = defaultPromptDrafts.ai_style_check;
-  const dbsDefaultPrompt = defaultPromptDrafts.dbs;
   const illustrationPlanDefaultPrompt = defaultPromptDrafts.illustration_plan;
   const prePublishDefaultPrompt = defaultPromptDrafts.pre_publish;
   const reviewDefaultPrompt = defaultPromptDrafts.review;
@@ -1450,7 +1434,6 @@ export function ArticleWorkflow({
   const setOutlineDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("outline", value);
   const setDraftDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("draft", value);
   const setAIStyleCheckDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("ai_style_check", value);
-  const setDbsDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("dbs", value);
   const setIllustrationPlanDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("illustration_plan", value);
   const setPrePublishDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("pre_publish", value);
   const setReviewDefaultPrompt = (value: string) => setDefaultPromptDraftForStage("review", value);
@@ -1458,7 +1441,6 @@ export function ArticleWorkflow({
   const outlineCustomInstruction = customInstructions.outline;
   const draftCustomInstruction = customInstructions.draft;
   const aiStyleCheckCustomInstruction = customInstructions.ai_style_check;
-  const dbsCustomInstruction = customInstructions.dbs;
   const illustrationPlanCustomInstruction = customInstructions.illustration_plan;
   const prePublishCustomInstruction = customInstructions.pre_publish;
   const reviewCustomInstruction = customInstructions.review;
@@ -1466,7 +1448,6 @@ export function ArticleWorkflow({
   const setOutlineCustomInstruction = (value: string) => setCustomInstructionForStage("outline", value);
   const setDraftCustomInstruction = (value: string) => setCustomInstructionForStage("draft", value);
   const setAIStyleCheckCustomInstruction = (value: string) => setCustomInstructionForStage("ai_style_check", value);
-  const setDbsCustomInstruction = (value: string) => setCustomInstructionForStage("dbs", value);
   const setIllustrationPlanCustomInstruction = (value: string) => setCustomInstructionForStage("illustration_plan", value);
   const setPrePublishCustomInstruction = (value: string) => setCustomInstructionForStage("pre_publish", value);
   const setReviewCustomInstruction = (value: string) => setCustomInstructionForStage("review", value);
@@ -1476,7 +1457,6 @@ export function ArticleWorkflow({
   const selectedOutlineRequirementIds = selectedRequirementIdsByStage.outline;
   const selectedDraftRequirementIds = selectedRequirementIdsByStage.draft;
   const selectedAIStyleCheckRequirementIds = selectedRequirementIdsByStage.ai_style_check;
-  const selectedDbsRequirementIds = selectedRequirementIdsByStage.dbs;
   const selectedIllustrationPlanRequirementIds = selectedRequirementIdsByStage.illustration_plan;
   const selectedPrePublishRequirementIds = selectedRequirementIdsByStage.pre_publish;
   const selectedReviewRequirementIds = selectedRequirementIdsByStage.review;
@@ -1486,11 +1466,9 @@ export function ArticleWorkflow({
   const setSelectedOutlineRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("outline", ids);
   const setSelectedDraftRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("draft", ids);
   const setSelectedAIStyleCheckRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("ai_style_check", ids);
-  const setSelectedDbsRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("dbs", ids);
   const setSelectedIllustrationPlanRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("illustration_plan", ids);
   const setSelectedPrePublishRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("pre_publish", ids);
   const setSelectedReviewRequirementIds = (ids: string[]) => setSelectedRequirementIdsForStage("review", ids);
-  const [selectedDiagnosisId, setSelectedDiagnosisId] = useState(diagnoses[0]?.id || "");
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [optimisticUploads, setOptimisticUploads] = useState<WechatDraftUpload[]>([]);
@@ -1514,10 +1492,6 @@ export function ArticleWorkflow({
     ? illustrationPlanById.get(selectedIllustrationPlanId) || null
     : latestIllustrationPlan;
   const selectedIllustrationPlanEditable = selectedIllustrationPlan?.status === "draft";
-  const selectedDiagnosis = useMemo(
-    () => diagnoses.find((diagnosis) => diagnosis.id === selectedDiagnosisId) || diagnoses[0] || null,
-    [diagnoses, selectedDiagnosisId]
-  );
   const selectedDraftAIStyleChecks = useMemo(
     () => aiStyleCheckList.filter((check) => check.draftVersionId === selectedDraftId && isDraftVersionAIStyleCheck(check)),
     [aiStyleCheckList, selectedDraftId]
@@ -1622,9 +1596,6 @@ export function ArticleWorkflow({
     }
     if (tabId === "draft") {
       return latestDraft ? `v${latestDraft.versionNo}` : "待做";
-    }
-    if (tabId === "diagnosis") {
-      return diagnoses.length > 0 ? `${diagnoses.length} 次` : "待做";
     }
     if (tabId === "final") {
       return finalDraft ? `v${finalDraft.versionNo}` : "待做";
@@ -1749,15 +1720,6 @@ export function ArticleWorkflow({
     setIllustrationSummaryMarkdown(plan?.summaryMarkdown || "");
     setIllustrationPlanItems(plan ? parseIllustrationPlanItems(plan.planJson) : []);
   }, [illustrationPlanById, latestIllustrationPlan, selectedIllustrationPlanId]);
-
-  useEffect(() => {
-    setSelectedDiagnosisId((current) => {
-      if (diagnoses.some((diagnosis) => diagnosis.id === current)) {
-        return current;
-      }
-      return diagnoses[0]?.id || "";
-    });
-  }, [diagnoses]);
 
   useEffect(() => {
     setAIStyleCheckList(aiStyleChecks);
@@ -3025,148 +2987,6 @@ export function ArticleWorkflow({
         </div>
       ) : null}
 
-        {activeTab === "diagnosis" ? (
-          <DiagnosisPanel count={diagnoses.length}>
-          <StagePromptDialog
-            title={STAGE_PROMPT_UI.dbs.title}
-            stage="dbs"
-            defaultPromptLabel={STAGE_PROMPT_UI.dbs.defaultPromptLabel}
-            defaultPrompt={dbsDefaultPrompt}
-            onDefaultPromptChange={setDbsDefaultPrompt}
-            onSaveDefaultPrompt={() => runAction("save-dbs-default-prompt", () => saveStagePrompt("dbs", dbsDefaultPrompt))}
-            requirements={dbsRequirements}
-            selectedIds={selectedDbsRequirementIds}
-            pending={pending !== null}
-            onSelectedIdsChange={setSelectedDbsRequirementIds}
-            onCreate={(input) => runAction("create-dbs-requirement", () => createRequirement(input))}
-            onUpdate={(id, input) => runAction("update-dbs-requirement", () => updateRequirement(id, input))}
-            onDelete={(id) => runAction("delete-dbs-requirement", () => deleteRequirement(id))}
-          />
-
-          <label className="field prompt-field">
-            <span className="label">对当前文章的要求</span>
-            <textarea
-              className="textarea prompt-textarea"
-              placeholder={STAGE_PROMPT_UI.dbs.customPlaceholder}
-              value={dbsCustomInstruction}
-              onChange={(event) => setDbsCustomInstruction(event.target.value)}
-            />
-            <button
-              className="button secondary prompt-save-button"
-              disabled={pending !== null}
-              onClick={() => runAction("save-dbs-custom-requirement", () => saveCustomInstructionAsRequirement("dbs", dbsCustomInstruction))}
-              type="button"
-            >
-              保存为可选提示词
-            </button>
-          </label>
-
-          <div className="action-row">
-            <label className="select-field">
-              <span className="label">诊断文案版本</span>
-              <select
-                aria-label="诊断文案版本"
-                className="input"
-                disabled={drafts.length === 0 || pending !== null}
-                onChange={(event) => setSelectedDraftId(event.target.value)}
-                value={selectedDraftId}
-              >
-                {drafts.map((draft) => (
-                  <option key={draft.id} value={draft.id}>
-                    v{draft.versionNo} · {getDraftTypeLabel(draft)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="button"
-              disabled={!selectedDraftId || pending !== null}
-              onClick={() =>
-                runAction(
-                  "run-dbs",
-                  async () => {
-                    const diagnosis = await postJson<ContentDiagnosis>(`/api/articles/${article.id}/run-dbs-content`, {
-                      draftVersionId: selectedDraftId,
-                      customInstruction: dbsCustomInstruction,
-                      selectedRequirementIds: selectedDbsRequirementIds
-                    });
-                    setSelectedDiagnosisId(diagnosis.id);
-                    setNotice("已保存 dbs-content 诊断");
-                  },
-                  "diagnosis"
-                )
-              }
-              type="button"
-            >
-              {pending === "run-dbs" ? "诊断中" : "运行 dbs-content"}
-            </button>
-            <button
-              className="button secondary"
-              disabled={!selectedDiagnosis || pending !== null}
-              onClick={() =>
-                runAction(
-                  "revise",
-                  async () => {
-                    const draft = await postJson<DraftVersion>(`/api/articles/${article.id}/revise-from-diagnosis`, {
-                      diagnosisId: selectedDiagnosis?.id
-                    });
-                    setDraftMarkdown(draft.markdown);
-                    setNotice(`已生成修改稿 v${draft.versionNo}`);
-                  },
-                  "draft"
-                )
-              }
-              type="button"
-            >
-              {pending === "revise" ? "生成中" : "基于诊断生成修改稿"}
-            </button>
-          </div>
-
-          {selectedDiagnosis ? (
-            <div className="diagnosis-layout">
-              <div className="diagnosis-list">
-                {diagnoses.map((diagnosis) => (
-                  <button
-                    className={diagnosis.id === selectedDiagnosis.id ? "diagnosis-row active" : "diagnosis-row"}
-                    key={diagnosis.id}
-                    onClick={() => setSelectedDiagnosisId(diagnosis.id)}
-                    type="button"
-                  >
-                    <span>诊断 {getDraftLabel(diagnosis.draftVersionId)}</span>
-                    <span>{formatTime(diagnosis.createdAt)}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="diagnosis-detail">
-                {selectedDiagnosis.sourceInvocationId ? (
-                  <div className="action-row compact">
-                    <button
-                      className="button secondary"
-                      disabled={pending !== null}
-                      onClick={() => void openPromptRecipe("invocation", selectedDiagnosis.sourceInvocationId)}
-                      type="button"
-                    >
-                      查看本次提示词配方
-                    </button>
-                  </div>
-                ) : null}
-                <div className="diagnosis-metrics">
-                  <p>{selectedDiagnosis.textCleanliness}</p>
-                  <p>{selectedDiagnosis.titleCover}</p>
-                  <p>{selectedDiagnosis.expressionEfficiency}</p>
-                  <p>{selectedDiagnosis.cognitiveGap}</p>
-                  <p>{selectedDiagnosis.aiTrace}</p>
-                </div>
-                {selectedDiagnosis.firstFix ? <p className="first-fix">{selectedDiagnosis.firstFix}</p> : null}
-                <MarkdownPreview markdown={selectedDiagnosis.diagnosisMarkdown} />
-              </div>
-            </div>
-          ) : (
-            <p className="subtle">生成文案后运行 dbs-content。</p>
-          )}
-          </DiagnosisPanel>
-        ) : null}
-
         {activeTab === "final" ? (
           <FinalPanel finalDraft={finalDraft}>
           {finalDraft ? (
@@ -3200,7 +3020,7 @@ export function ArticleWorkflow({
                     {draft.isFinal ? <span className="source-pill">最终稿</span> : <span className="source-pill">{draft.createdBy}</span>}
                   </div>
                   <p>{getDraftTypeLabel(draft)}</p>
-                  <p>{draft.sourceDiagnosisId ? `来源诊断：${diagnoses.find((item) => item.id === draft.sourceDiagnosisId) ? "已关联" : "未载入"}` : "无诊断来源"}</p>
+                  {draft.sourceDiagnosisId ? <p>来源旧诊断修改稿</p> : <p>无诊断来源</p>}
                   {draft.sourceAIStyleCheckId ? <p>来源清洁检查：已关联</p> : null}
                   {(() => {
                     const latestCheck = getLatestAIStyleCheckForDraft(draft.id);

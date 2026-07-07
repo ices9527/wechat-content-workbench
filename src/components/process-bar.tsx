@@ -7,7 +7,6 @@ const steps: Array<{ status: ArticleStatus; label: string }> = [
   { status: "angles_generated", label: "角度" },
   { status: "outline_generated", label: "提纲" },
   { status: "draft_generated", label: "文案" },
-  { status: "dbs_checking", label: "dbs" },
   { status: "revision_generated", label: "修改" },
   { status: "human_review", label: "最终稿" },
   { status: "ready_to_publish", label: "发布包" },
