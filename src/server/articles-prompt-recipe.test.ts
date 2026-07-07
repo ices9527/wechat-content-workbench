@@ -33,14 +33,12 @@ import {
   listRequirementPresets,
   markFinalDraft,
   markReadyToPublish,
-  reviseFromDiagnosis,
-  runDbsContent,
+  reviseFromAIStyleCheck,
   runAIStyleCheck,
   runPrePublishCheck,
   runReviewCheck,
   runTopicDiagnosis,
   selectAngle,
-  updateDraftVersion,
   updateRequirementPreset,
   updateStagePromptDefault
 } from "./articles";
@@ -360,65 +358,6 @@ describe("article prompt recipe service", () => {
     expect(saved?.enabled).toBe(false);
   });
 
-  it("adds requirement compliance notes to dbs-content when tracked hard rules are violated", async () => {
-    const { db } = createTestDatabase();
-    const article = createArticle({ topic: "跨境支付通" }, db);
-    const angle = createManualAngle(article.id, { angleTitle: "速度只是第一眼" }, db);
-    selectAngle(article.id, angle.id, db);
-    const requirement = db
-      .select()
-      .from(requirementPresets)
-      .where(eq(requirementPresets.stableKey, "STYLE-005"))
-      .get();
-    if (!requirement) {
-      throw new Error("测试缺少默认可选提示词");
-    }
-
-    const outline = await generateOutline(article.id, new FakeAIClient(), db);
-    acceptOutline(article.id, outline.id, db);
-    const draft = await generateDraft(article.id, new FakeAIClient(), db, {
-      selectedRequirementIds: [requirement.id]
-    });
-    updateDraftVersion(
-      article.id,
-      {
-        draftVersionId: draft.id,
-        markdown: `${draft.markdown}\n\n这件事不是追求速度，而是重新理解家庭现金流。`
-      },
-      db
-    );
-
-    const diagnosis = await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
-    expect(diagnosis.diagnosisMarkdown).toContain("要求遵守情况");
-    expect(diagnosis.diagnosisMarkdown).toContain("禁用不是而是");
-  });
-
-  it("links dbs-content diagnosis to the prompt recipe", async () => {
-    const { db } = createTestDatabase();
-    const { article, draft } = await createArticleWithDraft(db);
-    const requirement = listRequirementPresets({ stage: "dbs" }, db)[0];
-
-    const diagnosis = await runDbsContent(
-      article.id,
-      {
-        draftVersionId: draft.id,
-        customInstruction: "只检查标题承诺和首屏判断。",
-        selectedRequirementIds: [requirement.id]
-      },
-      new FakeAIClient(),
-      db
-    );
-    const recipe = getPromptRecipeForInvocation(article.id, diagnosis.sourceInvocationId as string, db);
-
-    expect(diagnosis.sourceInvocationId).toBeTruthy();
-    expect(diagnosis.diagnosisMarkdown).toContain("本次 dbs-content 检查要求");
-    expect(recipe.taskType).toBe("dbs_content");
-    expect(recipe.stageDefaultPrompt?.prompt).toContain("诊断只指出具体问题");
-    expect(recipe.selectedRequirements.map((item) => item.label)).toContain(requirement.label);
-    expect(recipe.customInstruction).toBe("只检查标题承诺和首屏判断。");
-    expect(recipe.finalPrompt).toContain(requirement.promptFragment);
-  });
-
   it("links AI style checks to their prompt recipes", async () => {
     const { db } = createTestDatabase();
     const { article, draft } = await createArticleWithDraft(db);
@@ -454,8 +393,8 @@ describe("article prompt recipe service", () => {
   it("creates prompt artifacts for pre-publish and review checks", async () => {
     const { db } = createTestDatabase();
     const { article, draft } = await createArticleWithDraft(db);
-    const diagnosis = await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
-    const revision = await reviseFromDiagnosis(article.id, { diagnosisId: diagnosis.id }, new FakeAIClient(), db);
+    const check = await runAIStyleCheck(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+    const revision = await reviseFromAIStyleCheck(article.id, { checkId: check.id }, new FakeAIClient(), db);
     markFinalDraft(article.id, { draftVersionId: revision.id }, db);
     markReadyToPublish(article.id, db);
     const prePublishRequirement = listRequirementPresets({ stage: "pre_publish" }, db)[0];

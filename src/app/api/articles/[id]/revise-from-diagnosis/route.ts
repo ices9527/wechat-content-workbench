@@ -1,17 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-import { withJsonErrorBoundary, zodOrJsonError } from "@/app/api/_utils/route-errors";
-import { ensureAppDataReady, reviseFromDiagnosis, reviseFromDiagnosisInputSchema } from "@/server/articles";
+const LEGACY_REVISION_DISABLED_MESSAGE = "基于 dbs-content 诊断生成修改稿已下线，请使用文案清洁检查生成清洁版文案。";
 
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  return withJsonErrorBoundary(async () => {
-    ensureAppDataReady();
-    try {
-      const { id } = await params;
-      const input = reviseFromDiagnosisInputSchema.parse(await request.json());
-      return NextResponse.json(await reviseFromDiagnosis(id, input), { status: 201 });
-    } catch (error) {
-      return zodOrJsonError(error, "生成修改稿失败");
-    }
-  }, { fallback: "生成修改稿失败", status: 500 });
+export async function POST() {
+  return NextResponse.json({ error: LEGACY_REVISION_DISABLED_MESSAGE }, { status: 410 });
 }

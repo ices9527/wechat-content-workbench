@@ -272,17 +272,10 @@ describe("fake AI client", () => {
     expect(diagnosis.nextAction).toContain("生成角度");
   });
 
-  it("generates structured diagnosis and revised draft content", async () => {
+  it("generates revised draft content", async () => {
     const client = new FakeAIClient();
-    const diagnosis = await client.diagnoseContent();
     const revised = await client.reviseDraft();
 
-    expect(diagnosis.diagnosisMarkdown).toContain("内容创作诊断报告");
-    expect(diagnosis.textCleanliness).toContain("文字");
-    expect(diagnosis.titleCover).toContain("标题");
-    expect(diagnosis.expressionEfficiency).toContain("冗余");
-    expect(diagnosis.cognitiveGap).toContain("落差");
-    expect(diagnosis.aiTrace).toContain("AI");
     expect(revised.markdown).toContain("#");
   });
 

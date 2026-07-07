@@ -1,17 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-import { withJsonErrorBoundary, zodOrJsonError } from "@/app/api/_utils/route-errors";
-import { ensureAppDataReady, runDbsContent, runDbsContentInputSchema } from "@/server/articles";
+const LEGACY_DBS_CONTENT_DISABLED_MESSAGE = "dbs-content 已下线，请使用文案清洁检查。";
 
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  return withJsonErrorBoundary(async () => {
-    ensureAppDataReady();
-    try {
-      const { id } = await params;
-      const input = runDbsContentInputSchema.parse(await request.json());
-      return NextResponse.json(await runDbsContent(id, input), { status: 201 });
-    } catch (error) {
-      return zodOrJsonError(error, "dbs-content 诊断失败");
-    }
-  }, { fallback: "dbs-content 诊断失败", status: 500 });
+export async function POST() {
+  return NextResponse.json({ error: LEGACY_DBS_CONTENT_DISABLED_MESSAGE }, { status: 410 });
 }

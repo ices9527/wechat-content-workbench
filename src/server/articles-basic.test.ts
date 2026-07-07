@@ -117,7 +117,6 @@ describe("article service basics", () => {
     expect(prompts.map((prompt) => prompt.stage).sort()).toEqual([
       "ai_style_check",
       "angle",
-      "dbs",
       "draft",
       "illustration_plan",
       "outline",
@@ -140,7 +139,6 @@ describe("article service basics", () => {
     const outlineRequirements = listRequirementPresets({ stage: "outline" }, db);
     const topicRequirements = listRequirementPresets({ stage: "topic" }, db);
     const draftRequirements = listRequirementPresets({ stage: "draft" }, db);
-    const dbsRequirements = listRequirementPresets({ stage: "dbs" }, db);
     const aiStyleCheckRequirements = listRequirementPresets({ stage: "ai_style_check" }, db);
     const illustrationPlanRequirements = listRequirementPresets({ stage: "illustration_plan" }, db);
     const prePublishRequirements = listRequirementPresets({ stage: "pre_publish" }, db);
@@ -155,7 +153,6 @@ describe("article service basics", () => {
     expect(draftRequirements.length).toBeGreaterThanOrEqual(24);
     expect(aiStyleCheckRequirements.length).toBeGreaterThanOrEqual(6);
     expect(illustrationPlanRequirements.length).toBeGreaterThanOrEqual(6);
-    expect(dbsRequirements.length).toBeGreaterThanOrEqual(5);
     expect(prePublishRequirements.length).toBeGreaterThanOrEqual(10);
     expect(reviewRequirements.length).toBeGreaterThanOrEqual(4);
     expect(topicRequirements.filter((requirement) => requirement.defaultEnabled)).toHaveLength(4);

@@ -159,7 +159,7 @@ describe("article AI style check service", () => {
     expect(invocation?.prompt).toContain("本次重点检查重复判断");
     expect(invocation?.prompt).toContain(requirement.promptFragment);
     expect(invocation?.customInstruction).toBe("本次重点检查重复判断。");
-    expect(invocation?.stagePromptSnapshot).toContain("不替代 dbs-content");
+    expect(invocation?.stagePromptSnapshot).toContain("不替代选题、主线或发布前质量门");
     expect(requirementSnapshots).toHaveLength(1);
     expect(requirementSnapshots[0].stableKeySnapshot).toBe("AICLEAN-003");
   });

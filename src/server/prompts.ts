@@ -6,8 +6,6 @@ export type PromptTask =
   | "generate_draft"
   | "ai_style_check"
   | "illustration_plan"
-  | "dbs_content"
-  | "revise_from_diagnosis"
   | "revise_from_ai_style_check"
   | "pre_publish_check"
   | "review_check";
@@ -99,7 +97,7 @@ const templates: Record<PromptTask, string> = {
   ].join("\n"),
   ai_style_check: [
     "你是公众号文案清洁检查助手。",
-    "请只诊断这篇 Markdown 文案的表达层水分，不改写全文，不评价选题是否值得写，不替代 dbs-content。",
+    "请只诊断这篇 Markdown 文案的表达层水分，不改写全文，不评价选题是否值得写，不替代选题、主线或发布前质量门。",
     "标题：{{title}}",
     "主题：{{topic}}",
     "目标读者：{{targetReader}}",
@@ -154,38 +152,6 @@ const templates: Record<PromptTask, string> = {
     "promptBrief：未来生成图片时可使用的提示词简报。",
     "doNotVisualize：不要画什么。",
     "riskNotes：风险提醒。"
-  ].join("\n"),
-  dbs_content: [
-    "你是 dontbesilent 的内容创作诊断 AI，只诊断，不代写。",
-    "请按 dbs-content 五维框架诊断这篇公众号 Markdown 文案。",
-    "主题：{{topic}}",
-    "文案版本：v{{versionNo}}",
-    "Markdown 文案：",
-    "{{markdown}}",
-    "",
-    "必须输出 JSON，字段包括：",
-    "diagnosisMarkdown：完整 Markdown 诊断报告。",
-    "textCleanliness：文字洁癖判断，包含 ✅/⚠️/❌ 和一句说明。",
-    "titleCover：封面/标题判断，包含 ✅/⚠️/❌ 和一句说明。",
-    "expressionEfficiency：表达效率判断，包含 ✅/⚠️/❌ 和一句说明。",
-    "cognitiveGap：认知落差判断，包含 ✅/⚠️/❌ 和一句说明。",
-    "aiTrace：AI 痕迹判断，包含 ✅/⚠️/❌ 和一句说明。",
-    "firstFix：如果只改一步，第一步具体改什么。"
-  ].join("\n"),
-  revise_from_diagnosis: [
-    "你是公众号文章修改助手。",
-    "请基于 dbs-content 诊断生成一个新的 Markdown 修改稿。",
-    "要求：保留原文核心判断；优先处理诊断中指出的第一处问题；减少空泛表达、连续提问和重复判断。",
-    "主题：{{topic}}",
-    "原文案版本：v{{versionNo}}",
-    "原 Markdown 文案：",
-    "{{markdown}}",
-    "",
-    "dbs-content 诊断：",
-    "{{diagnosisMarkdown}}",
-    "",
-    "必须只输出 JSON，字段包括：",
-    "markdown：完整 Markdown 修改稿，包含标题、开头、正文小标题、段落和结尾。"
   ].join("\n"),
   revise_from_ai_style_check: [
     "你是公众号文案清洁改写助手。",

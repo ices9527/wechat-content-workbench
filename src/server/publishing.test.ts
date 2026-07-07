@@ -25,8 +25,8 @@ import {
   OpenAIImageInlineIllustrationClient,
   OPENAI_IMAGE_INLINE_ILLUSTRATION_PROVIDER,
   parseIllustrationPlanPayload,
-  reviseFromDiagnosis,
-  runDbsContent,
+  reviseFromAIStyleCheck,
+  runAIStyleCheck,
   selectAngle,
   updateIllustrationPlan,
   type InlineIllustrationClient,
@@ -54,8 +54,8 @@ async function createReadyArticle(db: ReturnType<typeof createTestDatabase>["db"
   const outline = await generateOutline(article.id, new FakeAIClient(), db);
   acceptOutline(article.id, outline.id, db);
   const draft = await generateDraft(article.id, new FakeAIClient(), db);
-  const diagnosis = await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
-  const revision = await reviseFromDiagnosis(article.id, { diagnosisId: diagnosis.id }, new FakeAIClient(), db);
+  const check = await runAIStyleCheck(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+  const revision = await reviseFromAIStyleCheck(article.id, { checkId: check.id }, new FakeAIClient(), db);
   markFinalDraft(article.id, { draftVersionId: revision.id }, db);
   markReadyToPublish(article.id, db);
   return { articleId: article.id, revision };

@@ -7,7 +7,6 @@ export const REQUIREMENT_STAGES = [
   "outline",
   "draft",
   "ai_style_check",
-  "dbs",
   "illustration_plan",
   "pre_publish",
   "review"
@@ -19,7 +18,6 @@ export const STAGE_PROMPT_STAGES = [
   "outline",
   "draft",
   "ai_style_check",
-  "dbs",
   "illustration_plan",
   "pre_publish",
   "review"
@@ -39,7 +37,6 @@ export const STAGE_PROMPT_LABELS: Record<StagePromptStage, string> = {
   outline: "主线提纲默认提示词",
   draft: "Markdown 文案默认提示词",
   ai_style_check: "文案清洁检查默认提示词",
-  dbs: "dbs-content 默认提示词",
   illustration_plan: "配图规划默认提示词",
   pre_publish: "发布前默认提示词",
   review: "复盘默认提示词"

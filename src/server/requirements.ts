@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { requirementStageSchema, type RequirementStage } from "@/domain/stages";
+import { REQUIREMENT_STAGES, requirementStageSchema, type RequirementStage } from "@/domain/stages";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { LOCAL_USER_ID } from "@/db/seed";
 import { requirementPresets, type RequirementPreset } from "@/db/schema";
@@ -48,6 +48,8 @@ export function listRequirementPresets(
 
   if (parsedStage) {
     conditions.push(eq(requirementPresets.stage, parsedStage));
+  } else {
+    conditions.push(inArray(requirementPresets.stage, [...REQUIREMENT_STAGES]));
   }
   if (!input.includeArchived) {
     conditions.push(eq(requirementPresets.enabled, true));

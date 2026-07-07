@@ -37,16 +37,6 @@ export type GeneratedDraft = {
   qualityGate?: QualityGateResult;
 };
 
-export type GeneratedDiagnosis = {
-  diagnosisMarkdown: string;
-  textCleanliness: string;
-  titleCover: string;
-  expressionEfficiency: string;
-  cognitiveGap: string;
-  aiTrace: string;
-  firstFix: string;
-};
-
 export type TopicDiagnosisVerdict = "pass" | "revise" | "hold" | "drop";
 
 export type GeneratedTopicDiagnosis = {
@@ -118,7 +108,6 @@ export type AIClient = {
   generateDraft(prompt: string): Promise<GeneratedDraft>;
   runAIStyleCheck(prompt: string): Promise<GeneratedAIStyleCheck>;
   generateIllustrationPlan(prompt: string): Promise<GeneratedIllustrationPlan>;
-  diagnoseContent(prompt: string): Promise<GeneratedDiagnosis>;
   reviseDraft(prompt: string): Promise<GeneratedDraft>;
   generatePrePublishCheck(prompt: string): Promise<GeneratedPromptArtifact>;
   generateReviewCheck(prompt: string): Promise<GeneratedPromptArtifact>;
@@ -470,40 +459,6 @@ export class FakeAIClient implements AIClient {
     };
   }
 
-  async diagnoseContent(): Promise<GeneratedDiagnosis> {
-    return {
-      diagnosisMarkdown: [
-        "# 内容创作诊断报告：跨境支付通",
-        "",
-        "## 推荐形式",
-        "- 内容形式：公众号文章",
-        "- 推荐平台：公众号",
-        "- 理由：这是一个需要解释规则边界的长逻辑题。",
-        "",
-        "## 五维诊断",
-        "| 维度 | 判断 | 说明 |",
-        "|------|------|------|",
-        "| 文字洁癖 | ⚠️ 有 AI 味需要清洗 | 开头判断还可以更直接，少用泛化表达。 |",
-        "| 封面/标题 | ⚠️ 需要优化 | 标题有信息，但缺少一个明确的读者利益。 |",
-        "| 表达效率 | ⚠️ 有冗余 | 部分段落在重复“速度不是重点”。 |",
-        "| 认知落差 | ✅ 有明显落差 | 能把支付工具和家庭现金流安排连接起来。 |",
-        "| AI 痕迹 | ⚠️ 需要清洗 | 个别句子像模型总结，需要换成具体判断。 |",
-        "",
-        "## 如果要做，第一步是什么",
-        "把第一段改成一个直接判断：跨境支付通真正改变的不是到账速度，而是家庭安排跨境生活资金的摩擦。",
-        "",
-        "## 一句话",
-        "这篇文章有判断，但还需要把判断压得更硬。"
-      ].join("\n"),
-      textCleanliness: "文字洁癖：⚠️ 有 AI 味需要清洗，少用泛化表达，增加具体判断。",
-      titleCover: "⚠️ 需要优化：标题需要给出更明确的读者利益。",
-      expressionEfficiency: "⚠️ 有冗余：部分段落重复强调速度不是重点。",
-      cognitiveGap: "✅ 有明显落差：能把支付工具和家庭现金流连接起来。",
-      aiTrace: "AI 痕迹：⚠️ 需要清洗，个别句子像模型总结。",
-      firstFix: "把第一段改成一个直接判断，先压住文章主线。"
-    };
-  }
-
   async reviseDraft(prompt?: string): Promise<GeneratedDraft> {
     void prompt;
     return {
@@ -608,19 +563,6 @@ export class OpenAICompatibleClient implements AIClient {
   async generateIllustrationPlan(prompt: string): Promise<GeneratedIllustrationPlan> {
     const json = await this.completeJson(prompt);
     return normalizeGeneratedIllustrationPlan(json);
-  }
-
-  async diagnoseContent(prompt: string): Promise<GeneratedDiagnosis> {
-    const json = await this.completeJson(prompt);
-    return {
-      diagnosisMarkdown: String(json.diagnosisMarkdown || ""),
-      textCleanliness: String(json.textCleanliness || ""),
-      titleCover: String(json.titleCover || ""),
-      expressionEfficiency: String(json.expressionEfficiency || ""),
-      cognitiveGap: String(json.cognitiveGap || ""),
-      aiTrace: String(json.aiTrace || ""),
-      firstFix: String(json.firstFix || "")
-    };
   }
 
   async reviseDraft(prompt: string): Promise<GeneratedDraft> {

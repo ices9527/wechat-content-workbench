@@ -3,13 +3,11 @@ import { and, eq } from "drizzle-orm";
 import type { WorkbenchDatabase } from "@/db/client";
 import {
   articleProjects,
-  contentDiagnoses,
   draftVersions,
   outlineVersions,
   researchVersions,
   topicDiagnoses,
   type ArticleProject,
-  type ContentDiagnosis,
   type DraftVersion,
   type OutlineVersion,
   type ResearchVersion,
@@ -46,18 +44,6 @@ export function requireOutline(articleId: string, outlineVersionId: string, db: 
     throw new Error("提纲版本不存在");
   }
   return outline;
-}
-
-export function requireDiagnosis(articleId: string, diagnosisId: string, db: WorkbenchDatabase): ContentDiagnosis {
-  const diagnosis = db
-    .select()
-    .from(contentDiagnoses)
-    .where(and(eq(contentDiagnoses.id, diagnosisId), eq(contentDiagnoses.articleId, articleId)))
-    .get();
-  if (!diagnosis) {
-    throw new Error("诊断记录不存在");
-  }
-  return diagnosis;
 }
 
 export function requireTopicDiagnosis(articleId: string, topicDiagnosisId: string, db: WorkbenchDatabase): TopicDiagnosis {

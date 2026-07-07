@@ -35,19 +35,6 @@ describe("prompt templates", () => {
     expect(prompt).toContain("不要只返回提纲或摘要");
   });
 
-  it("renders dbs-content diagnosis requirements", () => {
-    const prompt = renderPrompt("dbs_content", {
-      topic: "跨境支付通",
-      versionNo: "1",
-      markdown: "# 跨境支付通"
-    });
-
-    expect(prompt).toContain("dontbesilent");
-    expect(prompt).toContain("文字洁癖");
-    expect(prompt).toContain("diagnosisMarkdown");
-    expect(prompt).toContain("AI 痕迹");
-  });
-
   it("renders ai style check prompt without rewriting the draft", () => {
     const prompt = renderPrompt("ai_style_check", {
       title: "跨境支付通火了",
@@ -62,7 +49,7 @@ describe("prompt templates", () => {
     expect(prompt).toContain("文案清洁检查");
     expect(prompt).toContain("不改写全文");
     expect(prompt).toContain("不评价选题是否值得写");
-    expect(prompt).toContain("不替代 dbs-content");
+    expect(prompt).toContain("不替代选题、主线或发布前质量门");
     expect(prompt).toContain("只诊断这篇 Markdown 文案的表达层水分");
     expect(prompt).toContain("verdict：只能是 clean、minor、needs_cleanup、heavy_slop");
     expect(prompt).toContain("issues：问题列表");
@@ -135,20 +122,6 @@ describe("prompt templates", () => {
 
     expect(prompt).toContain("内容研究资料包摘要");
     expect(prompt).toContain("家庭现金流和边界是重点");
-  });
-
-  it("renders revision prompt with diagnosis source", () => {
-    const prompt = renderPrompt("revise_from_diagnosis", {
-      topic: "跨境支付通",
-      versionNo: "1",
-      markdown: "# 原稿",
-      diagnosisMarkdown: "# 诊断"
-    });
-
-    expect(prompt).toContain("dbs-content 诊断");
-    expect(prompt).toContain("# 原稿");
-    expect(prompt).toContain("# 诊断");
-    expect(prompt).toContain("markdown：完整 Markdown 修改稿");
   });
 
   it("renders pre-publish and review check prompts", () => {

@@ -11,7 +11,6 @@ describe("stage definitions", () => {
       "outline",
       "draft",
       "ai_style_check",
-      "dbs",
       "illustration_plan",
       "pre_publish",
       "review"
@@ -20,6 +19,7 @@ describe("stage definitions", () => {
     expect(requirementStageSchema.safeParse("research").success).toBe(true);
     expect(requirementStageSchema.safeParse("draft").success).toBe(true);
     expect(requirementStageSchema.safeParse("ai_style_check").success).toBe(true);
+    expect(requirementStageSchema.safeParse("dbs").success).toBe(false);
     expect(requirementStageSchema.safeParse("illustration_plan").success).toBe(true);
   });
 
@@ -36,6 +36,7 @@ describe("stage definitions", () => {
     expect(defaultStagePromptLabel("illustration_plan")).toBe("配图规划默认提示词");
     expect(stagePromptStageSchema.safeParse("topic").success).toBe(false);
     expect(stagePromptStageSchema.safeParse("ai_style_check").success).toBe(true);
+    expect(stagePromptStageSchema.safeParse("dbs").success).toBe(false);
     expect(stagePromptStageSchema.safeParse("illustration_plan").success).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { defaultStagePromptLabel, stagePromptStageSchema } from "@/domain/stages";
+import { defaultStagePromptLabel, STAGE_PROMPT_STAGES, stagePromptStageSchema } from "@/domain/stages";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { LOCAL_USER_ID } from "@/db/seed";
 import { stagePromptDefaults, type StagePromptDefault } from "@/db/schema";
@@ -16,7 +16,11 @@ export const updateStagePromptInputSchema = z.object({
 export type UpdateStagePromptInput = z.infer<typeof updateStagePromptInputSchema>;
 
 export function listStagePromptDefaults(db: WorkbenchDatabase = getDatabase().db): StagePromptDefault[] {
-  return db.select().from(stagePromptDefaults).where(eq(stagePromptDefaults.ownerId, LOCAL_USER_ID)).all();
+  return db
+    .select()
+    .from(stagePromptDefaults)
+    .where(and(eq(stagePromptDefaults.ownerId, LOCAL_USER_ID), inArray(stagePromptDefaults.stage, [...STAGE_PROMPT_STAGES])))
+    .all();
 }
 
 export function getStagePromptDefault(

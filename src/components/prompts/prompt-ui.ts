@@ -52,13 +52,6 @@ export const STAGE_PROMPT_UI: Record<
     customPlaceholder: "例如：重点找空话、重复判断和 AI 味套话，不要改核心观点",
     savedNotice: "已保存文案清洁检查默认提示词"
   },
-  dbs: {
-    eyebrow: "DBS Prompt",
-    title: "dbs-content 提示词设置",
-    defaultPromptLabel: "dbs-content 默认提示词",
-    customPlaceholder: "例如：这次重点检查标题承诺、首屏判断和 AI 味，不要先改正文",
-    savedNotice: "已保存 dbs-content 默认提示词"
-  },
   illustration_plan: {
     eyebrow: "Illustration Prompt",
     title: "配图规划提示词设置",

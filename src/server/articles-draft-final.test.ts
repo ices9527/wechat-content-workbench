@@ -15,8 +15,8 @@ import {
   listPublishQueueArticles,
   markFinalDraft,
   markReadyToPublish,
-  reviseFromDiagnosis,
-  runDbsContent,
+  reviseFromAIStyleCheck,
+  runAIStyleCheck,
   saveDraftVersion,
   selectAngle,
   updateDraftVersion
@@ -84,12 +84,11 @@ describe("article draft and final service", () => {
     expect(() => updateDraftVersion(other.id, { draftVersionId: draft.id, markdown: "错误覆盖" }, db)).toThrow("文案版本不存在");
   });
 
-  it("allows marking the current draft final after DBS without generating another revision", async () => {
+  it("allows marking the current generated draft final without another revision", async () => {
     const { db } = createTestDatabase();
     const { article, draft } = await createArticleWithDraft(db);
-    await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
 
-    expect(getArticle(article.id, db)?.status).toBe("dbs_checking");
+    expect(getArticle(article.id, db)?.status).toBe("draft_generated");
 
     const final = markFinalDraft(article.id, { draftVersionId: draft.id }, db);
     const updatedArticle = getArticle(article.id, db);
@@ -104,8 +103,8 @@ describe("article draft and final service", () => {
     const { article, draft } = await createArticleWithDraft(db);
 
     expect(() => markReadyToPublish(article.id, db)).toThrow("请先标记最终稿");
-    const diagnosis = await runDbsContent(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
-    const firstRevision = await reviseFromDiagnosis(article.id, { diagnosisId: diagnosis.id }, new FakeAIClient(), db);
+    const check = await runAIStyleCheck(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+    const firstRevision = await reviseFromAIStyleCheck(article.id, { checkId: check.id }, new FakeAIClient(), db);
     const secondRevision = saveDraftVersion(article.id, { markdown: `${firstRevision.markdown}\n\n人工定稿。` }, db);
 
     markFinalDraft(article.id, { draftVersionId: firstRevision.id }, db);
@@ -115,7 +114,7 @@ describe("article draft and final service", () => {
 
     expect(finals).toHaveLength(1);
     expect(finals[0].id).toBe(secondRevision.id);
-    expect(secondRevision.sourceDiagnosisId).toBe(diagnosis.id);
+    expect(secondRevision.sourceAIStyleCheckId).toBe(check.id);
     expect(getArticle(article.id, db)?.finalDraftVersionId).toBe(secondRevision.id);
     expect(ready.status).toBe("ready_to_publish");
     expect(listPublishQueueArticles(db)).toHaveLength(1);

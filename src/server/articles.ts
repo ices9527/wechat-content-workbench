@@ -16,7 +16,6 @@ import {
   angleCandidates,
   articleAssets,
   articleProjects,
-  contentDiagnoses,
   draftVersions,
   outlineVersions,
   promptRunArtifacts,
@@ -27,13 +26,11 @@ import {
   workflowEvents,
   type AngleCandidate,
   type ArticleProject,
-  type ContentDiagnosis,
   type DraftVersion,
   type OutlineVersion,
   type PromptRunArtifact,
   type ResearchVersion,
   type RequirementPreset,
-  type AIInvocationRequirement,
   type AIStyleCheck,
   type StagePromptDefault,
   type TopicDiagnosis,
@@ -42,7 +39,7 @@ import {
 
 import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 import { getAIClient } from "./ai";
-import { requireArticle, requireDiagnosis, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
+import { requireArticle, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
 import {
   formatDraftQualityGateContextForPrompt,
   getAIStyleCheckQualityGateContext
@@ -53,7 +50,6 @@ import {
   formatOutlineQualityGateContextForPrompt,
   requireOutlineQualityGateContext
 } from "./outline-quality-gate-context";
-import { findRequirementSnapshotsForDraft } from "./prompt-recipes";
 import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { buildPromptWithQualityGate } from "./quality-gate-prompts";
@@ -238,11 +234,6 @@ export const generateOutlineInputSchema = z.object({
 });
 export const topicDiagnosisInputSchema = z.object(promptControlInputShape);
 
-export const runDbsContentInputSchema = z.object({
-  draftVersionId: z.string().trim().min(1, "必须指定文案版本"),
-  ...promptControlInputShape
-});
-
 export const runAIStyleCheckInputSchema = z.object({
   draftVersionId: z.string().trim().min(1, "必须指定文案版本"),
   ...promptControlInputShape
@@ -265,10 +256,6 @@ export const prePublishCheckInputSchema = z.object(promptControlInputShape);
 
 export const reviewCheckInputSchema = z.object(promptControlInputShape);
 
-export const reviseFromDiagnosisInputSchema = z.object({
-  diagnosisId: z.string().trim().min(1, "必须指定诊断记录")
-});
-
 export const markFinalDraftInputSchema = z.object({
   draftVersionId: z.string().trim().min(1, "必须指定最终稿版本"),
   force: z.boolean().optional().default(false)
@@ -284,13 +271,11 @@ export type GenerateContentResearchInput = z.input<typeof generateContentResearc
 export type SaveManualResearchInput = z.input<typeof saveManualResearchInputSchema>;
 export type GenerateOutlineInput = z.input<typeof generateOutlineInputSchema>;
 export type TopicDiagnosisInput = z.input<typeof topicDiagnosisInputSchema>;
-export type RunDbsContentInput = z.input<typeof runDbsContentInputSchema>;
 export type RunAIStyleCheckInput = z.input<typeof runAIStyleCheckInputSchema>;
 export type ReviseFromAIStyleCheckInput = z.infer<typeof reviseFromAIStyleCheckInputSchema>;
 export type RunPublishHTMLAIStyleCheckInput = z.input<typeof runPublishHTMLAIStyleCheckInputSchema>;
 export type PrePublishCheckInput = z.input<typeof prePublishCheckInputSchema>;
 export type ReviewCheckInput = z.input<typeof reviewCheckInputSchema>;
-export type ReviseFromDiagnosisInput = z.infer<typeof reviseFromDiagnosisInputSchema>;
 export type MarkFinalDraftInput = z.input<typeof markFinalDraftInputSchema>;
 
 // Read model helpers
@@ -812,15 +797,6 @@ export function listDrafts(articleId: string, db: WorkbenchDatabase = getDatabas
     .all();
 }
 
-export function listDiagnoses(articleId: string, db: WorkbenchDatabase = getDatabase().db): ContentDiagnosis[] {
-  return db
-    .select()
-    .from(contentDiagnoses)
-    .where(eq(contentDiagnoses.articleId, articleId))
-    .orderBy(desc(contentDiagnoses.createdAt))
-    .all();
-}
-
 export function listAIStyleChecks(articleId: string, db: WorkbenchDatabase = getDatabase().db): AIStyleCheck[] {
   return db
     .select()
@@ -858,38 +834,6 @@ export function listPromptRunArtifacts(
     conditions.push(eq(promptRunArtifacts.stage, input.stage));
   }
   return db.select().from(promptRunArtifacts).where(and(...conditions)).orderBy(desc(promptRunArtifacts.createdAt)).all();
-}
-
-// Requirement compliance helpers
-
-function buildRequirementComplianceMarkdown(markdown: string, requirements: AIInvocationRequirement[]): string {
-  if (requirements.length === 0) {
-    return "";
-  }
-
-  const violations: string[] = [];
-  const combined = requirements
-    .map((requirement) => `${requirement.labelSnapshot}\n${requirement.promptFragmentSnapshot}`)
-    .join("\n");
-
-  if (/不是.{0,40}而是/.test(markdown) && /不是|而是/.test(combined)) {
-    violations.push("- 违反“禁用不是而是”：文案中出现了“不是……而是……”句式。");
-  }
-  if (/(财富自由|暴富|躺赚|稳赚|稳赚不赔|翻倍)/.test(markdown) && /(财富|夸张|口号|收益)/.test(combined)) {
-    violations.push("- 可能违反克制表达：文案中出现夸张财富词。");
-  }
-  if (/(保证|一定|必然|确保|100%|百分百)/.test(markdown) && /(承诺|确定结果|一定)/.test(combined)) {
-    violations.push("- 可能违反“不承诺结果”：文案中出现绝对化承诺表达。");
-  }
-  if (/(绕开|规避|灰色|避开监管|绕过监管)/.test(markdown) && /(监管|绕开|规避)/.test(combined)) {
-    violations.push("- 可能违反“不暗示绕监管”：文案中出现规避监管相关表达。");
-  }
-
-  if (violations.length === 0) {
-    return ["\n\n## 要求遵守情况", "未发现已选硬性要求的明显违反。"].join("\n");
-  }
-
-  return ["\n\n## 要求遵守情况", ...violations].join("\n");
 }
 
 function hasUsefulTopicDiagnosis(generated: GeneratedTopicDiagnosis): boolean {
@@ -1645,112 +1589,6 @@ export function updateDraftVersion(
   return { ...draft, markdown: parsed.markdown };
 }
 
-// dbs-content and revision commands
-
-export async function runDbsContent(
-  articleId: string,
-  input: RunDbsContentInput,
-  client: AIClient = getAIClient(),
-  db: WorkbenchDatabase = getDatabase().db
-): Promise<ContentDiagnosis> {
-  const article = requireArticle(articleId, db);
-  const parsed = runDbsContentInputSchema.parse(input);
-  const draft = requireDraft(article.id, parsed.draftVersionId, db);
-  const status = article.status as ArticleStatus;
-  if (!["draft_generated", "dbs_checking", "revision_generated"].includes(status)) {
-    throw new Error("当前状态不能运行 dbs-content");
-  }
-
-  const stagePrompt = getStagePromptDefault("dbs", db);
-  const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "dbs", db);
-  const prompt = buildLayeredPrompt(
-    renderPrompt("dbs_content", {
-      topic: article.topic,
-      versionNo: String(draft.versionNo),
-      markdown: draft.markdown
-    }),
-    {
-      stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
-      selectedRequirements,
-      customInstruction: parsed.customInstruction
-    }
-  );
-  const requirementSnapshots = findRequirementSnapshotsForDraft(article.id, draft, db);
-
-  try {
-    const generated = await client.diagnoseContent(prompt);
-    if (
-      !generated.diagnosisMarkdown ||
-      !generated.textCleanliness ||
-      !generated.titleCover ||
-      !generated.expressionEfficiency ||
-      !generated.cognitiveGap ||
-      !generated.aiTrace
-    ) {
-      throw new Error("AI 返回的诊断结构不完整");
-    }
-
-    const requirementComplianceMarkdown = buildRequirementComplianceMarkdown(draft.markdown, requirementSnapshots);
-    const dbsRequirementMarkdown = buildSelectedRequirementSummaryMarkdown("本次 dbs-content 检查要求", selectedRequirements);
-    const diagnosis: ContentDiagnosis = {
-      id: randomUUID(),
-      articleId: article.id,
-      ownerId: article.ownerId,
-      draftVersionId: draft.id,
-      diagnosisMarkdown: `${generated.diagnosisMarkdown}${dbsRequirementMarkdown}${requirementComplianceMarkdown}`,
-      textCleanliness: generated.textCleanliness,
-      titleCover: generated.titleCover,
-      expressionEfficiency: generated.expressionEfficiency,
-      cognitiveGap: generated.cognitiveGap,
-      aiTrace: generated.aiTrace,
-      firstFix: generated.firstFix || null,
-      sourceInvocationId: null,
-      createdAt: new Date().toISOString()
-    };
-
-    db.transaction(() => {
-      const invocationId = recordAIInvocation(db, {
-        article,
-        taskType: "dbs_content",
-        client,
-        prompt,
-        response: generated,
-        customInstruction: parsed.customInstruction,
-        stagePrompt,
-        status: "success"
-      });
-      recordAIInvocationRequirements(db, invocationId, selectedRequirements);
-      diagnosis.sourceInvocationId = invocationId;
-      db.insert(contentDiagnoses).values(diagnosis).run();
-      if (status === "draft_generated" || status === "revision_generated") {
-        transitionArticle(db, article, "dbs_checking", "run_dbs_content", {
-          draftVersionId: draft.id,
-          diagnosisId: diagnosis.id
-        });
-      } else {
-        recordWorkflowEvent(db, article, status, "dbs_checking", "run_dbs_content", {
-          draftVersionId: draft.id,
-          diagnosisId: diagnosis.id
-        });
-      }
-    });
-
-    return diagnosis;
-  } catch (error) {
-    recordFailedAIInvocation(db, {
-      article,
-      taskType: "dbs_content",
-      client,
-      prompt,
-      customInstruction: parsed.customInstruction,
-      stagePrompt,
-      error,
-      fallbackMessage: "dbs-content 诊断失败"
-    });
-    throw error;
-  }
-}
-
 export async function runAIStyleCheck(
   articleId: string,
   input: RunAIStyleCheckInput,
@@ -1923,90 +1761,6 @@ export async function reviseFromAIStyleCheck(
       prompt,
       error,
       fallbackMessage: "生成清洁版文案失败"
-    });
-    throw error;
-  }
-}
-
-export async function reviseFromDiagnosis(
-  articleId: string,
-  input: ReviseFromDiagnosisInput,
-  client: AIClient = getAIClient(),
-  db: WorkbenchDatabase = getDatabase().db
-): Promise<DraftVersion> {
-  const article = requireArticle(articleId, db);
-  const parsed = reviseFromDiagnosisInputSchema.parse(input);
-  const diagnosis = requireDiagnosis(article.id, parsed.diagnosisId, db);
-  const sourceDraft = requireDraft(article.id, diagnosis.draftVersionId, db);
-  const status = article.status as ArticleStatus;
-  if (!["dbs_checking", "revision_generated"].includes(status)) {
-    throw new Error("请先运行 dbs-content 诊断");
-  }
-
-  const prompt = renderPrompt("revise_from_diagnosis", {
-    topic: article.topic,
-    versionNo: String(sourceDraft.versionNo),
-    markdown: sourceDraft.markdown,
-    diagnosisMarkdown: diagnosis.diagnosisMarkdown
-  });
-
-  try {
-    const generated = await client.reviseDraft(prompt);
-    if (!generated.markdown) {
-      throw new Error("AI 返回的修改稿为空");
-    }
-
-    const existing = listDrafts(articleId, db);
-    let draft: DraftVersion = {
-      id: randomUUID(),
-      articleId: article.id,
-      ownerId: article.ownerId,
-      versionNo: nextVersionNo(existing),
-      draftType: "revision",
-      markdown: generated.markdown,
-      html: null,
-      sourceOutlineId: sourceDraft.sourceOutlineId,
-      sourceDiagnosisId: diagnosis.id,
-      sourceAIStyleCheckId: null,
-      sourceInvocationId: null,
-      isFinal: false,
-      createdBy: "ai",
-      createdAt: new Date().toISOString()
-    };
-
-    db.transaction(() => {
-      const invocationId = recordAIInvocation(db, {
-        article,
-        taskType: "revise_from_diagnosis",
-        client,
-        prompt,
-        response: generated,
-        status: "success"
-      });
-      draft = { ...draft, sourceInvocationId: invocationId };
-      db.insert(draftVersions).values(draft).run();
-      if (status === "dbs_checking") {
-        transitionArticle(db, article, "revision_generated", "revise_from_diagnosis", {
-          diagnosisId: diagnosis.id,
-          draftId: draft.id
-        });
-      } else {
-        recordWorkflowEvent(db, article, status, "revision_generated", "revise_from_diagnosis", {
-          diagnosisId: diagnosis.id,
-          draftId: draft.id
-        });
-      }
-    });
-
-    return draft;
-  } catch (error) {
-    recordFailedAIInvocation(db, {
-      article,
-      taskType: "revise_from_diagnosis",
-      client,
-      prompt,
-      error,
-      fallbackMessage: "生成修改稿失败"
     });
     throw error;
   }

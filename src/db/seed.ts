@@ -33,7 +33,7 @@ export const DEFAULT_STAGE_PROMPTS = [
     label: "文案清洁检查默认提示词",
     prompt: [
       "只检查表达层面的水分、AI 味、空话、套话、重复判断和模板句。",
-      "不要替用户重写全文，不评价选题是否值得写，不替代 dbs-content 诊断。",
+      "不要替用户重写全文，不评价选题是否值得写，不替代选题、主线或发布前质量门。",
       "每个问题必须引用原文片段，说明为什么有问题，并给出具体修改方向。",
       "判断要克制，能保留的专业表达不要误判为水分。"
     ].join("\n")
@@ -55,15 +55,6 @@ export const DEFAULT_STAGE_PROMPTS = [
       "优先整理可核验事实、读者真实问题、路径边界、风险提醒和可写方向。",
       "不要把热点当结论，要说明它如何影响家庭决策、现金流安排或合规边界。",
       "复杂规则必须保留适用条件，不承诺速度、收益、身份、开户或审批结果。"
-    ].join("\n")
-  },
-  {
-    stage: "dbs",
-    label: "dbs-content 默认提示词",
-    prompt: [
-      "诊断只指出具体问题和修改方向，不做泛泛表扬。",
-      "优先检查 AI 味、重复判断、表达效率、标题承诺和认知落差。",
-      "每个问题都要对应可执行的第一步。"
     ].join("\n")
   },
   {
@@ -505,28 +496,6 @@ export const DEFAULT_REQUIREMENT_PRESETS = [
     priority: 60
   },
   {
-    stableKey: "DBS-001",
-    stage: "dbs",
-    category: "检查",
-    type: "check",
-    label: "检查 AI 味套话",
-    description: "检查空泛、模板化、AI 味明显的表达。",
-    promptFragment: "检查文案是否存在空泛套话、AI 味转折、模板化总结和没有具体信息的句子。",
-    defaultEnabled: false,
-    priority: 10
-  },
-  {
-    stableKey: "DBS-002",
-    stage: "dbs",
-    category: "检查",
-    type: "check",
-    label: "检查重复判断",
-    description: "检查同一判断是否反复出现。",
-    promptFragment: "检查文案是否反复表达同一个判断，指出重复片段并建议合并。",
-    defaultEnabled: false,
-    priority: 20
-  },
-  {
     stableKey: "ILLUS-001",
     stage: "illustration_plan",
     category: "数量",
@@ -822,39 +791,6 @@ export const DEFAULT_REQUIREMENT_PRESETS = [
     promptFragment: "写跨境支付、身份、教育或保险时，围绕身份安排、账户路径、资金用途、合规追问和路径边界展开。",
     defaultEnabled: false,
     priority: 240
-  },
-  {
-    stableKey: "DBS-003",
-    stage: "dbs",
-    category: "检查",
-    type: "check",
-    label: "检查表达效率",
-    description: "检查是否用大量文字包装很少内容。",
-    promptFragment: "检查文案能不能一句话说清核心观点，有没有用大量文字包装很少内容。",
-    defaultEnabled: false,
-    priority: 30
-  },
-  {
-    stableKey: "DBS-004",
-    stage: "dbs",
-    category: "检查",
-    type: "check",
-    label: "检查认知落差",
-    description: "检查读者是否会觉得这个我早知道。",
-    promptFragment: "检查读者看完会不会觉得“这个我早知道”，文章有没有把同行没讲清的地方讲清。",
-    defaultEnabled: false,
-    priority: 40
-  },
-  {
-    stableKey: "DBS-005",
-    stage: "dbs",
-    category: "检查",
-    type: "must",
-    label: "只要问题不要泛夸",
-    description: "dbs-content 输出具体问题和修改建议，不做泛泛表扬。",
-    promptFragment: "请只输出具体问题和修改建议，不要泛泛表扬。",
-    defaultEnabled: false,
-    priority: 50
   },
   {
     stableKey: "TITLE-002",
