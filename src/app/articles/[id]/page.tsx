@@ -10,6 +10,7 @@ import {
   listIllustrationPlans,
   listOutlines,
   listPromptRunArtifacts,
+  listQualityGateReworkItems,
   listResearchVersions,
   listTopicDiagnoses,
   listTopicVersions
@@ -52,6 +53,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
     ...listRequirementPresets({ stage: "review", includeArchived: true })
   ];
   const promptArtifacts = listPromptRunArtifacts(article.id);
+  const qualityGateReworkItems = listQualityGateReworkItems(article.id);
 
   return (
     <>
@@ -79,6 +81,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         stagePrompts={stagePrompts}
         requirementPresets={requirementPresets}
         promptArtifacts={promptArtifacts}
+        qualityGateReworkItems={qualityGateReworkItems}
       />
     </>
   );

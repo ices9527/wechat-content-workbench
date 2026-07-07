@@ -6,6 +6,12 @@ import { z } from "zod";
 
 import { assertCanTransition, getNextAction, getStatusLabel, isPublishQueueStatus, type ArticleStatus } from "@/domain/status";
 import { requirementStageSchema, stagePromptStageSchema, type RequirementStage, type StagePromptStage } from "@/domain/stages";
+import {
+  buildQualityGateReworkItems,
+  type QualityGateReworkItem,
+  type QualityGateReworkSource
+} from "@/domain/quality-gate-rework";
+import type { QualityGateStage } from "@/domain/quality-gates";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/ensure";
 import { LOCAL_USER_ID } from "@/db/seed";
@@ -53,6 +59,7 @@ import {
 import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { buildPromptWithQualityGate } from "./quality-gate-prompts";
+import { extractQualityGateResultFromResponse } from "./quality-gate-results";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
 import {
@@ -822,6 +829,95 @@ export function listTopicVersions(articleId: string, db: WorkbenchDatabase = get
     .where(eq(topicVersions.articleId, articleId))
     .orderBy(desc(topicVersions.versionNo))
     .all();
+}
+
+function qualityGateSourceFromInvocation(
+  input: {
+    id: string;
+    label: string;
+    sourceInvocationId: string | null;
+    expectedStage: QualityGateStage;
+  },
+  db: WorkbenchDatabase
+): QualityGateReworkSource {
+  if (!input.sourceInvocationId) {
+    return { id: input.id, label: input.label, result: null };
+  }
+  const invocation = db.select().from(aiInvocations).where(eq(aiInvocations.id, input.sourceInvocationId)).get();
+  return {
+    id: input.id,
+    label: input.label,
+    result: extractQualityGateResultFromResponse(invocation?.response || null, input.expectedStage)
+  };
+}
+
+export function listQualityGateReworkItems(articleId: string, db: WorkbenchDatabase = getDatabase().db): QualityGateReworkItem[] {
+  const article = requireArticle(articleId, db);
+  const sources: QualityGateReworkSource[] = [];
+  const latestTopicDiagnosis = listTopicDiagnoses(article.id, db)[0] || null;
+  const outlines = listOutlines(article.id, db);
+  const selectedOutline = outlines.find((outline) => outline.accepted) || outlines[0] || null;
+  const drafts = listDrafts(article.id, db);
+  const latestDraft = drafts[0] || null;
+  const aiStyleChecksForArticle = listAIStyleChecks(article.id, db);
+  const latestDraftAIStyleCheck = latestDraft
+    ? aiStyleChecksForArticle.find((check) => check.draftVersionId === latestDraft.id && check.sourceType === "draft_version") || null
+    : null;
+
+  if (latestTopicDiagnosis) {
+    sources.push(
+      qualityGateSourceFromInvocation(
+        {
+          id: `topic-diagnosis:${latestTopicDiagnosis.id}`,
+          label: "选题诊断",
+          sourceInvocationId: latestTopicDiagnosis.sourceInvocationId,
+          expectedStage: "topic"
+        },
+        db
+      )
+    );
+  }
+  if (selectedOutline) {
+    sources.push(
+      qualityGateSourceFromInvocation(
+        {
+          id: `outline:${selectedOutline.id}`,
+          label: `主线提纲 v${selectedOutline.versionNo}`,
+          sourceInvocationId: selectedOutline.sourceInvocationId,
+          expectedStage: "outline"
+        },
+        db
+      )
+    );
+  }
+  if (latestDraft) {
+    sources.push(
+      qualityGateSourceFromInvocation(
+        {
+          id: `draft:${latestDraft.id}`,
+          label: `Markdown 文案 v${latestDraft.versionNo}`,
+          sourceInvocationId: latestDraft.sourceInvocationId,
+          expectedStage: "draft"
+        },
+        db
+      )
+    );
+  }
+  if (latestDraftAIStyleCheck) {
+    sources.push(
+      qualityGateSourceFromInvocation(
+        {
+          id: `ai-style-check:${latestDraftAIStyleCheck.id}`,
+          label: "文案清洁检查",
+          sourceInvocationId: latestDraftAIStyleCheck.sourceInvocationId,
+          expectedStage: "draft"
+        },
+        db
+      )
+    );
+  }
+
+  return buildQualityGateReworkItems(sources);
 }
 
 export function listPromptRunArtifacts(

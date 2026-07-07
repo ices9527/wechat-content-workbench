@@ -20,6 +20,7 @@ import type {
   TopicVersion,
   WechatDraftUpload
 } from "@/db/schema";
+import type { QualityGateReworkItem } from "@/domain/quality-gate-rework";
 import type { ArticleStatus } from "@/domain/status";
 import type { RequirementStage } from "@/domain/stages";
 import type { ArticleListItem } from "@/server/articles";
@@ -35,6 +36,7 @@ import { PromptRecipeDialog } from "./prompts/prompt-recipe-dialog";
 import { STAGE_PROMPT_UI } from "./prompts/prompt-ui";
 import type { RequirementEditorInput } from "./prompts/requirement-selector";
 import { StagePromptDialog } from "./prompts/stage-prompt-dialog";
+import { QualityGateReworkCard } from "./quality-gate-rework-card";
 
 // API helpers
 
@@ -1316,7 +1318,8 @@ export function ArticleWorkflow({
   uploads,
   stagePrompts,
   requirementPresets,
-  promptArtifacts
+  promptArtifacts,
+  qualityGateReworkItems
 }: {
   article: ArticleListItem;
   angles: AngleCandidate[];
@@ -1332,6 +1335,7 @@ export function ArticleWorkflow({
   stagePrompts: StagePromptDefault[];
   requirementPresets: RequirementPreset[];
   promptArtifacts: PromptRunArtifact[];
+  qualityGateReworkItems: QualityGateReworkItem[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -2089,6 +2093,8 @@ export function ArticleWorkflow({
           ))}
         </div>
       </div>
+
+      <QualityGateReworkCard items={qualityGateReworkItems} onJumpToTab={switchWorkflowTab} />
 
       <div className="workflow-tab-panels">
         {activeTab === "topic" ? (
