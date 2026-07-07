@@ -43,6 +43,10 @@ import {
 import type { AIClient, GeneratedAngle, GeneratedContentResearch, GeneratedTopicDiagnosis, TopicDiagnosisVerdict } from "./ai";
 import { getAIClient } from "./ai";
 import { requireArticle, requireDiagnosis, requireDraft, requireOutline, requireResearchVersion } from "./article-records";
+import {
+  formatDraftQualityGateContextForPrompt,
+  getAIStyleCheckQualityGateContext
+} from "./draft-quality-gate-context";
 import { htmlToPlainText } from "./html-text";
 import {
   assertOutlineQualityGateAllowsDraft,
@@ -1515,11 +1519,14 @@ export async function generateDraft(
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "draft", db);
   const prompt = buildLayeredPrompt(
     [
-      renderPrompt("generate_draft", {
-        topic: article.topic,
-        mainline: outline.mainline,
-        outlineMarkdown: outline.outlineMarkdown
-      }),
+      buildPromptWithQualityGate(
+        renderPrompt("generate_draft", {
+          topic: article.topic,
+          mainline: outline.mainline,
+          outlineMarkdown: outline.outlineMarkdown
+        }),
+        "draft"
+      ),
       formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "draft"),
       formatOutlineQualityGateContextForPrompt(outlineQualityGateContext)
     ]
@@ -1536,6 +1543,9 @@ export async function generateDraft(
     const generated = await client.generateDraft(prompt);
     if (!generated.markdown) {
       throw new Error("AI 返回的文案为空");
+    }
+    if (!generated.qualityGate) {
+      throw new Error("AI 返回的文案质量门为空");
     }
     const existing = listDrafts(articleId, db);
     let draft: DraftVersion = {
@@ -1754,15 +1764,18 @@ export async function runAIStyleCheck(
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "ai_style_check", db);
   const selectedRequirementsSummary = selectedRequirements.length > 0 ? selectedRequirements.map((requirement) => requirement.label).join("、") : "";
   const prompt = buildLayeredPrompt(
-    renderPrompt("ai_style_check", {
-      title: article.title,
-      topic: article.topic,
-      targetReader: article.targetReader,
-      coreProblem: article.coreProblem,
-      customInstruction: parsed.customInstruction,
-      selectedRequirementsSummary,
-      draftMarkdown: draft.markdown
-    }),
+    buildPromptWithQualityGate(
+      renderPrompt("ai_style_check", {
+        title: article.title,
+        topic: article.topic,
+        targetReader: article.targetReader,
+        coreProblem: article.coreProblem,
+        customInstruction: parsed.customInstruction,
+        selectedRequirementsSummary,
+        draftMarkdown: draft.markdown
+      }),
+      "draft"
+    ),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements
@@ -1843,13 +1856,19 @@ export async function reviseFromAIStyleCheck(
     throw new Error("只能基于文案版本的清洁检查生成清洁版文案");
   }
   const sourceDraft = requireDraft(article.id, check.draftVersionId, db);
-  const prompt = renderPrompt("revise_from_ai_style_check", {
-    topic: article.topic,
-    versionNo: String(sourceDraft.versionNo),
-    markdown: sourceDraft.markdown,
-    summaryMarkdown: check.summaryMarkdown,
-    issuesMarkdown: formatAIStyleCheckIssuesForPrompt(check)
-  });
+  const draftQualityGateContext = getAIStyleCheckQualityGateContext(check, sourceDraft, db);
+  const prompt = [
+    renderPrompt("revise_from_ai_style_check", {
+      topic: article.topic,
+      versionNo: String(sourceDraft.versionNo),
+      markdown: sourceDraft.markdown,
+      summaryMarkdown: check.summaryMarkdown,
+      issuesMarkdown: formatAIStyleCheckIssuesForPrompt(check)
+    }),
+    draftQualityGateContext ? formatDraftQualityGateContextForPrompt(draftQualityGateContext) : ""
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   try {
     const generated = await client.reviseDraft(prompt);
@@ -1883,6 +1902,7 @@ export async function reviseFromAIStyleCheck(
         client,
         prompt,
         response: generated,
+        upstreamContext: draftQualityGateContext ? { draftQualityGate: draftQualityGateContext } : null,
         status: "success"
       });
       draft = { ...draft, sourceInvocationId: invocationId };
@@ -2010,15 +2030,18 @@ export async function runPublishHTMLAIStyleCheck(
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "ai_style_check", db);
   const selectedRequirementsSummary = selectedRequirements.length > 0 ? selectedRequirements.map((requirement) => requirement.label).join("、") : "";
   const prompt = buildLayeredPrompt(
-    renderPrompt("ai_style_check", {
-      title: article.title,
-      topic: article.topic,
-      targetReader: article.targetReader,
-      coreProblem: article.coreProblem,
-      customInstruction: parsed.customInstruction,
-      selectedRequirementsSummary,
-      draftMarkdown: plainText
-    }),
+    buildPromptWithQualityGate(
+      renderPrompt("ai_style_check", {
+        title: article.title,
+        topic: article.topic,
+        targetReader: article.targetReader,
+        coreProblem: article.coreProblem,
+        customInstruction: parsed.customInstruction,
+        selectedRequirementsSummary,
+        draftMarkdown: plainText
+      }),
+      "draft"
+    ),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements

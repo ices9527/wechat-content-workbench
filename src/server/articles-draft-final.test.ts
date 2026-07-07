@@ -36,9 +36,31 @@ describe("article draft and final service", () => {
     const invocations = db.select().from(aiInvocations).where(eq(aiInvocations.taskType, "generate_draft")).all();
     expect(invocations).toHaveLength(1);
     expect(invocations[0].status).toBe("failed");
+    expect(invocations[0].prompt).toContain("draft.text_cleanliness");
     expect(invocations[0].errorMessage).toBe("AI 返回的文案为空");
     expect(db.select().from(draftVersions).all()).toHaveLength(0);
     expect(getArticle(article.id, db)?.status).toBe("outline_review");
+  });
+
+  it("stores draft quality gate results when generating Markdown drafts", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "跨境支付通" }, db);
+    const angle = createManualAngle(article.id, { angleTitle: "速度只是第一眼" }, db);
+    selectAngle(article.id, angle.id, db);
+    const outline = await generateOutline(article.id, new FakeAIClient(), db);
+    acceptOutline(article.id, outline.id, db);
+
+    const draft = await generateDraft(article.id, new FakeAIClient(), db);
+    const invocation = db.select().from(aiInvocations).where(eq(aiInvocations.id, draft.sourceInvocationId as string)).get();
+    const response = JSON.parse(invocation?.response || "{}") as { qualityGate?: { stage?: string; ownedChecks?: { checkId: string }[] } };
+
+    expect(draft.markdown).toContain("#");
+    expect(invocation?.prompt).toContain("节点质量门");
+    expect(invocation?.prompt).toContain("draft.expression_efficiency");
+    expect(response.qualityGate?.stage).toBe("draft");
+    expect(response.qualityGate?.ownedChecks?.map((item) => item.checkId)).toEqual(
+      expect.arrayContaining(["draft.text_cleanliness", "draft.expression_efficiency", "draft.ai_trace"])
+    );
   });
 
   it("updates an existing draft version without creating a new version", async () => {

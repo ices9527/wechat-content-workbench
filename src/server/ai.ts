@@ -34,6 +34,7 @@ export type GeneratedOutline = {
 
 export type GeneratedDraft = {
   markdown: string;
+  qualityGate?: QualityGateResult;
 };
 
 export type GeneratedDiagnosis = {
@@ -104,6 +105,7 @@ export type GeneratedAIStyleCheck = {
   score: number | null;
   summaryMarkdown: string;
   issues: GeneratedAIStyleCheckIssue[];
+  qualityGate: QualityGateResult;
 };
 
 export type AIClient = {
@@ -175,6 +177,36 @@ function fakeOutlineQualityGate(verdict: QualityGateResult["verdict"], summaryFo
         status: hasIssue ? "issue" : "pass",
         evidence: hasIssue ? "提纲结构还不能充分承载主线。" : "提纲章节顺序可以承载主线推进。",
         suggestion: hasIssue ? "让每一节只承载一个判断，并按读者理解顺序推进。" : null
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream
+  };
+}
+
+function fakeDraftQualityGate(verdict: QualityGateResult["verdict"], summaryForDownstream: string): QualityGateResult {
+  const hasIssue = verdict === "revise" || verdict === "hold" || verdict === "drop";
+  return {
+    stage: "draft",
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "draft.text_cleanliness",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "文案仍有空话、绕话或重复铺垫。" : "文案表达相对克制，没有明显空话和绕话。",
+        suggestion: hasIssue ? "删掉泛泛判断和重复铺垫，保留具体场景判断。" : null
+      },
+      {
+        checkId: "draft.expression_efficiency",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "部分句子可以更短、更直接。" : "核心信息表达直接，段落推进清楚。",
+        suggestion: hasIssue ? "把长句拆短，减少同义重复。" : null
+      },
+      {
+        checkId: "draft.ai_trace",
+        status: hasIssue ? "issue" : "pass",
+        evidence: hasIssue ? "存在模板化转折或 AI 味总结。" : "没有明显模板化 AI 表达。",
+        suggestion: hasIssue ? "替换“不是……而是……”等机械转折，改成更具体的家庭判断。" : null
       }
     ],
     upstreamRework: [],
@@ -359,7 +391,11 @@ export class FakeAIClient implements AIClient {
         "- 它能不能减少家庭现金流安排里的摩擦？",
         "",
         "把这三个问题想清楚，比单纯讨论速度更有意义。"
-      ].join("\n")
+      ].join("\n"),
+      qualityGate: fakeDraftQualityGate(
+        "pass",
+        "初稿可进入文案清洁检查；后续重点压缩重复判断，继续保持生活场景、额度边界和合规责任。"
+      )
     };
   }
 
@@ -377,7 +413,8 @@ export class FakeAIClient implements AIClient {
             problem: "使用高频 AI 转折结构承载主判断，读起来像模板总结。",
             fixDirection: "改成更直接的家庭场景判断，保留资金路径边界。"
           }
-        ]
+        ],
+        qualityGate: fakeDraftQualityGate("revise", "文案存在明显 AI 味和模板化转折，生成清洁版时优先改写成具体家庭场景判断。")
       };
     }
     return {
@@ -399,7 +436,11 @@ export class FakeAIClient implements AIClient {
           problem: "前文已经表达过速度不是重点，这里再次出现会降低信息密度。",
           fixDirection: "保留一个判断句，后面直接进入使用场景、额度和合规边界。"
         }
-      ]
+      ],
+      qualityGate: fakeDraftQualityGate(
+        "revise",
+        "文案整体能读，但需要删除重复判断和 AI 味转折；清洁版应更直接地写家庭为什么在意资金路径稳定。"
+      )
     };
   }
 
@@ -463,7 +504,8 @@ export class FakeAIClient implements AIClient {
     };
   }
 
-  async reviseDraft(): Promise<GeneratedDraft> {
+  async reviseDraft(prompt?: string): Promise<GeneratedDraft> {
+    void prompt;
     return {
       markdown: [
         "# 跨境支付通火了，真正变的不是到账速度",

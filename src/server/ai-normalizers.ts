@@ -96,7 +96,7 @@ function outlineObjectToMarkdown(json: Record<string, unknown>): string {
 }
 
 function draftObjectToMarkdown(json: Record<string, unknown>): string {
-  const ignoredKeys = new Set(["id", "metadata", "meta", "status", "状态", "说明"]);
+  const ignoredKeys = new Set(["id", "metadata", "meta", "status", "状态", "说明", "qualityGate", "quality_gate", "质量门"]);
   return Object.entries(json)
     .map(([key, value]) => {
       if (ignoredKeys.has(key)) {
@@ -107,6 +107,13 @@ function draftObjectToMarkdown(json: Record<string, unknown>): string {
     })
     .filter(Boolean)
     .join("\n\n");
+}
+
+function hasQualityGateRecord(json: Record<string, unknown>): boolean {
+  return Boolean(
+    asRecord(firstRawValue(json, ["qualityGate", "quality_gate", "质量门"])) ||
+      (json.stage !== undefined && json.verdict !== undefined && json.ownedChecks !== undefined)
+  );
 }
 
 function topicDiagnosisObjectToMarkdown(json: Record<string, unknown>): string {
@@ -352,8 +359,10 @@ export function normalizeGeneratedOutline(json: Record<string, unknown>): Genera
 }
 
 export function normalizeGeneratedDraft(json: Record<string, unknown>): GeneratedDraft {
+  const artifact = asRecord(firstRawValue(json, ["artifact", "draftArtifact", "draft_artifact", "文案产物"])) || json;
+  const qualityGate = hasQualityGateRecord(json) ? normalizeQualityGateResult(json, "draft") : undefined;
   const markdown =
-    firstPromptValue(json, [
+    firstPromptValue(artifact, [
       "markdown",
       "draftMarkdown",
       "draft_markdown",
@@ -375,21 +384,23 @@ export function normalizeGeneratedDraft(json: Record<string, unknown>): Generate
       "初稿",
       "文章",
       "公众号文案"
-    ]) || draftObjectToMarkdown(json);
+    ]) || draftObjectToMarkdown(artifact);
 
-  return { markdown };
+  return { markdown, qualityGate };
 }
 
 export function normalizeGeneratedAIStyleCheck(json: Record<string, unknown>): GeneratedAIStyleCheck {
+  const qualityGate = normalizeQualityGateResult(json, "draft");
+  const artifact = asRecord(firstRawValue(json, ["artifact", "styleCheck", "style_check", "cleanlinessCheck", "清洁检查"])) || json;
   const verdict = normalizeAIStyleCheckVerdict(
-    firstPromptValue(json, ["verdict", "decision", "cleanlinessVerdict", "cleanliness_verdict", "清洁度判断", "判断", "结论"])
+    firstPromptValue(artifact, ["verdict", "decision", "cleanlinessVerdict", "cleanliness_verdict", "清洁度判断", "判断", "结论"])
   );
-  const score = parsePromptNumber(firstRawValue(json, ["score", "cleanlinessScore", "cleanliness_score", "分数", "清洁度分数"]));
+  const score = parsePromptNumber(firstRawValue(artifact, ["score", "cleanlinessScore", "cleanliness_score", "分数", "清洁度分数"]));
   const summaryMarkdown =
-    firstPromptValue(json, ["summaryMarkdown", "summary_markdown", "summary", "摘要", "总结"]) ||
+    firstPromptValue(artifact, ["summaryMarkdown", "summary_markdown", "summary", "摘要", "总结"]) ||
     (verdict === "clean" ? "未发现明显表达水分。" : "AI 未返回清洁检查摘要。");
   const issues = normalizeAIStyleCheckIssues(
-    firstRawValue(json, ["issues", "issueList", "issue_list", "problems", "problemList", "问题列表"])
+    firstRawValue(artifact, ["issues", "issueList", "issue_list", "problems", "problemList", "问题列表"])
   );
 
   if ((verdict === "needs_cleanup" || verdict === "heavy_slop") && issues.length === 0) {
@@ -400,7 +411,8 @@ export function normalizeGeneratedAIStyleCheck(json: Record<string, unknown>): G
     verdict,
     score,
     summaryMarkdown,
-    issues
+    issues,
+    qualityGate
   };
 }
 

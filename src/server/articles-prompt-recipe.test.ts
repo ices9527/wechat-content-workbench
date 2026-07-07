@@ -77,6 +77,8 @@ describe("article prompt recipe service", () => {
     expect(draftRecipe.selectedRequirements.map((requirement) => requirement.label)).toContain(draftRequirement.label);
     expect(draftRecipe.customInstruction).toBe("开头先从家庭生活场景进入。");
     expect(draftRecipe.finalPrompt).toContain("开头先从家庭生活场景进入。");
+    expect(draftRecipe.finalPrompt).toContain("Markdown 文案");
+    expect(draftRecipe.finalPrompt).toContain("draft.ai_trace");
 
     updateStagePromptDefault({ stage: "draft", prompt: "后来改掉的默认提示词" }, db);
     updateRequirementPreset(
@@ -445,6 +447,8 @@ describe("article prompt recipe service", () => {
     expect(recipe.customInstruction).toBe("重点检查不是而是和重复判断。");
     expect(recipe.finalPrompt).toContain(requirement.promptFragment);
     expect(recipe.finalPrompt).toContain("重点检查不是而是和重复判断。");
+    expect(recipe.finalPrompt).toContain("节点质量门");
+    expect(recipe.finalPrompt).toContain("draft.text_cleanliness");
   });
 
   it("creates prompt artifacts for pre-publish and review checks", async () => {

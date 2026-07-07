@@ -76,8 +76,9 @@ export function findRequirementSnapshotsForDraft(
       continue;
     }
     try {
-      const response = JSON.parse(invocation.response) as { markdown?: string };
-      if (response.markdown && draft.markdown.includes(response.markdown.slice(0, 80))) {
+      const response = JSON.parse(invocation.response) as { markdown?: string; artifact?: { markdown?: string } };
+      const responseMarkdown = response.artifact?.markdown || response.markdown;
+      if (responseMarkdown && draft.markdown.includes(responseMarkdown.slice(0, 80))) {
         return listRequirementSnapshotsForInvocation(invocation.id, db);
       }
     } catch {

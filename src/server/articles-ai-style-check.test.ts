@@ -22,6 +22,35 @@ import {
 import type { GeneratedAIStyleCheck, GeneratedDraft } from "./ai";
 import { renderWechatHtmlAsset } from "./publishing";
 
+function draftQualityGate(verdict: "pass" | "revise" = "revise") {
+  return {
+    stage: "draft" as const,
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "draft.text_cleanliness" as const,
+        status: verdict === "pass" ? ("pass" as const) : ("issue" as const),
+        evidence: "文案有重复判断。",
+        suggestion: "删除重复判断。"
+      },
+      {
+        checkId: "draft.expression_efficiency" as const,
+        status: verdict === "pass" ? ("pass" as const) : ("issue" as const),
+        evidence: "表达可以更短。",
+        suggestion: "压缩长句。"
+      },
+      {
+        checkId: "draft.ai_trace" as const,
+        status: verdict === "pass" ? ("pass" as const) : ("issue" as const),
+        evidence: "存在模板化句式。",
+        suggestion: "改成具体判断。"
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream: "清洁版要删除重复判断和模板化转折。"
+  };
+}
+
 class FailingAIStyleCheckClient extends FakeAIClient {
   async runAIStyleCheck(): Promise<never> {
     throw new Error("ai style check unavailable");
@@ -34,13 +63,17 @@ class EmptyHighRiskAIStyleCheckClient extends FakeAIClient {
       verdict: "heavy_slop",
       score: 20,
       summaryMarkdown: "有明显表达水分。",
-      issues: []
+      issues: [],
+      qualityGate: draftQualityGate("revise")
     };
   }
 }
 
 class CleanDraftClient extends FakeAIClient {
-  async reviseDraft(): Promise<GeneratedDraft> {
+  lastPrompt = "";
+
+  async reviseDraft(prompt: string): Promise<GeneratedDraft> {
+    this.lastPrompt = prompt;
     return {
       markdown: "# 清洁版文案\n\n把模板化表达改成直接判断。"
     };
@@ -64,6 +97,8 @@ describe("article AI style check service", () => {
     expect(second.id).not.toBe(first.id);
     expect(checks).toHaveLength(2);
     expect(invocations).toHaveLength(2);
+    expect(invocations[0].prompt).toContain("draft.text_cleanliness");
+    expect(invocations[0].response).toContain("\"qualityGate\"");
     expect(getArticle(article.id, db)?.status).toBe("draft_generated");
   });
 
@@ -118,6 +153,8 @@ describe("article AI style check service", () => {
     const requirementSnapshots = db.select().from(aiInvocationRequirements).where(eq(aiInvocationRequirements.aiInvocationId, invocation?.id || "")).all();
 
     expect(invocation?.prompt).toContain("文案清洁检查");
+    expect(invocation?.prompt).toContain("节点质量门");
+    expect(invocation?.prompt).toContain("draft.expression_efficiency");
     expect(invocation?.prompt).toContain("只检查表达层面的水分");
     expect(invocation?.prompt).toContain("本次重点检查重复判断");
     expect(invocation?.prompt).toContain(requirement.promptFragment);
@@ -151,10 +188,12 @@ describe("article AI style check service", () => {
     const { article, draft } = await createArticleWithDraft(db);
     const originalMarkdown = draft.markdown;
     const check = await runAIStyleCheck(article.id, { draftVersionId: draft.id }, new FakeAIClient(), db);
+    const cleanClient = new CleanDraftClient();
 
-    const cleanDraft = await reviseFromAIStyleCheck(article.id, { checkId: check.id }, new CleanDraftClient(), db);
+    const cleanDraft = await reviseFromAIStyleCheck(article.id, { checkId: check.id }, cleanClient, db);
     const drafts = db.select().from(draftVersions).where(eq(draftVersions.articleId, article.id)).all();
     const sourceDraft = db.select().from(draftVersions).where(eq(draftVersions.id, draft.id)).get();
+    const cleanInvocation = db.select().from(aiInvocations).where(eq(aiInvocations.id, cleanDraft.sourceInvocationId as string)).get();
 
     expect(cleanDraft.versionNo).toBe(2);
     expect(cleanDraft.markdown).toContain("清洁版文案");
@@ -162,6 +201,9 @@ describe("article AI style check service", () => {
     expect(cleanDraft.sourceInvocationId).toBeTruthy();
     expect(sourceDraft?.markdown).toBe(originalMarkdown);
     expect(drafts).toHaveLength(2);
+    expect(cleanClient.lastPrompt).toContain("文案质量门结果");
+    expect(cleanClient.lastPrompt).toContain("需要删除重复判断和 AI 味转折");
+    expect(cleanInvocation?.upstreamContextJson).toContain("draftQualityGate");
     expect(getArticle(article.id, db)?.status).toBe("draft_generated");
   });
 

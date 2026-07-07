@@ -15,6 +15,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function draftQualityGate(verdict: "pass" | "revise" = "revise") {
+  return {
+    stage: "draft" as const,
+    verdict,
+    ownedChecks: [
+      {
+        checkId: "draft.text_cleanliness" as const,
+        status: verdict === "pass" ? ("pass" as const) : ("issue" as const),
+        evidence: "文字仍有绕话。",
+        suggestion: "删掉绕话。"
+      },
+      {
+        checkId: "draft.expression_efficiency" as const,
+        status: verdict === "pass" ? ("pass" as const) : ("issue" as const),
+        evidence: "表达可以更短。",
+        suggestion: "压缩表达。"
+      },
+      {
+        checkId: "draft.ai_trace" as const,
+        status: verdict === "pass" ? ("pass" as const) : ("issue" as const),
+        evidence: "有 AI 味句式。",
+        suggestion: "改成具体判断。"
+      }
+    ],
+    upstreamRework: [],
+    summaryForDownstream: "清洁版要删掉绕话和 AI 味句式。"
+  };
+}
+
 describe("fake AI client", () => {
   it("generates at least five structured angles", async () => {
     const client = new FakeAIClient();
@@ -34,6 +63,7 @@ describe("fake AI client", () => {
     expect(topicDiagnosis.targetReaderCheck).toContain("目标读者");
     expect(outline.mainline).toContain("这篇文章");
     expect(draft.markdown).toContain("#");
+    expect(draft.qualityGate?.stage).toBe("draft");
   });
 
   it("generates stable content research", async () => {
@@ -273,6 +303,7 @@ describe("fake AI client", () => {
     expect(check.summaryMarkdown).toContain("重复判断");
     expect(check.issues.length).toBeGreaterThan(0);
     expect(check.issues[0].quote).toBeTruthy();
+    expect(check.qualityGate.ownedChecks.map((item) => item.checkId)).toContain("draft.ai_trace");
   });
 
   it("generates stable illustration planning output", async () => {
@@ -334,39 +365,46 @@ describe("fake AI client", () => {
 
   it("normalizes AI style check responses with standard fields", () => {
     const check = normalizeGeneratedAIStyleCheck({
-      verdict: "heavy_slop",
-      score: 42,
-      summaryMarkdown: "有明显表达水分。",
-      issues: [
-        {
-          type: "ai_cliche",
-          severity: "high",
-          quote: "真正改变的不是速度，而是路径。",
-          problem: "句式模板化。",
-          fixDirection: "改成具体家庭场景。"
-        }
-      ]
+      artifact: {
+        verdict: "heavy_slop",
+        score: 42,
+        summaryMarkdown: "有明显表达水分。",
+        issues: [
+          {
+            type: "ai_cliche",
+            severity: "high",
+            quote: "真正改变的不是速度，而是路径。",
+            problem: "句式模板化。",
+            fixDirection: "改成具体家庭场景。"
+          }
+        ]
+      },
+      qualityGate: draftQualityGate("revise")
     });
 
     expect(check.verdict).toBe("heavy_slop");
     expect(check.score).toBe(42);
     expect(check.issues[0].type).toBe("ai_cliche");
+    expect(check.qualityGate.summaryForDownstream).toContain("清洁版");
   });
 
   it("normalizes AI style check responses with Chinese fields", () => {
     const check = normalizeGeneratedAIStyleCheck({
-      清洁度判断: "需要清理",
-      分数: "68 分",
-      摘要: "有重复判断。",
-      问题列表: [
-        {
-          问题类型: "repetition",
-          严重程度: "medium",
-          原文片段: "速度只是表层",
-          问题说明: "前面已经说过。",
-          修改方向: "合并到上一段。"
-        }
-      ]
+      artifact: {
+        清洁度判断: "需要清理",
+        分数: "68 分",
+        摘要: "有重复判断。",
+        问题列表: [
+          {
+            问题类型: "repetition",
+            严重程度: "medium",
+            原文片段: "速度只是表层",
+            问题说明: "前面已经说过。",
+            修改方向: "合并到上一段。"
+          }
+        ]
+      },
+      qualityGate: draftQualityGate("revise")
     });
 
     expect(check.verdict).toBe("needs_cleanup");
@@ -378,9 +416,12 @@ describe("fake AI client", () => {
   it("rejects high-risk AI style checks without issues", () => {
     expect(() =>
       normalizeGeneratedAIStyleCheck({
-        清洁度判断: "重度水分",
-        摘要: "有明显问题。",
-        问题列表: []
+        artifact: {
+          清洁度判断: "重度水分",
+          摘要: "有明显问题。",
+          问题列表: []
+        },
+        qualityGate: draftQualityGate("revise")
       })
     ).toThrow("AI 返回的问题列表为空");
   });
