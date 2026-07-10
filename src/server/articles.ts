@@ -63,6 +63,19 @@ import { extractQualityGateResultFromResponse } from "./quality-gate-results";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
 import {
+  buildAngleCandidatesStageContract,
+  buildAngleStageContract,
+  buildTopicStageContract
+} from "./stage-contract-builders";
+import { buildStageContext, type CompiledStageContext } from "./stage-context";
+import {
+  completeStageRun,
+  failStageRun,
+  markDownstreamStageRunsStale,
+  startStageRun,
+  type StageInputReference
+} from "./stage-runs";
+import {
   assertTopicDiagnosisContextAllowsDownstreamFlow,
   formatTopicDiagnosisContextForPrompt,
   getLatestTopicDiagnosisContext,
@@ -516,6 +529,25 @@ function buildResearchMarkdown(generated: GeneratedContentResearch): string {
     .map(([title, content]) => (content.trim() ? `${title}\n${content.trim()}` : ""))
     .filter(Boolean)
     .join("\n\n");
+}
+
+function stageInputReferences(context: CompiledStageContext): StageInputReference[] {
+  return context.contracts.map((contract) => ({
+    type: contract.sourceArtifactType || "stage_contract",
+    id: contract.sourceArtifactId || contract.contractId,
+    versionNo: contract.versionNo,
+    contractId: contract.contractId
+  }));
+}
+
+function withCompiledStageContext(
+  legacyContext: UpstreamContextSnapshot | null,
+  context: CompiledStageContext
+): UpstreamContextSnapshot {
+  return {
+    ...(legacyContext || {}),
+    stageContext: context.snapshot
+  };
 }
 
 function formatResearchForOutlinePrompt(research: ResearchVersion | null): string {
@@ -998,6 +1030,15 @@ export async function runTopicDiagnosis(
       customInstruction: parsed.customInstruction
     }
   );
+  const topicVersion = listTopicVersions(article.id, db)[0] || null;
+  const topicStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "topic",
+      inputRefs: topicVersion ? [{ type: "topic_version", id: topicVersion.id, versionNo: topicVersion.versionNo }] : []
+    },
+    db
+  );
 
   try {
     const generated = await client.diagnoseTopic(prompt);
@@ -1040,6 +1081,23 @@ export async function runTopicDiagnosis(
       diagnosis = { ...diagnosis, sourceInvocationId: invocationId };
       db.insert(topicDiagnoses).values(diagnosis).run();
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: topicStageRun.id,
+          status:
+            generated.qualityGate.verdict === "pass"
+              ? "approved"
+              : generated.qualityGate.verdict === "revise"
+                ? "revise"
+                : "needs_input",
+          outputArtifact: { type: "topic_diagnosis", id: diagnosis.id },
+          sourceInvocationId: invocationId,
+          contract: buildTopicStageContract(article, generated),
+          createdBy: "ai"
+        },
+        db
+      );
 
       const fromStatus = article.status as ArticleStatus;
       if (fromStatus === "topic_created") {
@@ -1056,9 +1114,11 @@ export async function runTopicDiagnosis(
       }
     });
 
+    markDownstreamStageRunsStale(article.id, "topic", db);
+
     return diagnosis;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "topic_diagnosis",
       client,
@@ -1067,6 +1127,7 @@ export async function runTopicDiagnosis(
       error,
       fallbackMessage: "AI 选题诊断失败"
     });
+    failStageRun(article.id, topicStageRun.id, getErrorMessage(error, "AI 选题诊断失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -1081,7 +1142,8 @@ export async function generateAngles(
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
   assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
-  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
+  const compiledStageContext = buildStageContext(article.id, "angle", db);
+  const upstreamContext = withCompiledStageContext(toUpstreamContextSnapshot(topicDiagnosisContext), compiledStageContext);
   const stagePrompt = getStagePromptDefault("angle", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "angle", db);
   const prompt = buildLayeredPrompt(
@@ -1092,7 +1154,7 @@ export async function generateAngles(
         coreProblem: article.coreProblem,
         hotAnchor: article.hotAnchor
       }),
-      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "angle")
+      compiledStageContext.promptText || formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "angle")
     ]
       .filter(Boolean)
       .join("\n\n"),
@@ -1101,6 +1163,14 @@ export async function generateAngles(
       selectedRequirements,
       customInstruction: parsed.customInstruction
     }
+  );
+  const angleStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "angle",
+      inputRefs: stageInputReferences(compiledStageContext)
+    },
+    db
   );
 
   try {
@@ -1140,11 +1210,23 @@ export async function generateAngles(
         status: "success"
       });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: angleStageRun.id,
+          status: "needs_input",
+          outputArtifact: { type: "angle_candidates", id: invocationId },
+          sourceInvocationId: invocationId,
+          contract: buildAngleCandidatesStageContract(created.length),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
     return created;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "generate_angles",
       client,
@@ -1155,6 +1237,7 @@ export async function generateAngles(
       error,
       fallbackMessage: "AI 生成角度失败"
     });
+    failStageRun(article.id, angleStageRun.id, getErrorMessage(error, "AI 生成角度失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -1171,6 +1254,7 @@ export function selectAngle(articleId: string, angleId: string, db: WorkbenchDat
   }
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
   assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
+  const compiledStageContext = buildStageContext(article.id, "angle", db);
 
   db.transaction(() => {
     db.update(angleCandidates).set({ selected: false }).where(eq(angleCandidates.articleId, articleId)).run();
@@ -1180,7 +1264,28 @@ export function selectAngle(articleId: string, angleId: string, db: WorkbenchDat
       .where(eq(articleProjects.id, articleId))
       .run();
     transitionArticle(db, article, "angle_selected", "select_angle", { angleId });
+    const stageRun = startStageRun(
+      {
+        articleId: article.id,
+        stage: "angle",
+        inputRefs: stageInputReferences(compiledStageContext)
+      },
+      db
+    );
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: stageRun.id,
+        status: "approved",
+        outputArtifact: { type: "angle", id: angle.id },
+        contract: buildAngleStageContract({ ...angle, selected: true }),
+        createdBy: "user"
+      },
+      db
+    );
   });
+
+  markDownstreamStageRunsStale(article.id, "angle", db);
 
   return { ...angle, selected: true };
 }

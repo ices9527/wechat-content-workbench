@@ -1,7 +1,16 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocationRequirements, aiInvocations, angleCandidates, draftVersions, outlineVersions, workflowEvents } from "@/db/schema";
+import {
+  aiInvocationRequirements,
+  aiInvocations,
+  angleCandidates,
+  draftVersions,
+  outlineVersions,
+  stageContracts,
+  stageRuns,
+  workflowEvents
+} from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { FakeAIClient, HoldTopicDiagnosisClient, IncompleteOutlineClient, ReviseOutlineQualityGateClient } from "./articles-test-utils";
@@ -50,13 +59,19 @@ describe("article angle and outline service", () => {
     expect(angles[0].source).toBe("ai");
     expect(angleInvocation?.prompt).toContain("这次只要家庭现金流角度。");
     expect(angleInvocation?.prompt).toContain(requirement.promptFragment);
-    expect(angleInvocation?.prompt).toContain("上游选题诊断质量门");
+    expect(angleInvocation?.prompt).toContain("结构化上游契约");
+    expect(angleInvocation?.prompt).toContain("主题与选题（topic v1）");
     expect(angleInvocation?.prompt).toContain("角度生成必须聚焦跨境家庭的生活资金路径");
-    expect(angleInvocation?.prompt).not.toContain("主要风险是写成资料解释或工具宣传");
+    expect(angleInvocation?.prompt).toContain("主要风险是写成资料解释或工具宣传");
     expect(angleInvocation?.upstreamContextJson || "").toContain('"qualityGate"');
     expect(angleInvocation?.upstreamContextJson || "").toContain('"summaryForDownstream"');
+    expect(angleInvocation?.upstreamContextJson || "").toContain('"stageContext"');
+    expect(angleInvocation?.upstreamContextJson || "").toContain('"contractId"');
     expect(snapshots[0].labelSnapshot).toBe(requirement.label);
     expect(updated?.status).toBe("angles_generated");
+    expect(db.select().from(stageRuns).all()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ stage: "angle", status: "needs_input" })])
+    );
   });
 
   it("selects a single angle", () => {
@@ -73,6 +88,14 @@ describe("article angle and outline service", () => {
     expect(selected).toHaveLength(1);
     expect(selected[0].id).toBe(second.id);
     expect(updated?.status).toBe("angle_selected");
+    const angleRuns = db.select().from(stageRuns).where(eq(stageRuns.stage, "angle")).all();
+    const angleContracts = db.select().from(stageContracts).where(eq(stageContracts.stage, "angle")).all();
+    expect(angleRuns.filter((run) => run.status === "approved")).toHaveLength(2);
+    expect(angleContracts).toHaveLength(2);
+    expect(JSON.parse(angleContracts[1].contractJson)).toMatchObject({
+      stage: "angle",
+      decision: expect.stringContaining("角度二")
+    });
   });
 
   it("reselects an angle after draft generation and keeps previous versions as history", async () => {

@@ -151,12 +151,19 @@ export function failStageRun(
   articleId: string,
   runId: string,
   error: string,
-  db: WorkbenchDatabase = getDatabase().db
+  db: WorkbenchDatabase = getDatabase().db,
+  sourceInvocationId?: string | null
 ): StageRun {
   const run = requireStageRun(articleId, runId, db);
   const completedAt = new Date().toISOString();
   db.update(stageRuns)
-    .set({ status: "failed", errorMessage: error, completedAt, updatedAt: completedAt })
+    .set({
+      status: "failed",
+      sourceInvocationId: sourceInvocationId ?? run.sourceInvocationId,
+      errorMessage: error,
+      completedAt,
+      updatedAt: completedAt
+    })
     .where(eq(stageRuns.id, run.id))
     .run();
   return requireStageRun(articleId, runId, db);

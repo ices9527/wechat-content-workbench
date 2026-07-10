@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { type WorkbenchDatabase } from "@/db/client";
 import { aiInvocations, topicDiagnoses, type ArticleProject } from "@/db/schema";
 import type { QualityGateResult } from "@/domain/quality-gates";
+import type { StageContextSnapshot } from "./stage-context";
 
 import { extractQualityGateResultFromResponse } from "./quality-gate-results";
 
@@ -29,6 +30,7 @@ export type UpstreamContextSnapshot = {
   topicDiagnosis?: TopicDiagnosisContext | null;
   outlineQualityGate?: unknown;
   draftQualityGate?: unknown;
+  stageContext?: StageContextSnapshot;
 };
 
 export function getLatestTopicDiagnosisContext(articleId: string, db: WorkbenchDatabase): TopicDiagnosisContext | null {

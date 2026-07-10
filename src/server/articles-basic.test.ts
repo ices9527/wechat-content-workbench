@@ -1,7 +1,16 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocationRequirements, aiInvocations, requirementPresets, topicDiagnoses, topicVersions, workflowEvents } from "@/db/schema";
+import {
+  aiInvocationRequirements,
+  aiInvocations,
+  requirementPresets,
+  stageContracts,
+  stageRuns,
+  topicDiagnoses,
+  topicVersions,
+  workflowEvents
+} from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import {
@@ -452,6 +461,30 @@ describe("article service basics", () => {
     expect(invocation?.prompt).toContain("用户本次额外约束");
   });
 
+  it("records topic diagnosis as the current topic StageRun and StageContract", async () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "香港账户还能不能开", targetReader: "跨境家庭" }, db);
+
+    const diagnosis = await runTopicDiagnosis(article.id, {}, new PassTopicDiagnosisClient(), db);
+    const runs = db.select().from(stageRuns).all();
+    const contracts = db.select().from(stageContracts).all();
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      articleId: article.id,
+      stage: "topic",
+      status: "approved",
+      sourceInvocationId: diagnosis.sourceInvocationId,
+      outputArtifactType: "topic_diagnosis",
+      outputArtifactId: diagnosis.id
+    });
+    expect(contracts).toHaveLength(1);
+    expect(JSON.parse(contracts[0].contractJson)).toMatchObject({
+      stage: "topic",
+      qualityGate: { verdict: "pass" }
+    });
+  });
+
   it("keeps later workflow status when topic diagnosis is rerun", async () => {
     const { db } = createTestDatabase();
     const { article } = await createArticleWithDraft(db);
@@ -480,6 +513,9 @@ describe("article service basics", () => {
     expect(invocations).toHaveLength(1);
     expect(invocations[0].status).toBe("failed");
     expect(db.select().from(topicDiagnoses).all()).toHaveLength(0);
+    expect(db.select().from(stageRuns).all()).toEqual([
+      expect.objectContaining({ articleId: article.id, stage: "topic", status: "failed" })
+    ]);
     expect(getArticle(article.id, db)?.status).toBe("topic_created");
   });
 
