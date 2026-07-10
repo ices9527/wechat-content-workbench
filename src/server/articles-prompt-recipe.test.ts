@@ -132,7 +132,9 @@ describe("article prompt recipe service", () => {
     expect(outlineRecipe.upstreamTopicDiagnosis?.verdict).toBe("revise");
     expect(outlineRecipe.upstreamTopicDiagnosis?.topicSnapshot).toBe("香港账户还能不能开");
     expect(outlineRecipe.upstreamTopicDiagnosis?.qualityGate?.summaryForDownstream).toContain("资金路径");
-    expect(outlineRecipe.finalPrompt).toContain("上游选题诊断质量门");
+    expect(outlineRecipe.finalPrompt).toContain("结构化上游契约");
+    expect(outlineRecipe.finalPrompt).toContain("主题与选题（topic v1）");
+    expect(outlineRecipe.finalPrompt).toContain("写作角度（angle v1）");
     expect(draftRecipe.upstreamTopicDiagnosis?.riskSummary).toContain("资料解释");
     expect(draftRecipe.finalPrompt).toContain("下游摘要");
     expect(draftRecipe.finalPrompt).toContain("本阶段约束");

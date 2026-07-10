@@ -92,18 +92,18 @@ export function buildResearchStageContract(research: ResearchVersion): StageCont
   };
 }
 
-export function buildOutlineStageContract(outline: OutlineVersion, qualityGate: QualityGateResult): StageContractPayload {
+export function buildOutlineStageContract(outline: OutlineVersion, qualityGate: QualityGateResult | null): StageContractPayload {
   return {
     stage: "outline",
     decision: outline.mainline,
     readerPromise: null,
     constraints: [],
-    risks: qualityGate.ownedChecks.filter((item) => item.status === "issue").flatMap((item) => compact([item.evidence])),
-    mustCarryForward: compact([outline.mainline, qualityGate.summaryForDownstream]),
+    risks: qualityGate?.ownedChecks.filter((item) => item.status === "issue").flatMap((item) => compact([item.evidence])) || [],
+    mustCarryForward: compact([outline.mainline, qualityGate?.summaryForDownstream]),
     doNotDo: [],
-    openQuestions: qualityGate.upstreamRework.map((item) => item.reason),
+    openQuestions: qualityGate?.upstreamRework.map((item) => item.reason) || ["提纲尚未生成质量门结果。"],
     evidenceNeeds: [],
-    downstreamHints: { draft: compact([qualityGate.summaryForDownstream]) },
+    downstreamHints: { draft: compact([qualityGate?.summaryForDownstream]) },
     qualityGate
   };
 }

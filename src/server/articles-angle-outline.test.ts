@@ -188,6 +188,15 @@ describe("article angle and outline service", () => {
     expect(draftInvocation?.upstreamContextJson || "").toContain("outlineQualityGate");
     expect(saved.versionNo).toBe(2);
     expect(getArticle(article.id, db)?.status).toBe("draft_generated");
+    const outlineRuns = db.select().from(stageRuns).where(eq(stageRuns.stage, "outline")).all();
+    const outlineContracts = db.select().from(stageContracts).where(eq(stageContracts.stage, "outline")).all();
+    expect(outlineRuns.map((run) => run.status)).toEqual(["needs_input", "approved"]);
+    expect(outlineContracts).toHaveLength(2);
+    expect(JSON.parse(outlineContracts[1].contractJson)).toMatchObject({
+      stage: "outline",
+      decision: outline.mainline,
+      qualityGate: { stage: "outline", verdict: "pass" }
+    });
   });
 
   it("blocks draft generation when the accepted outline quality gate needs revision", async () => {

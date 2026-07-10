@@ -54,6 +54,7 @@ import { htmlToPlainText } from "./html-text";
 import {
   assertOutlineQualityGateAllowsDraft,
   formatOutlineQualityGateContextForPrompt,
+  getOutlineQualityGateContext,
   requireOutlineQualityGateContext
 } from "./outline-quality-gate-context";
 import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
@@ -65,6 +66,8 @@ import { getStagePromptDefault } from "./stage-prompts";
 import {
   buildAngleCandidatesStageContract,
   buildAngleStageContract,
+  buildOutlineStageContract,
+  buildResearchStageContract,
   buildTopicStageContract
 } from "./stage-contract-builders";
 import { buildStageContext, type CompiledStageContext } from "./stage-context";
@@ -1302,7 +1305,6 @@ export async function generateContentResearch(
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
   assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
-  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   if (!article.selectedAngleId) {
     throw new Error("请先选择一个角度");
   }
@@ -1314,6 +1316,16 @@ export async function generateContentResearch(
   if (!angle) {
     throw new Error("选中的角度不存在");
   }
+  const compiledStageContext = buildStageContext(article.id, "research", db);
+  const upstreamContext = withCompiledStageContext(toUpstreamContextSnapshot(topicDiagnosisContext), compiledStageContext);
+  const researchStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "research",
+      inputRefs: stageInputReferences(compiledStageContext)
+    },
+    db
+  );
   const stagePrompt = getStagePromptDefault("research", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "research", db);
   const prompt = buildLayeredPrompt(
@@ -1328,7 +1340,7 @@ export async function generateContentResearch(
         promise: angle.promise,
         risk: angle.risk
       }),
-      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "content_research")
+      compiledStageContext.promptText || formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "content_research")
     ]
       .filter(Boolean)
       .join("\n\n"),
@@ -1385,11 +1397,24 @@ export async function generateContentResearch(
         sourceAngleId: angle.id
       });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: researchStageRun.id,
+          status: "completed",
+          outputArtifact: { type: "research_version", id: research.id },
+          sourceInvocationId: invocationId,
+          contract: buildResearchStageContract(research),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "research", db);
     return research;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "content_research",
       client,
@@ -1400,6 +1425,7 @@ export async function generateContentResearch(
       error,
       fallbackMessage: "AI 内容研究失败"
     });
+    failStageRun(article.id, researchStageRun.id, getErrorMessage(error, "AI 内容研究失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -1413,6 +1439,18 @@ export function saveManualResearchVersion(
   const article = requireArticle(articleId, db);
   const sourceResearch = requireResearchVersion(article.id, parsed.sourceResearchVersionId, db);
   const existing = listResearchVersions(article.id, db);
+  const compiledStageContext = buildStageContext(article.id, "research", db);
+  const researchStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "research",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "research_version", id: sourceResearch.id, versionNo: sourceResearch.versionNo }
+      ]
+    },
+    db
+  );
   const research: ResearchVersion = {
     id: randomUUID(),
     articleId: article.id,
@@ -1440,8 +1478,20 @@ export function saveManualResearchVersion(
       sourceResearchVersionId: sourceResearch.id,
       sourceAngleId: research.sourceAngleId
     });
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: researchStageRun.id,
+        status: "completed",
+        outputArtifact: { type: "research_version", id: research.id },
+        contract: buildResearchStageContract(research),
+        createdBy: "user"
+      },
+      db
+    );
   });
 
+  markDownstreamStageRunsStale(article.id, "research", db);
   return research;
 }
 
@@ -1457,7 +1507,6 @@ export async function generateOutline(
   const article = requireArticle(articleId, db);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
   assertTopicDiagnosisContextAllowsDownstreamFlow(article, topicDiagnosisContext);
-  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
   if (!article.selectedAngleId) {
     throw new Error("请先选择一个角度");
   }
@@ -1475,6 +1524,16 @@ export async function generateOutline(
   if (parsed.researchVersionId && !research) {
     throw new Error("研究资料包不存在");
   }
+  const compiledStageContext = buildStageContext(article.id, "outline", db);
+  const upstreamContext = withCompiledStageContext(toUpstreamContextSnapshot(topicDiagnosisContext), compiledStageContext);
+  const outlineStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "outline",
+      inputRefs: stageInputReferences(compiledStageContext)
+    },
+    db
+  );
   const stagePrompt = getStagePromptDefault("outline", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "outline", db);
   const prompt = buildLayeredPrompt(
@@ -1489,7 +1548,7 @@ export async function generateOutline(
         }),
         "outline"
       ),
-      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "outline")
+      compiledStageContext.promptText || formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "outline")
     ]
       .filter(Boolean)
       .join("\n\n"),
@@ -1539,11 +1598,24 @@ export async function generateOutline(
         sourceResearchVersionId: research?.id || null
       });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: outlineStageRun.id,
+          status: generated.qualityGate.verdict === "pass" ? "needs_input" : "revise",
+          outputArtifact: { type: "outline_version", id: outline.id },
+          sourceInvocationId: invocationId,
+          contract: buildOutlineStageContract(outline, generated.qualityGate),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "outline", db);
     return outline;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "generate_outline",
       client,
@@ -1554,6 +1626,7 @@ export async function generateOutline(
       error,
       fallbackMessage: "AI 生成提纲失败"
     });
+    failStageRun(article.id, outlineStageRun.id, getErrorMessage(error, "AI 生成提纲失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -1579,7 +1652,30 @@ export function saveOutlineVersion(
     accepted: false,
     createdAt: new Date().toISOString()
   };
-  db.insert(outlineVersions).values(outline).run();
+  const compiledStageContext = buildStageContext(article.id, "outline", db);
+  const outlineStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "outline",
+      inputRefs: stageInputReferences(compiledStageContext)
+    },
+    db
+  );
+  db.transaction(() => {
+    db.insert(outlineVersions).values(outline).run();
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: outlineStageRun.id,
+        status: "needs_input",
+        outputArtifact: { type: "outline_version", id: outline.id },
+        contract: buildOutlineStageContract(outline, null),
+        createdBy: "user"
+      },
+      db
+    );
+  });
+  markDownstreamStageRunsStale(article.id, "outline", db);
   return outline;
 }
 
@@ -1603,6 +1699,7 @@ export function updateOutlineVersion(
     outlineVersionId: outline.id,
     versionNo: outline.versionNo
   });
+  markDownstreamStageRunsStale(article.id, "outline", db);
 
   return {
     ...outline,
@@ -1621,6 +1718,19 @@ export function acceptOutline(articleId: string, outlineId: string, db: Workbenc
   if (!outline) {
     throw new Error("提纲不存在");
   }
+  const compiledStageContext = buildStageContext(article.id, "outline", db);
+  const qualityGateContext = getOutlineQualityGateContext(outline, db);
+  const outlineStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "outline",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "outline_version", id: outline.id, versionNo: outline.versionNo }
+      ]
+    },
+    db
+  );
 
   db.transaction(() => {
     db.update(outlineVersions).set({ accepted: false }).where(eq(outlineVersions.articleId, articleId)).run();
@@ -1628,8 +1738,21 @@ export function acceptOutline(articleId: string, outlineId: string, db: Workbenc
     if (article.status === "outline_generated") {
       transitionArticle(db, article, "outline_review", "accept_outline", { outlineId });
     }
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: outlineStageRun.id,
+        status: "approved",
+        outputArtifact: { type: "outline_version", id: outline.id },
+        sourceInvocationId: outline.sourceInvocationId,
+        contract: buildOutlineStageContract({ ...outline, accepted: true }, qualityGateContext?.qualityGate || null),
+        createdBy: "user"
+      },
+      db
+    );
   });
 
+  markDownstreamStageRunsStale(article.id, "outline", db);
   return { ...outline, accepted: true };
 }
 

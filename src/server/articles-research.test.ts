@@ -1,7 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocationRequirements, aiInvocations, outlineVersions, researchVersions } from "@/db/schema";
+import {
+  aiInvocationRequirements,
+  aiInvocations,
+  outlineVersions,
+  researchVersions,
+  stageContracts,
+  stageRuns
+} from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import type { GeneratedContentResearch } from "./ai";
@@ -73,6 +80,17 @@ describe("article content research service", () => {
     expect(research.summaryMarkdown).toContain("家庭");
     expect(invocations[0].prompt).toContain("不写正文");
     expect(invocations[0].prompt).toContain("重点研究家庭现金流场景。");
+    expect(invocations[0].prompt).toContain("结构化上游契约");
+    expect(invocations[0].upstreamContextJson || "").toContain('"stageContext"');
+
+    const run = db.select().from(stageRuns).where(eq(stageRuns.stage, "research")).get();
+    const contract = db.select().from(stageContracts).where(eq(stageContracts.stage, "research")).get();
+    expect(run).toMatchObject({ status: "completed", outputArtifactId: research.id });
+    expect(contract).toMatchObject({ stageRunId: run?.id, sourceArtifactId: research.id, sourceInvocationId: invocations[0].id });
+    expect(JSON.parse(contract?.contractJson || "{}")).toMatchObject({
+      stage: "research",
+      decision: expect.stringContaining("家庭")
+    });
   });
 
   it("keeps multiple research versions as history", async () => {
@@ -118,6 +136,10 @@ describe("article content research service", () => {
     expect(versions[0].id).toBe(manualResearch.id);
     expect(versions[1].id).toBe(aiResearch.id);
     expect(versions[1].researchMarkdown).toBe(aiResearch.researchMarkdown);
+    const runs = db.select().from(stageRuns).where(eq(stageRuns.stage, "research")).all();
+    const contracts = db.select().from(stageContracts).where(eq(stageContracts.stage, "research")).all();
+    expect(runs.map((run) => run.status)).toEqual(["completed", "completed"]);
+    expect(contracts[1]).toMatchObject({ sourceArtifactId: manualResearch.id, createdBy: "user" });
   });
 
   it("rejects empty manual research edits", async () => {
@@ -214,6 +236,11 @@ describe("article content research service", () => {
     expect(invocations[0].status).toBe("failed");
     expect(invocations[0].errorMessage).toBe("research unavailable");
     expect(db.select().from(researchVersions).all()).toHaveLength(0);
+    expect(db.select().from(stageRuns).where(eq(stageRuns.stage, "research")).get()).toMatchObject({
+      status: "failed",
+      sourceInvocationId: invocations[0].id,
+      errorMessage: "research unavailable"
+    });
   });
 
   it("rejects empty content research packages", async () => {
@@ -242,6 +269,18 @@ describe("article content research service", () => {
     expect(invocation?.prompt).toContain("内容研究资料包摘要");
     expect(invocation?.prompt).toContain(research.summaryMarkdown);
     expect(invocation?.prompt).toContain("资料包边界提醒");
+    expect(invocation?.upstreamContextJson || "").toContain(research.id);
+    const run = db.select().from(stageRuns).where(eq(stageRuns.stage, "outline")).get();
+    const contract = db.select().from(stageContracts).where(eq(stageContracts.stage, "outline")).get();
+    expect(run).toMatchObject({ status: "needs_input", outputArtifactId: outline.id });
+    expect(JSON.parse(run?.inputRefsJson || "[]")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: research.id, contractId: expect.any(String) })])
+    );
+    expect(JSON.parse(contract?.contractJson || "{}")).toMatchObject({
+      stage: "outline",
+      decision: outline.mainline,
+      qualityGate: { stage: "outline", verdict: "pass" }
+    });
   });
 
   it("keeps the old outline flow working without research", async () => {
