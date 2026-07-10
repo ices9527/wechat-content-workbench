@@ -7,6 +7,8 @@ import {
   promptRunArtifacts,
   requirementPresets,
   researchVersions,
+  stageContracts,
+  stageRuns,
   stagePromptDefaults
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
@@ -434,6 +436,21 @@ describe("article prompt recipe service", () => {
     expect(prePublishRecipe.taskType).toBe("pre_publish_check");
     expect(prePublishRecipe.selectedRequirements.map((item) => item.label)).toContain(prePublishRequirement.label);
     expect(prePublishRecipe.customInstruction).toBe("重点检查转发理由。");
+    expect(prePublishRecipe.finalPrompt).toContain("结构化上游契约");
+    const prePublishInvocation = db
+      .select()
+      .from(aiInvocations)
+      .where(eq(aiInvocations.id, prePublishArtifact.sourceInvocationId as string))
+      .get();
+    expect(prePublishInvocation?.upstreamContextJson || "").toContain('"stageContext"');
+    expect(db.select().from(stageRuns).where(eq(stageRuns.stage, "publish")).all().at(-1)).toMatchObject({
+      status: "needs_input",
+      outputArtifactId: prePublishArtifact.id
+    });
+    expect(db.select().from(stageContracts).where(eq(stageContracts.stage, "publish")).all().at(-1)).toMatchObject({
+      sourceArtifactId: prePublishArtifact.id,
+      sourceInvocationId: prePublishArtifact.sourceInvocationId
+    });
     expect(reviewRecipe.taskType).toBe("review_check");
     expect(reviewRecipe.selectedRequirements.map((item) => item.label)).toContain(reviewRequirement.label);
     expect(reviewRecipe.customInstruction).toBe("先看触达，不先怪文案。");

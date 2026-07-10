@@ -69,6 +69,7 @@ import {
   buildDraftStageContract,
   buildFinalStageContract,
   buildOutlineStageContract,
+  buildPublishStageContract,
   buildResearchStageContract,
   buildTopicStageContract
 } from "./stage-contract-builders";
@@ -2423,9 +2424,40 @@ export function markReadyToPublish(articleId: string, db: WorkbenchDatabase = ge
   if (status === "ready_to_publish") {
     return article;
   }
-  return transitionArticle(db, article, "ready_to_publish", "mark_ready_to_publish", {
-    draftVersionId: finalDraft.id
+  const compiledStageContext = buildStageContext(article.id, "publish", db);
+  const publishStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "publish",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: finalDraft.id, versionNo: finalDraft.versionNo }
+      ]
+    },
+    db
+  );
+  let updated = article;
+  db.transaction(() => {
+    updated = transitionArticle(db, article, "ready_to_publish", "mark_ready_to_publish", {
+      draftVersionId: finalDraft.id
+    });
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: publishStageRun.id,
+        status: "needs_input",
+        outputArtifact: { type: "draft_version", id: finalDraft.id },
+        contract: buildPublishStageContract({
+          decision: `最终稿 v${finalDraft.versionNo} 已进入待发布流程。`,
+          finalDraft,
+          openQuestions: ["尚需生成 HTML、封面并上传微信草稿箱。"]
+        }),
+        createdBy: "user"
+      },
+      db
+    );
   });
+  return updated;
 }
 
 export async function runPrePublishCheck(
@@ -2438,18 +2470,36 @@ export async function runPrePublishCheck(
   const parsed = prePublishCheckInputSchema.parse(input);
   const finalDraft = requireFinalDraft(article, db);
   const publishContext = getPublishContext(article.id, db);
+  const compiledStageContext = buildStageContext(article.id, "publish", db);
+  const upstreamContext = withCompiledStageContext(null, compiledStageContext);
+  const publishStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "publish",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: finalDraft.id, versionNo: finalDraft.versionNo }
+      ]
+    },
+    db
+  );
   const stagePrompt = getStagePromptDefault("pre_publish", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "pre_publish", db);
   const prompt = buildLayeredPrompt(
-    renderPrompt("pre_publish_check", {
-      topic: article.topic,
-      title: article.title,
-      versionNo: String(finalDraft.versionNo),
-      markdown: finalDraft.markdown,
-      htmlAssetCount: String(publishContext.htmlAssetCount),
-      coverAssetCount: String(publishContext.coverAssetCount),
-      uploadStatus: publishContext.uploadStatus
-    }),
+    [
+      renderPrompt("pre_publish_check", {
+        topic: article.topic,
+        title: article.title,
+        versionNo: String(finalDraft.versionNo),
+        markdown: finalDraft.markdown,
+        htmlAssetCount: String(publishContext.htmlAssetCount),
+        coverAssetCount: String(publishContext.coverAssetCount),
+        uploadStatus: publishContext.uploadStatus
+      }),
+      compiledStageContext.promptText
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements,
@@ -2485,6 +2535,7 @@ export async function runPrePublishCheck(
         response: generated,
         customInstruction: parsed.customInstruction,
         stagePrompt,
+        upstreamContext,
         status: "success"
       });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
@@ -2494,20 +2545,40 @@ export async function runPrePublishCheck(
         artifactId: artifact.id,
         draftVersionId: finalDraft.id
       });
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: publishStageRun.id,
+          status: "needs_input",
+          outputArtifact: { type: "prompt_run_artifact", id: artifact.id },
+          sourceInvocationId: invocationId,
+          contract: buildPublishStageContract({
+            decision: generated.summaryMarkdown,
+            finalDraft,
+            openQuestions: ["发布前检查已完成，尚需用户处理发布包并确认上传。"],
+            artifactReferences: [`发布前检查 ID：${artifact.id}`]
+          }),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "publish", db);
     return artifact;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "pre_publish_check",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
+      upstreamContext,
       error,
       fallbackMessage: "生成发布前检查摘要失败"
     });
+    failStageRun(article.id, publishStageRun.id, getErrorMessage(error, "发布前检查失败"), db, failedInvocationId);
     throw error;
   }
 }

@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { articleAssets, wechatDraftUploadImages, wechatDraftUploads } from "@/db/schema";
+import { articleAssets, stageContracts, stageRuns, wechatDraftUploadImages, wechatDraftUploads } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { FakeAIClient } from "./ai";
@@ -299,6 +299,14 @@ describe("publishing service", () => {
     expect(db.select().from(wechatDraftUploads).all()).toHaveLength(1);
     expect(listWechatDraftUploadImages(articleId, db)).toHaveLength(0);
     expect(getArticle(articleId, db)?.status).toBe("uploaded_to_draft_box");
+    const publishRuns = db.select().from(stageRuns).all().filter((run) => run.stage === "publish");
+    const publishContracts = db.select().from(stageContracts).all().filter((contract) => contract.stage === "publish");
+    expect(publishRuns.map((run) => run.status)).toEqual(["needs_input", "needs_input", "needs_input", "completed"]);
+    expect(publishContracts).toHaveLength(4);
+    expect(JSON.parse(publishContracts.at(-1)?.contractJson || "{}")).toMatchObject({
+      stage: "publish",
+      decision: expect.stringContaining("微信草稿箱")
+    });
   });
 
   it("passes the prepared body image plan to the WeChat draft adapter", async () => {
@@ -601,5 +609,9 @@ describe("publishing service", () => {
     expect(upload.status).toBe("failed");
     expect(upload.errorMessage).toBe("微信接口失败");
     expect(getArticle(articleId, db)?.status).toBe("cover_generated");
+    expect(db.select().from(stageRuns).all().filter((run) => run.stage === "publish").at(-1)).toMatchObject({
+      status: "failed",
+      errorMessage: "微信接口失败"
+    });
   });
 });

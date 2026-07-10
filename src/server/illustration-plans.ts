@@ -26,6 +26,9 @@ import { CUSTOM_INSTRUCTION_MAX_LENGTH } from "./prompt-limits";
 import { buildLayeredPrompt, renderPrompt } from "./prompts";
 import { resolveSelectedRequirements } from "./requirements";
 import { getStagePromptDefault } from "./stage-prompts";
+import { buildIllustrationStageContract } from "./stage-contract-builders";
+import { buildStageContext, type CompiledStageContext } from "./stage-context";
+import { completeStageRun, failStageRun, markDownstreamStageRunsStale, startStageRun } from "./stage-runs";
 import { getLatestTopicDiagnosisContext, toUpstreamContextSnapshot, type UpstreamContextSnapshot } from "./topic-diagnosis-context";
 
 const promptControlInputShape = {
@@ -245,6 +248,19 @@ function buildPlanJson(items: IllustrationPlanItem[]): string {
   return JSON.stringify({ items } satisfies IllustrationPlanPayload);
 }
 
+function stageInputReferences(context: CompiledStageContext) {
+  return context.contracts.map((contract) => ({
+    type: contract.sourceArtifactType || "stage_contract",
+    id: contract.sourceArtifactId || contract.contractId,
+    versionNo: contract.versionNo,
+    contractId: contract.contractId
+  }));
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function parseIllustrationPlanPayload(planJson: string): IllustrationPlanPayload {
   try {
     const parsed = JSON.parse(planJson) as Partial<IllustrationPlanPayload>;
@@ -291,18 +307,38 @@ export async function generateIllustrationPlan(
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "illustration_plan", db);
   const selectedRequirementsSummary = buildSelectedRequirementSummary(selectedRequirements);
   const topicDiagnosisContext = getLatestTopicDiagnosisContext(article.id, db);
-  const upstreamContext = toUpstreamContextSnapshot(topicDiagnosisContext);
+  const compiledStageContext = buildStageContext(article.id, "illustration", db);
+  const upstreamContext: UpstreamContextSnapshot = {
+    ...(toUpstreamContextSnapshot(topicDiagnosisContext) || {}),
+    stageContext: compiledStageContext.snapshot
+  };
+  const illustrationStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "illustration",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: finalDraft.id, versionNo: finalDraft.versionNo }
+      ]
+    },
+    db
+  );
   const prompt = buildLayeredPrompt(
-    renderPrompt("illustration_plan", {
-      title: article.title,
-      targetReader: article.targetReader,
-      coreProblem: article.coreProblem,
-      mainline: getFinalDraftMainline(finalDraft, db),
-      complianceBoundaries: buildComplianceBoundaries(),
-      customInstruction: parsed.customInstruction,
-      selectedRequirementsSummary,
-      finalMarkdown: finalDraft.markdown
-    }),
+    [
+      renderPrompt("illustration_plan", {
+        title: article.title,
+        targetReader: article.targetReader,
+        coreProblem: article.coreProblem,
+        mainline: getFinalDraftMainline(finalDraft, db),
+        complianceBoundaries: buildComplianceBoundaries(),
+        customInstruction: parsed.customInstruction,
+        selectedRequirementsSummary,
+        finalMarkdown: finalDraft.markdown
+      }),
+      compiledStageContext.promptText
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements
@@ -350,11 +386,24 @@ export async function generateIllustrationPlan(
         finalDraftVersionId: finalDraft.id,
         itemCount: items.length
       });
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: illustrationStageRun.id,
+          status: "needs_input",
+          outputArtifact: { type: "illustration_plan", id: plan.id },
+          sourceInvocationId: invocationId,
+          contract: buildIllustrationStageContract(plan),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "illustration", db);
     return plan;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       client,
       prompt,
@@ -363,6 +412,7 @@ export async function generateIllustrationPlan(
       upstreamContext,
       error
     });
+    failStageRun(article.id, illustrationStageRun.id, errorMessage(error, "配图规划生成失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -384,6 +434,19 @@ export function updateIllustrationPlan(
     summaryMarkdown: parsed.summaryMarkdown,
     updatedAt: now
   };
+  const updatedPlan = { ...plan, ...updated };
+  const compiledStageContext = buildStageContext(article.id, "illustration", db);
+  const illustrationStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "illustration",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "illustration_plan", id: plan.id }
+      ]
+    },
+    db
+  );
 
   db.transaction(() => {
     db.update(illustrationPlans).set(updated).where(eq(illustrationPlans.id, plan.id)).run();
@@ -391,9 +454,21 @@ export function updateIllustrationPlan(
       planId: plan.id,
       itemCount: parsed.items.length
     });
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: illustrationStageRun.id,
+        status: "needs_input",
+        outputArtifact: { type: "illustration_plan", id: plan.id },
+        contract: buildIllustrationStageContract(updatedPlan),
+        createdBy: "user"
+      },
+      db
+    );
   });
 
-  return { ...plan, ...updated };
+  markDownstreamStageRunsStale(article.id, "illustration", db);
+  return updatedPlan;
 }
 
 export function confirmIllustrationPlan(
@@ -405,6 +480,19 @@ export function confirmIllustrationPlan(
   const parsed = confirmIllustrationPlanInputSchema.parse(input);
   const plan = requireIllustrationPlan(article.id, parsed.planId, db);
   const now = new Date().toISOString();
+  const confirmedPlan = { ...plan, status: "confirmed" as const, updatedAt: now };
+  const compiledStageContext = buildStageContext(article.id, "illustration", db);
+  const illustrationStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "illustration",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "illustration_plan", id: plan.id }
+      ]
+    },
+    db
+  );
 
   db.transaction(() => {
     for (const current of listIllustrationPlans(article.id, db)) {
@@ -417,7 +505,20 @@ export function confirmIllustrationPlan(
       planId: plan.id,
       finalDraftVersionId: plan.finalDraftVersionId
     });
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: illustrationStageRun.id,
+        status: "approved",
+        outputArtifact: { type: "illustration_plan", id: plan.id },
+        sourceInvocationId: plan.sourceInvocationId,
+        contract: buildIllustrationStageContract(confirmedPlan),
+        createdBy: "user"
+      },
+      db
+    );
   });
 
-  return { ...plan, status: "confirmed", updatedAt: now };
+  markDownstreamStageRunsStale(article.id, "illustration", db);
+  return confirmedPlan;
 }

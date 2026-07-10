@@ -25,6 +25,9 @@ import {
 
 import { isPlaceholderInlineIllustrationAsset } from "./inline-illustrations";
 import { parseIllustrationPlanPayload, type IllustrationPlanItem } from "./illustration-plans";
+import { buildPublishStageContract } from "./stage-contract-builders";
+import { buildStageContext, type CompiledStageContext } from "./stage-context";
+import { completeStageRun, failStageRun, startStageRun } from "./stage-runs";
 import {
   buildWechatBodyImageUploadPlan,
   type WechatBodyImageUploadResultItem,
@@ -201,6 +204,19 @@ function articleAssetDir(articleId: string, assetRoot = defaultAssetRoot()): str
 function writeAssetFile(filePath: string, content: string | Buffer): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function stageInputReferences(context: CompiledStageContext) {
+  return context.contracts.map((contract) => ({
+    type: contract.sourceArtifactType || "stage_contract",
+    id: contract.sourceArtifactId || contract.contractId,
+    versionNo: contract.versionNo,
+    contractId: contract.contractId
+  }));
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function escapeHtml(value: string): string {
@@ -435,26 +451,60 @@ export function renderWechatHtmlAsset(
     generatedAt: now,
     createdAt: now
   };
+  const compiledStageContext = buildStageContext(article.id, "publish", db);
+  const publishStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "publish",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: draft.id, versionNo: draft.versionNo }
+      ]
+    },
+    db
+  );
 
-  db.transaction(() => {
-    writeAssetFile(filePath, html);
-    db.insert(articleAssets).values(asset).run();
-    if (article.status === "ready_to_publish") {
-      transitionArticle(db, article, "publish_package_generated", "render_html", {
-        draftVersionId: draft.id,
-        assetId: asset.id,
-        inlineIllustrationAssetIds: rendered.insertedAssetIds,
-        warnings
-      });
-    } else {
-      recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "render_html", {
-        draftVersionId: draft.id,
-        assetId: asset.id,
-        inlineIllustrationAssetIds: rendered.insertedAssetIds,
-        warnings
-      });
-    }
-  });
+  try {
+    db.transaction(() => {
+      writeAssetFile(filePath, html);
+      db.insert(articleAssets).values(asset).run();
+      if (article.status === "ready_to_publish") {
+        transitionArticle(db, article, "publish_package_generated", "render_html", {
+          draftVersionId: draft.id,
+          assetId: asset.id,
+          inlineIllustrationAssetIds: rendered.insertedAssetIds,
+          warnings
+        });
+      } else {
+        recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "render_html", {
+          draftVersionId: draft.id,
+          assetId: asset.id,
+          inlineIllustrationAssetIds: rendered.insertedAssetIds,
+          warnings
+        });
+      }
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: publishStageRun.id,
+          status: "needs_input",
+          outputArtifact: { type: "article_asset", id: asset.id },
+          contract: buildPublishStageContract({
+            decision: `已为最终稿 v${draft.versionNo} 生成微信 HTML。`,
+            finalDraft: draft,
+            risks: warnings,
+            openQuestions: ["尚需生成封面并上传微信草稿箱。"],
+            artifactReferences: [`HTML 资产 ID：${asset.id}`]
+          }),
+          createdBy: "system"
+        },
+        db
+      );
+    });
+  } catch (error) {
+    failStageRun(article.id, publishStageRun.id, errorMessage(error, "生成微信 HTML 失败"), db);
+    throw error;
+  }
 
   return asset;
 }
@@ -526,58 +576,91 @@ export function generateCoverAssets(
       createdAt: now
     } satisfies ArticleAsset;
   });
+  const compiledStageContext = buildStageContext(article.id, "publish", db);
+  const publishStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "publish",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: draft.id, versionNo: draft.versionNo }
+      ]
+    },
+    db
+  );
 
-  db.transaction(() => {
-    if (source.buffer && source.filename) {
-      const uploadPath = path.join(articleAssetDir(article.id, root), "cover-source", source.filename);
-      writeAssetFile(uploadPath, source.buffer);
-      db.insert(articleAssets)
-        .values({
-          id: randomUUID(),
-          articleId: article.id,
-          ownerId: article.ownerId,
+  try {
+    db.transaction(() => {
+      if (source.buffer && source.filename) {
+        const uploadPath = path.join(articleAssetDir(article.id, root), "cover-source", source.filename);
+        writeAssetFile(uploadPath, source.buffer);
+        db.insert(articleAssets)
+          .values({
+            id: randomUUID(),
+            articleId: article.id,
+            ownerId: article.ownerId,
+            draftVersionId: draft.id,
+            sourcePlanId: null,
+            sourcePlanItemId: null,
+            assetType: "cover_source",
+            status: "ready",
+            variant: "upload",
+            path: uploadPath,
+            mimeType: source.mimeType || null,
+            source: "upload",
+            promptSnapshot: null,
+            provider: null,
+            errorMessage: null,
+            width: null,
+            height: null,
+            generatedAt: now,
+            createdAt: now
+          })
+          .run();
+      }
+      for (const asset of assets) {
+        const svg = buildCoverSvg({
+          title: article.title,
+          subtitle: "公众号发布封面",
+          width: asset.width || 900,
+          height: asset.height || 900,
+          sourceName: source.filename
+        });
+        writeAssetFile(asset.path, svg);
+      }
+      db.insert(articleAssets).values(assets).run();
+      if (article.status === "publish_package_generated") {
+        transitionArticle(db, article, "cover_generated", "generate_cover", {
           draftVersionId: draft.id,
-          sourcePlanId: null,
-          sourcePlanItemId: null,
-          assetType: "cover_source",
-          status: "ready",
-          variant: "upload",
-          path: uploadPath,
-          mimeType: source.mimeType || null,
-          source: "upload",
-          promptSnapshot: null,
-          provider: null,
-          errorMessage: null,
-          width: null,
-          height: null,
-          generatedAt: now,
-          createdAt: now
-        })
-        .run();
-    }
-    for (const asset of assets) {
-      const svg = buildCoverSvg({
-        title: article.title,
-        subtitle: "公众号发布封面",
-        width: asset.width || 900,
-        height: asset.height || 900,
-        sourceName: source.filename
-      });
-      writeAssetFile(asset.path, svg);
-    }
-    db.insert(articleAssets).values(assets).run();
-    if (article.status === "publish_package_generated") {
-      transitionArticle(db, article, "cover_generated", "generate_cover", {
-        draftVersionId: draft.id,
-        assetIds: assets.map((asset) => asset.id)
-      });
-    } else {
-      recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "generate_cover", {
-        draftVersionId: draft.id,
-        assetIds: assets.map((asset) => asset.id)
-      });
-    }
-  });
+          assetIds: assets.map((asset) => asset.id)
+        });
+      } else {
+        recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "generate_cover", {
+          draftVersionId: draft.id,
+          assetIds: assets.map((asset) => asset.id)
+        });
+      }
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: publishStageRun.id,
+          status: "needs_input",
+          outputArtifact: { type: "article_asset", id: assets[0].id },
+          contract: buildPublishStageContract({
+            decision: `已为最终稿 v${draft.versionNo} 生成 21:9 和 1:1 封面。`,
+            finalDraft: draft,
+            openQuestions: ["尚需上传微信草稿箱。"],
+            artifactReferences: assets.map((asset) => `封面资产 ID：${asset.id}`)
+          }),
+          createdBy: "system"
+        },
+        db
+      );
+    });
+  } catch (error) {
+    failStageRun(article.id, publishStageRun.id, errorMessage(error, "生成封面失败"), db);
+    throw error;
+  }
 
   return assets;
 }
@@ -633,6 +716,21 @@ export async function uploadWechatDraft(
     errorMessage: null,
     uploadedAt: null
   } satisfies WechatDraftUpload;
+  const compiledStageContext = buildStageContext(article.id, "publish", db);
+  const publishStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "publish",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: draft.id, versionNo: draft.versionNo },
+        { type: "article_asset", id: htmlAsset.id },
+        { type: "article_asset", id: cover21.id },
+        { type: "article_asset", id: cover11.id }
+      ]
+    },
+    db
+  );
 
   try {
     const result = await client.uploadDraft({
@@ -684,6 +782,26 @@ export async function uploadWechatDraft(
           mediaId: result.mediaId
         });
       }
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: publishStageRun.id,
+          status: "completed",
+          outputArtifact: { type: "wechat_draft_upload", id: upload.id },
+          contract: buildPublishStageContract({
+            decision: `最终稿 v${draft.versionNo} 已成功上传微信草稿箱。`,
+            finalDraft: draft,
+            artifactReferences: [
+              `微信草稿上传 ID：${upload.id}`,
+              `HTML 资产 ID：${htmlAsset.id}`,
+              `封面资产 ID：${cover21.id}`,
+              `封面资产 ID：${cover11.id}`
+            ]
+          }),
+          createdBy: "system"
+        },
+        db
+      );
     });
     return upload;
   } catch (error) {
@@ -693,6 +811,7 @@ export async function uploadWechatDraft(
       uploadedAt: new Date().toISOString()
     };
     db.insert(wechatDraftUploads).values(upload).run();
+    failStageRun(article.id, publishStageRun.id, errorMessage(error, "上传微信草稿箱失败"), db);
     return upload;
   }
 }

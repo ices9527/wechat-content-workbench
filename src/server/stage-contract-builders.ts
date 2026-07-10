@@ -155,3 +155,30 @@ export function buildIllustrationStageContract(plan: IllustrationPlan): StageCon
     qualityGate: null
   };
 }
+
+export function buildPublishStageContract(input: {
+  decision: string;
+  finalDraft: Pick<DraftVersion, "id" | "versionNo">;
+  constraints?: string[];
+  risks?: string[];
+  openQuestions?: string[];
+  artifactReferences?: string[];
+}): StageContractPayload {
+  return {
+    stage: "publish",
+    decision: input.decision,
+    readerPromise: null,
+    constraints: input.constraints || [],
+    risks: input.risks || [],
+    mustCarryForward: [
+      `最终稿版本：v${input.finalDraft.versionNo}`,
+      `最终稿 ID：${input.finalDraft.id}`,
+      ...(input.artifactReferences || [])
+    ],
+    doNotDo: ["不得静默切换最终稿或忽略发布阻断提示。"],
+    openQuestions: input.openQuestions || [],
+    evidenceNeeds: [],
+    downstreamHints: { review: [input.decision] },
+    qualityGate: null
+  };
+}

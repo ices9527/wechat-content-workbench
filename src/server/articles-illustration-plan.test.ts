@@ -1,7 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocationRequirements, aiInvocations, illustrationPlans, workflowEvents } from "@/db/schema";
+import {
+  aiInvocationRequirements,
+  aiInvocations,
+  illustrationPlans,
+  stageContracts,
+  stageRuns,
+  workflowEvents
+} from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { FakeAIClient, type GeneratedIllustrationPlan } from "./ai";
@@ -64,8 +71,18 @@ describe("article illustration plan service", () => {
     expect(invocation?.customInstruction).toBe("只做边界图。");
     expect(invocation?.stagePromptSnapshot).toContain("只规划正文配图");
     expect(invocation?.prompt).toContain("最终稿 Markdown");
+    expect(invocation?.prompt).toContain("结构化上游契约");
+    expect(invocation?.upstreamContextJson || "").toContain('"stageContext"');
     expect(requirementSnapshots[0].labelSnapshot).toBe(requirement.label);
     expect(event?.payloadJson).toContain(plan.id);
+    const run = db.select().from(stageRuns).where(eq(stageRuns.stage, "illustration")).get();
+    const contract = db.select().from(stageContracts).where(eq(stageContracts.stage, "illustration")).get();
+    expect(run).toMatchObject({ status: "needs_input", outputArtifactId: plan.id });
+    expect(JSON.parse(contract?.contractJson || "{}")).toMatchObject({
+      stage: "illustration",
+      decision: plan.summaryMarkdown,
+      openQuestions: ["配图规划尚未确认。"]
+    });
   });
 
   it("records failed invocations when AI returns an empty plan", async () => {
@@ -81,6 +98,11 @@ describe("article illustration plan service", () => {
     expect(invocation?.status).toBe("failed");
     expect(invocation?.errorMessage).toBe("AI 返回的配图规划为空");
     expect(db.select().from(illustrationPlans).all()).toHaveLength(0);
+    expect(db.select().from(stageRuns).where(eq(stageRuns.stage, "illustration")).get()).toMatchObject({
+      status: "failed",
+      sourceInvocationId: invocation?.id,
+      errorMessage: "AI 返回的配图规划为空"
+    });
   });
 
   it("keeps historical illustration plans when regenerating", async () => {
@@ -124,6 +146,11 @@ describe("article illustration plan service", () => {
     expect(parseIllustrationPlanPayload(updated.planJson).items).toHaveLength(1);
     expect(confirmed.status).toBe("confirmed");
     expect(listIllustrationPlans(article.id, db).find((plan) => plan.id === first.id)?.status).toBe("superseded");
+    const runs = db.select().from(stageRuns).where(eq(stageRuns.stage, "illustration")).all();
+    const contracts = db.select().from(stageContracts).where(eq(stageContracts.stage, "illustration")).all();
+    expect(runs.map((run) => run.status)).toEqual(["needs_input", "needs_input", "needs_input", "approved"]);
+    expect(contracts.at(-1)).toMatchObject({ sourceArtifactId: confirmed.id, createdBy: "user" });
+    expect(JSON.parse(contracts.at(-1)?.contractJson || "{}").openQuestions).toEqual([]);
     expect(() =>
       updateIllustrationPlan(article.id, {
         planId: second.id,
