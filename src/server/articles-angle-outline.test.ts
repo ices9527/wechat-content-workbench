@@ -183,7 +183,8 @@ describe("article angle and outline service", () => {
     expect(draft.sourceOutlineId).toBe(outline.id);
     expect(outlineInvocation?.prompt).toContain("outline.cognitive_gap");
     expect(outlineInvocation?.response || "").toContain("qualityGate");
-    expect(draftInvocation?.prompt).toContain("上游主线提纲质量门");
+    expect(draftInvocation?.prompt).toContain("结构化上游契约");
+    expect(draftInvocation?.prompt).toContain("主线提纲（outline v2）");
     expect(draftInvocation?.prompt).toContain("文案必须围绕");
     expect(draftInvocation?.upstreamContextJson || "").toContain("outlineQualityGate");
     expect(saved.versionNo).toBe(2);

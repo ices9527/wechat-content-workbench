@@ -137,7 +137,8 @@ describe("article prompt recipe service", () => {
     expect(outlineRecipe.finalPrompt).toContain("写作角度（angle v1）");
     expect(draftRecipe.upstreamTopicDiagnosis?.riskSummary).toContain("资料解释");
     expect(draftRecipe.finalPrompt).toContain("下游摘要");
-    expect(draftRecipe.finalPrompt).toContain("本阶段约束");
+    expect(draftRecipe.finalPrompt).toContain("结构化上游契约");
+    expect(draftRecipe.finalPrompt).toContain("质量门下游摘要");
   });
 
   it("links topic diagnosis records to their prompt recipes", async () => {

@@ -117,7 +117,7 @@ export function buildDraftStageContract(draft: DraftVersion, qualityGate: Qualit
     risks: qualityGate?.ownedChecks.filter((item) => item.status === "issue").flatMap((item) => compact([item.evidence])) || [],
     mustCarryForward: compact([qualityGate?.summaryForDownstream]),
     doNotDo: [],
-    openQuestions: qualityGate?.upstreamRework.map((item) => item.reason) || [],
+    openQuestions: qualityGate?.upstreamRework.map((item) => item.reason) || ["当前文案版本尚未经过质量门检查。"],
     evidenceNeeds: [],
     downstreamHints: { final: compact([qualityGate?.summaryForDownstream]) },
     qualityGate

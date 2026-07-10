@@ -4,7 +4,15 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { aiInvocationRequirements, aiInvocations, aiStyleChecks, draftVersions, workflowEvents } from "@/db/schema";
+import {
+  aiInvocationRequirements,
+  aiInvocations,
+  aiStyleChecks,
+  draftVersions,
+  stageContracts,
+  stageRuns,
+  workflowEvents
+} from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { createArticleWithDraft, FakeAIClient } from "./articles-test-utils";
@@ -100,6 +108,14 @@ describe("article AI style check service", () => {
     expect(invocations[0].prompt).toContain("draft.text_cleanliness");
     expect(invocations[0].response).toContain("\"qualityGate\"");
     expect(getArticle(article.id, db)?.status).toBe("draft_generated");
+    const runs = db.select().from(stageRuns).where(eq(stageRuns.stage, "draft")).all();
+    const contracts = db.select().from(stageContracts).where(eq(stageContracts.stage, "draft")).all();
+    expect(runs.slice(-2).map((run) => run.status)).toEqual(["revise", "revise"]);
+    expect(contracts.at(-1)).toMatchObject({ sourceArtifactId: second.id, sourceArtifactType: "ai_style_check" });
+    expect(JSON.parse(contracts.at(-1)?.contractJson || "{}")).toMatchObject({
+      stage: "draft",
+      qualityGate: { stage: "draft", verdict: "revise" }
+    });
   });
 
   it("rejects checks when the draft belongs to another article", async () => {
@@ -205,6 +221,10 @@ describe("article AI style check service", () => {
     expect(cleanClient.lastPrompt).toContain("需要删除重复判断和 AI 味转折");
     expect(cleanInvocation?.upstreamContextJson).toContain("draftQualityGate");
     expect(getArticle(article.id, db)?.status).toBe("draft_generated");
+    const latestRun = db.select().from(stageRuns).where(eq(stageRuns.stage, "draft")).all().at(-1);
+    const latestContract = db.select().from(stageContracts).where(eq(stageContracts.stage, "draft")).all().at(-1);
+    expect(latestRun).toMatchObject({ status: "completed", outputArtifactId: cleanDraft.id });
+    expect(latestContract).toMatchObject({ sourceArtifactId: cleanDraft.id, createdBy: "ai" });
   });
 
   it("rejects clean draft generation from another article's AI style check", async () => {

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocations, aiStyleChecks, draftVersions, workflowEvents } from "@/db/schema";
+import { aiInvocations, aiStyleChecks, draftVersions, stageContracts, stageRuns, workflowEvents } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { createArticleWithDraft, EmptyDraftClient, FakeAIClient } from "./articles-test-utils";
@@ -40,6 +40,11 @@ describe("article draft and final service", () => {
     expect(invocations[0].errorMessage).toBe("AI 返回的文案为空");
     expect(db.select().from(draftVersions).all()).toHaveLength(0);
     expect(getArticle(article.id, db)?.status).toBe("outline_review");
+    expect(db.select().from(stageRuns).where(eq(stageRuns.stage, "draft")).get()).toMatchObject({
+      status: "failed",
+      sourceInvocationId: invocations[0].id,
+      errorMessage: "AI 返回的文案为空"
+    });
   });
 
   it("stores draft quality gate results when generating Markdown drafts", async () => {
@@ -61,6 +66,15 @@ describe("article draft and final service", () => {
     expect(response.qualityGate?.ownedChecks?.map((item) => item.checkId)).toEqual(
       expect.arrayContaining(["draft.text_cleanliness", "draft.expression_efficiency", "draft.ai_trace"])
     );
+    expect(invocation?.prompt).toContain("结构化上游契约");
+    expect(invocation?.upstreamContextJson || "").toContain('"stageContext"');
+    const run = db.select().from(stageRuns).where(eq(stageRuns.stage, "draft")).get();
+    const contract = db.select().from(stageContracts).where(eq(stageContracts.stage, "draft")).get();
+    expect(run).toMatchObject({ status: "completed", outputArtifactId: draft.id });
+    expect(JSON.parse(contract?.contractJson || "{}")).toMatchObject({
+      stage: "draft",
+      qualityGate: { stage: "draft", verdict: "pass" }
+    });
   });
 
   it("updates an existing draft version without creating a new version", async () => {
@@ -74,6 +88,12 @@ describe("article draft and final service", () => {
     expect(updated.markdown).toContain("覆盖当前版本。");
     expect(drafts).toHaveLength(1);
     expect(drafts[0].markdown).toContain("覆盖当前版本。");
+    const draftRuns = db.select().from(stageRuns).where(eq(stageRuns.stage, "draft")).all();
+    const draftContracts = db.select().from(stageContracts).where(eq(stageContracts.stage, "draft")).all();
+    expect(draftRuns).toHaveLength(2);
+    expect(draftRuns[1]).toMatchObject({ status: "completed", outputArtifactId: draft.id });
+    expect(draftContracts[1]).toMatchObject({ sourceArtifactId: draft.id, createdBy: "user" });
+    expect(JSON.parse(draftContracts[1].contractJson).qualityGate).toBeNull();
   });
 
   it("rejects draft updates when the version belongs to another article", async () => {
@@ -96,6 +116,13 @@ describe("article draft and final service", () => {
     expect(final.isFinal).toBe(true);
     expect(updatedArticle?.status).toBe("human_review");
     expect(updatedArticle?.finalDraftVersionId).toBe(draft.id);
+    const finalRun = db.select().from(stageRuns).where(eq(stageRuns.stage, "final")).get();
+    const finalContract = db.select().from(stageContracts).where(eq(stageContracts.stage, "final")).get();
+    expect(finalRun).toMatchObject({ status: "approved", outputArtifactId: draft.id });
+    expect(JSON.parse(finalContract?.contractJson || "{}")).toMatchObject({
+      stage: "final",
+      decision: expect.stringContaining(`v${draft.versionNo}`)
+    });
   });
 
   it("keeps one final draft and requires it before ready-to-publish", async () => {

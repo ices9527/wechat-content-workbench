@@ -66,6 +66,8 @@ import { getStagePromptDefault } from "./stage-prompts";
 import {
   buildAngleCandidatesStageContract,
   buildAngleStageContract,
+  buildDraftStageContract,
+  buildFinalStageContract,
   buildOutlineStageContract,
   buildResearchStageContract,
   buildTopicStageContract
@@ -1779,10 +1781,22 @@ export async function generateDraft(
   }
   const outlineQualityGateContext = requireOutlineQualityGateContext(outline, db);
   assertOutlineQualityGateAllowsDraft(outlineQualityGateContext);
-  const upstreamContext = {
-    ...(topicUpstreamContext || {}),
-    outlineQualityGate: outlineQualityGateContext
-  };
+  const compiledStageContext = buildStageContext(article.id, "draft", db);
+  const upstreamContext = withCompiledStageContext(
+    {
+      ...(topicUpstreamContext || {}),
+      outlineQualityGate: outlineQualityGateContext
+    },
+    compiledStageContext
+  );
+  const draftStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "draft",
+      inputRefs: stageInputReferences(compiledStageContext)
+    },
+    db
+  );
   const stagePrompt = getStagePromptDefault("draft", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "draft", db);
   const prompt = buildLayeredPrompt(
@@ -1795,8 +1809,13 @@ export async function generateDraft(
         }),
         "draft"
       ),
-      formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "draft"),
-      formatOutlineQualityGateContextForPrompt(outlineQualityGateContext)
+      compiledStageContext.promptText ||
+        [
+          formatTopicDiagnosisContextForPrompt(topicDiagnosisContext, "draft"),
+          formatOutlineQualityGateContextForPrompt(outlineQualityGateContext)
+        ]
+          .filter(Boolean)
+          .join("\n\n")
     ]
       .filter(Boolean)
       .join("\n\n"),
@@ -1815,6 +1834,7 @@ export async function generateDraft(
     if (!generated.qualityGate) {
       throw new Error("AI 返回的文案质量门为空");
     }
+    const qualityGate = generated.qualityGate;
     const existing = listDrafts(articleId, db);
     let draft: DraftVersion = {
       id: randomUUID(),
@@ -1849,11 +1869,24 @@ export async function generateDraft(
       db.insert(draftVersions).values(draft).run();
       transitionArticle(db, article, "draft_generated", "generate_draft", { draftId: draft.id });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: draftStageRun.id,
+          status: qualityGate.verdict === "pass" ? "completed" : "revise",
+          outputArtifact: { type: "draft_version", id: draft.id },
+          sourceInvocationId: invocationId,
+          contract: buildDraftStageContract(draft, qualityGate),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "draft", db);
     return draft;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "generate_draft",
       client,
@@ -1864,6 +1897,7 @@ export async function generateDraft(
       error,
       fallbackMessage: "AI 生成文案失败"
     });
+    failStageRun(article.id, draftStageRun.id, getErrorMessage(error, "AI 生成文案失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -1893,7 +1927,30 @@ export function saveDraftVersion(
     createdBy: "user",
     createdAt: new Date().toISOString()
   };
-  db.insert(draftVersions).values(draft).run();
+  const compiledStageContext = buildStageContext(article.id, "draft", db);
+  const draftStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "draft",
+      inputRefs: stageInputReferences(compiledStageContext)
+    },
+    db
+  );
+  db.transaction(() => {
+    db.insert(draftVersions).values(draft).run();
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: draftStageRun.id,
+        status: "completed",
+        outputArtifact: { type: "draft_version", id: draft.id },
+        contract: buildDraftStageContract(draft, null),
+        createdBy: "user"
+      },
+      db
+    );
+  });
+  markDownstreamStageRunsStale(article.id, "draft", db);
   return draft;
 }
 
@@ -1905,12 +1962,39 @@ export function updateDraftVersion(
   const article = requireArticle(articleId, db);
   const parsed = updateDraftInputSchema.parse(input);
   const draft = requireDraft(article.id, parsed.draftVersionId, db);
-  db.update(draftVersions).set({ markdown: parsed.markdown }).where(eq(draftVersions.id, draft.id)).run();
-  recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "update_draft_version", {
-    draftVersionId: draft.id,
-    versionNo: draft.versionNo
+  const updated = { ...draft, markdown: parsed.markdown };
+  const compiledStageContext = buildStageContext(article.id, "draft", db);
+  const draftStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "draft",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: draft.id, versionNo: draft.versionNo }
+      ]
+    },
+    db
+  );
+  db.transaction(() => {
+    db.update(draftVersions).set({ markdown: parsed.markdown }).where(eq(draftVersions.id, draft.id)).run();
+    recordWorkflowEvent(db, article, article.status as ArticleStatus, article.status as ArticleStatus, "update_draft_version", {
+      draftVersionId: draft.id,
+      versionNo: draft.versionNo
+    });
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: draftStageRun.id,
+        status: "completed",
+        outputArtifact: { type: "draft_version", id: draft.id },
+        contract: buildDraftStageContract(updated, null),
+        createdBy: "user"
+      },
+      db
+    );
   });
-  return { ...draft, markdown: parsed.markdown };
+  markDownstreamStageRunsStale(article.id, "draft", db);
+  return updated;
 }
 
 export async function runAIStyleCheck(
@@ -1922,22 +2006,40 @@ export async function runAIStyleCheck(
   const article = requireArticle(articleId, db);
   const parsed = runAIStyleCheckInputSchema.parse(input);
   const draft = requireDraft(article.id, parsed.draftVersionId, db);
+  const compiledStageContext = buildStageContext(article.id, "draft", db);
+  const upstreamContext = withCompiledStageContext(null, compiledStageContext);
+  const draftStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "draft",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: draft.id, versionNo: draft.versionNo }
+      ]
+    },
+    db
+  );
   const stagePrompt = getStagePromptDefault("ai_style_check", db);
   const selectedRequirements = resolveSelectedRequirements(parsed.selectedRequirementIds, "ai_style_check", db);
   const selectedRequirementsSummary = selectedRequirements.length > 0 ? selectedRequirements.map((requirement) => requirement.label).join("、") : "";
   const prompt = buildLayeredPrompt(
-    buildPromptWithQualityGate(
-      renderPrompt("ai_style_check", {
-        title: article.title,
-        topic: article.topic,
-        targetReader: article.targetReader,
-        coreProblem: article.coreProblem,
-        customInstruction: parsed.customInstruction,
-        selectedRequirementsSummary,
-        draftMarkdown: draft.markdown
-      }),
-      "draft"
-    ),
+    [
+      buildPromptWithQualityGate(
+        renderPrompt("ai_style_check", {
+          title: article.title,
+          topic: article.topic,
+          targetReader: article.targetReader,
+          coreProblem: article.coreProblem,
+          customInstruction: parsed.customInstruction,
+          selectedRequirementsSummary,
+          draftMarkdown: draft.markdown
+        }),
+        "draft"
+      ),
+      compiledStageContext.promptText
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     {
       stageDefaultPrompt: stagePrompt?.enabled ? stagePrompt.prompt : null,
       selectedRequirements
@@ -1976,6 +2078,7 @@ export async function runAIStyleCheck(
         response: generated,
         customInstruction: parsed.customInstruction,
         stagePrompt,
+        upstreamContext,
         status: "success"
       });
       recordAIInvocationRequirements(db, invocationId, selectedRequirements);
@@ -1987,20 +2090,35 @@ export async function runAIStyleCheck(
         verdict: check.cleanlinessVerdict,
         issueCount: check.issueCount
       });
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: draftStageRun.id,
+          status: generated.qualityGate.verdict === "pass" ? "completed" : "revise",
+          outputArtifact: { type: "ai_style_check", id: check.id },
+          sourceInvocationId: invocationId,
+          contract: buildDraftStageContract(draft, generated.qualityGate),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "draft", db);
     return check;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "ai_style_check",
       client,
       prompt,
       customInstruction: parsed.customInstruction,
       stagePrompt,
+      upstreamContext,
       error,
       fallbackMessage: "文案清洁检查失败"
     });
+    failStageRun(article.id, draftStageRun.id, getErrorMessage(error, "文案清洁检查失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -2019,6 +2137,23 @@ export async function reviseFromAIStyleCheck(
   }
   const sourceDraft = requireDraft(article.id, check.draftVersionId, db);
   const draftQualityGateContext = getAIStyleCheckQualityGateContext(check, sourceDraft, db);
+  const compiledStageContext = buildStageContext(article.id, "draft", db);
+  const upstreamContext = withCompiledStageContext(
+    draftQualityGateContext ? { draftQualityGate: draftQualityGateContext } : null,
+    compiledStageContext
+  );
+  const draftStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "draft",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: sourceDraft.id, versionNo: sourceDraft.versionNo },
+        { type: "ai_style_check", id: check.id }
+      ]
+    },
+    db
+  );
   const prompt = [
     renderPrompt("revise_from_ai_style_check", {
       topic: article.topic,
@@ -2027,7 +2162,8 @@ export async function reviseFromAIStyleCheck(
       summaryMarkdown: check.summaryMarkdown,
       issuesMarkdown: formatAIStyleCheckIssuesForPrompt(check)
     }),
-    draftQualityGateContext ? formatDraftQualityGateContextForPrompt(draftQualityGateContext) : ""
+    draftQualityGateContext ? formatDraftQualityGateContextForPrompt(draftQualityGateContext) : "",
+    compiledStageContext.promptText
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -2064,7 +2200,7 @@ export async function reviseFromAIStyleCheck(
         client,
         prompt,
         response: generated,
-        upstreamContext: draftQualityGateContext ? { draftQualityGate: draftQualityGateContext } : null,
+        upstreamContext,
         status: "success"
       });
       draft = { ...draft, sourceInvocationId: invocationId };
@@ -2074,18 +2210,33 @@ export async function reviseFromAIStyleCheck(
         sourceDraftVersionId: sourceDraft.id,
         draftId: draft.id
       });
+      completeStageRun(
+        {
+          articleId: article.id,
+          runId: draftStageRun.id,
+          status: "completed",
+          outputArtifact: { type: "draft_version", id: draft.id },
+          sourceInvocationId: invocationId,
+          contract: buildDraftStageContract(draft, generated.qualityGate || null),
+          createdBy: "ai"
+        },
+        db
+      );
     });
 
+    markDownstreamStageRunsStale(article.id, "draft", db);
     return draft;
   } catch (error) {
-    recordFailedAIInvocation(db, {
+    const failedInvocationId = recordFailedAIInvocation(db, {
       article,
       taskType: "revise_from_ai_style_check",
       client,
       prompt,
+      upstreamContext,
       error,
       fallbackMessage: "生成清洁版文案失败"
     });
+    failStageRun(article.id, draftStageRun.id, getErrorMessage(error, "生成清洁版文案失败"), db, failedInvocationId);
     throw error;
   }
 }
@@ -2205,6 +2356,18 @@ export function markFinalDraft(
   if (latestCheck?.cleanlinessVerdict === "heavy_slop" && !parsed.force) {
     throw new Error("仍存在明显表达水分，是否继续标记最终稿");
   }
+  const compiledStageContext = buildStageContext(article.id, "final", db);
+  const finalStageRun = startStageRun(
+    {
+      articleId: article.id,
+      stage: "final",
+      inputRefs: [
+        ...stageInputReferences(compiledStageContext),
+        { type: "draft_version", id: draft.id, versionNo: draft.versionNo }
+      ]
+    },
+    db
+  );
 
   db.transaction(() => {
     const nextStatus: ArticleStatus = status === "human_review" ? status : "human_review";
@@ -2228,8 +2391,20 @@ export function markFinalDraft(
       aiStyleCheckVerdict: latestCheck?.cleanlinessVerdict || null,
       aiStyleCheckGateConfirmed: latestCheck?.cleanlinessVerdict === "heavy_slop" && parsed.force
     });
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: finalStageRun.id,
+        status: "approved",
+        outputArtifact: { type: "draft_version", id: draft.id },
+        contract: buildFinalStageContract({ ...draft, isFinal: true }),
+        createdBy: "user"
+      },
+      db
+    );
   });
 
+  markDownstreamStageRunsStale(article.id, "final", db);
   return { ...draft, isFinal: true };
 }
 
