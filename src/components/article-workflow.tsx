@@ -23,6 +23,7 @@ import type {
 import type { QualityGateReworkItem } from "@/domain/quality-gate-rework";
 import type { ArticleStatus } from "@/domain/status";
 import type { RequirementStage } from "@/domain/stages";
+import type { WorkflowGuidance } from "@/domain/workflow-guidance";
 import type { ArticleListItem } from "@/server/articles";
 import type { PromptRecipe } from "@/server/prompt-recipes";
 import {
@@ -37,6 +38,8 @@ import { STAGE_PROMPT_UI } from "./prompts/prompt-ui";
 import type { RequirementEditorInput } from "./prompts/requirement-selector";
 import { StagePromptDialog } from "./prompts/stage-prompt-dialog";
 import { QualityGateReworkCard } from "./quality-gate-rework-card";
+import { WorkspaceShell, type WorkspaceShellItem } from "./workflow/workspace-shell";
+import { WorkflowGuidanceCard } from "./workflow/workflow-guidance-card";
 
 // API helpers
 
@@ -447,6 +450,29 @@ const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
   { id: "illustration", label: "配图规划" },
   { id: "publish", label: "发布" },
   { id: "review", label: "复盘" }
+];
+
+const WORKFLOW_WORKSPACES: Array<WorkspaceShellItem<WorkflowTabId>> = [
+  {
+    id: "topic",
+    label: "定题",
+    tabs: WORKFLOW_TABS.filter((tab) => ["topic", "topic-diagnosis", "angles"].includes(tab.id))
+  },
+  {
+    id: "build",
+    label: "构建",
+    tabs: WORKFLOW_TABS.filter((tab) => ["research", "outline"].includes(tab.id))
+  },
+  {
+    id: "draft",
+    label: "成稿",
+    tabs: WORKFLOW_TABS.filter((tab) => ["draft", "final"].includes(tab.id))
+  },
+  {
+    id: "publish",
+    label: "发布与复盘",
+    tabs: WORKFLOW_TABS.filter((tab) => ["illustration", "publish", "review"].includes(tab.id))
+  }
 ];
 
 const PROMPT_STAGES: RequirementStage[] = [
@@ -1319,7 +1345,8 @@ export function ArticleWorkflow({
   stagePrompts,
   requirementPresets,
   promptArtifacts,
-  qualityGateReworkItems
+  qualityGateReworkItems,
+  workflowGuidance
 }: {
   article: ArticleListItem;
   angles: AngleCandidate[];
@@ -1336,6 +1363,7 @@ export function ArticleWorkflow({
   requirementPresets: RequirementPreset[];
   promptArtifacts: PromptRunArtifact[];
   qualityGateReworkItems: QualityGateReworkItem[];
+  workflowGuidance: WorkflowGuidance;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -2074,29 +2102,29 @@ export function ArticleWorkflow({
       {error ? <p className="error">{error}</p> : null}
       {notice ? <p className="notice">{notice}</p> : null}
 
-      <div className="workflow-tabs-card">
-        <div aria-label="公众号生产线节点" className="workflow-tabs" role="tablist">
-          {WORKFLOW_TABS.map((tab) => (
-            <button
-              aria-controls={`workflow-panel-${tab.id}`}
-              aria-selected={activeTab === tab.id}
-              className={activeTab === tab.id ? "workflow-tab active" : "workflow-tab"}
-              id={`workflow-tab-${tab.id}`}
-              key={tab.id}
-              onClick={() => switchWorkflowTab(tab.id)}
-              role="tab"
-              type="button"
-            >
-              <span>{tab.label}</span>
-              <span>{getTabMeta(tab.id)}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <WorkspaceShell
+        activeTab={activeTab}
+        getTabMeta={getTabMeta}
+        onSelectTab={switchWorkflowTab}
+        workspaces={WORKFLOW_WORKSPACES}
+      >
+        <WorkflowGuidanceCard
+          guidance={workflowGuidance}
+          onJump={(tab) => {
+            if (isWorkflowTabId(tab)) {
+              switchWorkflowTab(tab);
+            }
+          }}
+        />
 
-      <QualityGateReworkCard items={qualityGateReworkItems} onJumpToTab={switchWorkflowTab} />
+        {qualityGateReworkItems.length > 0 ? (
+          <details className="workflow-advanced-rework">
+            <summary>全部返工建议（{qualityGateReworkItems.length}）</summary>
+            <QualityGateReworkCard items={qualityGateReworkItems} onJumpToTab={switchWorkflowTab} />
+          </details>
+        ) : null}
 
-      <div className="workflow-tab-panels">
+        <div className="workflow-tab-panels">
         {activeTab === "topic" ? (
           <TopicPanel
             article={article}
@@ -3762,7 +3790,8 @@ export function ArticleWorkflow({
               </div>
           </ReviewPanel>
         ) : null}
-      </div>
+        </div>
+      </WorkspaceShell>
     </div>
   );
 }

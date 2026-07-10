@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/status-badge";
 import {
   ensureAppDataReady,
   getArticle,
+  getArticleWorkflowGuidance,
   listAIStyleChecks,
   listAngles,
   listDrafts,
@@ -54,6 +55,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
   ];
   const promptArtifacts = listPromptRunArtifacts(article.id);
   const qualityGateReworkItems = listQualityGateReworkItems(article.id);
+  const workflowGuidance = getArticleWorkflowGuidance(article.id);
 
   return (
     <>
@@ -82,6 +84,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         requirementPresets={requirementPresets}
         promptArtifacts={promptArtifacts}
         qualityGateReworkItems={qualityGateReworkItems}
+        workflowGuidance={workflowGuidance}
       />
     </>
   );
