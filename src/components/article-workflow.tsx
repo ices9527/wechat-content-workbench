@@ -2,7 +2,6 @@
 
 import { Maximize2, Pencil, ScrollText, Trash2, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { ReactNode } from "react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -38,7 +37,19 @@ import { STAGE_PROMPT_UI } from "./prompts/prompt-ui";
 import type { RequirementEditorInput } from "./prompts/requirement-selector";
 import { StagePromptDialog } from "./prompts/stage-prompt-dialog";
 import { QualityGateReworkCard } from "./quality-gate-rework-card";
-import { WorkspaceShell, type WorkspaceShellItem } from "./workflow/workspace-shell";
+import {
+  AnglesPanel,
+  DraftPanel,
+  FinalPanel,
+  IllustrationPanel,
+  OutlinePanel,
+  PublishPanel,
+  ResearchPanel,
+  ReviewPanel,
+  WorkflowPanel
+} from "./workflow/workflow-panels";
+import { defaultTabForStatus, isWorkflowTabId, WORKFLOW_WORKSPACES, type WorkflowTabId } from "./workflow/workflow-tabs";
+import { WorkspaceShell } from "./workflow/workspace-shell";
 import { WorkflowGuidanceCard } from "./workflow/workflow-guidance-card";
 
 // API helpers
@@ -427,54 +438,6 @@ type TopicFormDraft = {
   hotAnchor: string;
 };
 
-type WorkflowTabId =
-  | "topic"
-  | "topic-diagnosis"
-  | "angles"
-  | "research"
-  | "outline"
-  | "draft"
-  | "final"
-  | "illustration"
-  | "publish"
-  | "review";
-
-const WORKFLOW_TABS: Array<{ id: WorkflowTabId; label: string }> = [
-  { id: "topic", label: "主题" },
-  { id: "topic-diagnosis", label: "选题诊断" },
-  { id: "angles", label: "角度" },
-  { id: "research", label: "内容研究" },
-  { id: "outline", label: "主线提纲" },
-  { id: "draft", label: "Markdown 文案" },
-  { id: "final", label: "人工检查/最终稿" },
-  { id: "illustration", label: "配图规划" },
-  { id: "publish", label: "发布" },
-  { id: "review", label: "复盘" }
-];
-
-const WORKFLOW_WORKSPACES: Array<WorkspaceShellItem<WorkflowTabId>> = [
-  {
-    id: "topic",
-    label: "定题",
-    tabs: WORKFLOW_TABS.filter((tab) => ["topic", "topic-diagnosis", "angles"].includes(tab.id))
-  },
-  {
-    id: "build",
-    label: "构建",
-    tabs: WORKFLOW_TABS.filter((tab) => ["research", "outline"].includes(tab.id))
-  },
-  {
-    id: "draft",
-    label: "成稿",
-    tabs: WORKFLOW_TABS.filter((tab) => ["draft", "final"].includes(tab.id))
-  },
-  {
-    id: "publish",
-    label: "发布与复盘",
-    tabs: WORKFLOW_TABS.filter((tab) => ["illustration", "publish", "review"].includes(tab.id))
-  }
-];
-
 const PROMPT_STAGES: RequirementStage[] = [
   "topic",
   "angle",
@@ -486,38 +449,6 @@ const PROMPT_STAGES: RequirementStage[] = [
   "pre_publish",
   "review"
 ];
-
-function isWorkflowTabId(value: string | null): value is WorkflowTabId {
-  return WORKFLOW_TABS.some((tab) => tab.id === value);
-}
-
-function defaultTabForStatus(status: ArticleStatus): WorkflowTabId {
-  if (status === "topic_created" || status === "topic_diagnosed") {
-    return "topic-diagnosis";
-  }
-  if (status === "angles_generated") {
-    return "angles";
-  }
-  if (status === "angle_selected") {
-    return "research";
-  }
-  if (status === "outline_generated") {
-    return "outline";
-  }
-  if (status === "outline_review" || status === "draft_generated") {
-    return "draft";
-  }
-  if (status === "dbs_checking") {
-    return "final";
-  }
-  if (status === "revision_generated" || status === "human_review") {
-    return "final";
-  }
-  if (status === "published_manually" || status === "review_pending" || status === "review_recorded") {
-    return "review";
-  }
-  return "publish";
-}
 
 const FINAL_DRAFT_LOCKED_STATUSES = new Set<ArticleStatus>([
   "ready_to_publish",
@@ -533,39 +464,7 @@ function canMarkFinalDraft(status: ArticleStatus): boolean {
   return !FINAL_DRAFT_LOCKED_STATUSES.has(status);
 }
 
-// Panel components
-
-function WorkflowPanel({
-  tabId,
-  title,
-  status,
-  headActions,
-  className,
-  children
-}: {
-  tabId: WorkflowTabId;
-  title: string;
-  status?: ReactNode;
-  headActions?: ReactNode;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      aria-labelledby={`workflow-tab-${tabId}`}
-      className={className ? `panel ${className}` : "panel"}
-      id={`workflow-panel-${tabId}`}
-      role="tabpanel"
-      tabIndex={0}
-    >
-      <div className="panel-head">
-        <h2 className="panel-title">{title}</h2>
-        {headActions ? <div className="panel-head-actions">{headActions}</div> : status ? <span className="status">{status}</span> : null}
-      </div>
-      <div className="panel-body">{children}</div>
-    </section>
-  );
-}
+// Stage-specific panel content
 
 function TopicPanel({
   article,
@@ -866,22 +765,6 @@ function TopicDiagnosisPanel({
   );
 }
 
-function AnglesPanel({ selectedAngle, children }: { selectedAngle: AngleCandidate | undefined; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="angles" title="角度" status={selectedAngle ? "已选择" : null}>
-      {children}
-    </WorkflowPanel>
-  );
-}
-
-function ResearchPanel({ count, children }: { count: number; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="research" title="内容研究资料包" status={count > 0 ? `${count} 版` : "待生成"}>
-      {children}
-    </WorkflowPanel>
-  );
-}
-
 function ResearchComparisonPanel({
   researchVersions,
   leftId,
@@ -973,48 +856,6 @@ function ResearchComparisonPanel({
         </>
       )}
     </section>
-  );
-}
-
-function OutlinePanel({ headActions, children }: { headActions: ReactNode; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="outline" title="主线和提纲" headActions={headActions}>
-      {children}
-    </WorkflowPanel>
-  );
-}
-
-function DraftPanel({ headActions, children }: { headActions: ReactNode; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="draft" title="Markdown 文案" headActions={headActions}>
-      {children}
-    </WorkflowPanel>
-  );
-}
-
-function FinalPanel({ finalDraft, children }: { finalDraft: DraftVersion | null; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="final" title="版本链和最终稿" status={finalDraft ? `最终稿 v${finalDraft.versionNo}` : null}>
-      {children}
-    </WorkflowPanel>
-  );
-}
-
-function IllustrationPanel({
-  latestPlan,
-  children
-}: {
-  latestPlan: IllustrationPlan | null;
-  children: ReactNode;
-}) {
-  return (
-    <WorkflowPanel
-      tabId="illustration"
-      title="配图规划"
-      status={latestPlan ? getIllustrationPlanStatusLabel(latestPlan.status) : "待规划"}
-    >
-      {children}
-    </WorkflowPanel>
   );
 }
 
@@ -1188,22 +1029,6 @@ function InlineIllustrationAssetPanel({
         </details>
       ) : null}
     </section>
-  );
-}
-
-function PublishPanel({ latestUpload, children }: { latestUpload: WechatDraftUpload | null; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="publish" title="发布包" status={latestUpload?.status === "success" ? "已上传草稿箱" : null}>
-      {children}
-    </WorkflowPanel>
-  );
-}
-
-function ReviewPanel({ status, children }: { status: string; children: ReactNode }) {
-  return (
-    <WorkflowPanel tabId="review" title="复盘" status={status}>
-      {children}
-    </WorkflowPanel>
   );
 }
 
@@ -2167,7 +1992,7 @@ export function ArticleWorkflow({
         ) : null}
 
         {activeTab === "angles" ? (
-          <AnglesPanel selectedAngle={selectedAngle}>
+          <AnglesPanel selected={Boolean(selectedAngle)}>
           {topicDiagnosisWarning ? (
             <p className={topicDiagnosisBlocksDownstream ? "error" : "notice"}>{topicDiagnosisWarning}</p>
           ) : null}
@@ -3022,7 +2847,7 @@ export function ArticleWorkflow({
       ) : null}
 
         {activeTab === "final" ? (
-          <FinalPanel finalDraft={finalDraft}>
+          <FinalPanel finalVersionNo={finalDraft?.versionNo ?? null}>
           {finalDraft ? (
             <div className="action-row">
               <button
@@ -3138,7 +2963,9 @@ export function ArticleWorkflow({
         ) : null}
 
         {activeTab === "illustration" ? (
-          <IllustrationPanel latestPlan={latestIllustrationPlan}>
+          <IllustrationPanel
+            status={latestIllustrationPlan ? getIllustrationPlanStatusLabel(latestIllustrationPlan.status) : "待规划"}
+          >
             <StagePromptDialog
               title={STAGE_PROMPT_UI.illustration_plan.title}
               stage="illustration_plan"
@@ -3421,7 +3248,7 @@ export function ArticleWorkflow({
         ) : null}
 
         {activeTab === "publish" ? (
-          <PublishPanel latestUpload={latestUpload}>
+          <PublishPanel uploaded={latestUpload?.status === "success"}>
           <StagePromptDialog
             title={STAGE_PROMPT_UI.pre_publish.title}
             stage="pre_publish"
