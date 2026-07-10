@@ -192,6 +192,20 @@ export function getLatestStageContract(
   );
 }
 
+export function getStageContractForRun(
+  articleId: string,
+  stageRunId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): StageContract | null {
+  return (
+    db
+      .select()
+      .from(stageContracts)
+      .where(and(eq(stageContracts.articleId, articleId), eq(stageContracts.stageRunId, stageRunId)))
+      .get() || null
+  );
+}
+
 export function markDownstreamStageRunsStale(
   articleId: string,
   changedStage: DomainStage,
