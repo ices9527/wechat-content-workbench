@@ -24,6 +24,19 @@ export const ARTICLE_LIFECYCLES = ["active", "ready_to_publish", "published", "a
 
 export type ArticleLifecycle = (typeof ARTICLE_LIFECYCLES)[number];
 
+export const STAGE_RUN_STATUSES = [
+  "pending",
+  "running",
+  "needs_input",
+  "revise",
+  "approved",
+  "completed",
+  "stale",
+  "failed"
+] as const;
+
+export type StageRunStatus = (typeof STAGE_RUN_STATUSES)[number];
+
 export type WorkflowStageDefinition = {
   id: DomainStage;
   label: string;

@@ -230,6 +230,45 @@ const statements = [
     error_message TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS stage_runs (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    stage TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    input_refs_json TEXT NOT NULL DEFAULT '[]',
+    source_invocation_id TEXT REFERENCES ai_invocations(id),
+    output_artifact_type TEXT,
+    output_artifact_id TEXT,
+    error_message TEXT,
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS stage_runs_article_stage_version_unique
+    ON stage_runs(article_id, stage, version_no)`,
+  `CREATE INDEX IF NOT EXISTS stage_runs_article_stage_status_index
+    ON stage_runs(article_id, stage, status)`,
+  `CREATE TABLE IF NOT EXISTS stage_contracts (
+    id TEXT PRIMARY KEY,
+    article_id TEXT NOT NULL REFERENCES article_projects(id),
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    stage_run_id TEXT NOT NULL REFERENCES stage_runs(id),
+    stage TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    source_artifact_type TEXT,
+    source_artifact_id TEXT,
+    source_invocation_id TEXT REFERENCES ai_invocations(id),
+    contract_json TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS stage_contracts_stage_run_unique
+    ON stage_contracts(stage_run_id)`,
+  `CREATE INDEX IF NOT EXISTS stage_contracts_article_stage_version_index
+    ON stage_contracts(article_id, stage, version_no)`,
   `CREATE TABLE IF NOT EXISTS stage_prompt_defaults (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL REFERENCES users(id),

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -189,6 +189,61 @@ export const aiInvocations = sqliteTable("ai_invocations", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
 });
 
+export const stageRuns = sqliteTable(
+  "stage_runs",
+  {
+    id: text("id").primaryKey(),
+    articleId: text("article_id").notNull().references(() => articleProjects.id),
+    ownerId: text("owner_id").notNull().references(() => users.id),
+    stage: text("stage").notNull(),
+    versionNo: integer("version_no").notNull(),
+    status: text("status").notNull(),
+    inputRefsJson: text("input_refs_json").notNull().default("[]"),
+    sourceInvocationId: text("source_invocation_id").references(() => aiInvocations.id),
+    outputArtifactType: text("output_artifact_type"),
+    outputArtifactId: text("output_artifact_id"),
+    errorMessage: text("error_message"),
+    startedAt: text("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => ({
+    articleStageVersionUnique: uniqueIndex("stage_runs_article_stage_version_unique").on(
+      table.articleId,
+      table.stage,
+      table.versionNo
+    ),
+    articleStageStatusIndex: index("stage_runs_article_stage_status_index").on(table.articleId, table.stage, table.status)
+  })
+);
+
+export const stageContracts = sqliteTable(
+  "stage_contracts",
+  {
+    id: text("id").primaryKey(),
+    articleId: text("article_id").notNull().references(() => articleProjects.id),
+    ownerId: text("owner_id").notNull().references(() => users.id),
+    stageRunId: text("stage_run_id").notNull().references(() => stageRuns.id),
+    stage: text("stage").notNull(),
+    versionNo: integer("version_no").notNull(),
+    sourceArtifactType: text("source_artifact_type"),
+    sourceArtifactId: text("source_artifact_id"),
+    sourceInvocationId: text("source_invocation_id").references(() => aiInvocations.id),
+    contractJson: text("contract_json").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => ({
+    stageRunUnique: uniqueIndex("stage_contracts_stage_run_unique").on(table.stageRunId),
+    articleStageVersionIndex: index("stage_contracts_article_stage_version_index").on(
+      table.articleId,
+      table.stage,
+      table.versionNo
+    )
+  })
+);
+
 export const stagePromptDefaults = sqliteTable(
   "stage_prompt_defaults",
   {
@@ -355,3 +410,5 @@ export type ArticleAsset = typeof articleAssets.$inferSelect;
 export type WechatDraftUpload = typeof wechatDraftUploads.$inferSelect;
 export type WechatDraftUploadImage = typeof wechatDraftUploadImages.$inferSelect;
 export type PromptRunArtifact = typeof promptRunArtifacts.$inferSelect;
+export type StageRun = typeof stageRuns.$inferSelect;
+export type StageContract = typeof stageContracts.$inferSelect;

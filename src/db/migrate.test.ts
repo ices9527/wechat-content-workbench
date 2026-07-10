@@ -9,12 +9,64 @@ import {
   articleProjects,
   draftVersions,
   illustrationPlans,
+  stageContracts,
+  stageRuns,
   topicVersions,
   wechatDraftUploadImages,
   wechatDraftUploads
 } from "./schema";
 
 describe("database migrations", () => {
+  it("creates idempotent stage run and stage contract storage", () => {
+    const { db, sqlite } = createTestDatabase();
+
+    migrateDatabase(sqlite);
+    migrateDatabase(sqlite);
+
+    const runColumns = sqlite.prepare("PRAGMA table_info(stage_runs)").all() as Array<{ name: string }>;
+    const contractColumns = sqlite.prepare("PRAGMA table_info(stage_contracts)").all() as Array<{ name: string }>;
+    const runIndexes = sqlite.prepare("PRAGMA index_list(stage_runs)").all() as Array<{ name: string }>;
+    const contractIndexes = sqlite.prepare("PRAGMA index_list(stage_contracts)").all() as Array<{ name: string }>;
+
+    expect(runColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "article_id",
+        "owner_id",
+        "stage",
+        "version_no",
+        "status",
+        "input_refs_json",
+        "source_invocation_id",
+        "output_artifact_type",
+        "output_artifact_id",
+        "started_at",
+        "completed_at"
+      ])
+    );
+    expect(contractColumns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "article_id",
+        "owner_id",
+        "stage_run_id",
+        "stage",
+        "version_no",
+        "source_artifact_type",
+        "source_artifact_id",
+        "source_invocation_id",
+        "contract_json",
+        "created_by"
+      ])
+    );
+    expect(runIndexes.map((index) => index.name)).toEqual(
+      expect.arrayContaining(["stage_runs_article_stage_version_unique", "stage_runs_article_stage_status_index"])
+    );
+    expect(contractIndexes.map((index) => index.name)).toEqual(
+      expect.arrayContaining(["stage_contracts_stage_run_unique", "stage_contracts_article_stage_version_index"])
+    );
+    expect(db.select().from(stageRuns).all()).toEqual([]);
+    expect(db.select().from(stageContracts).all()).toEqual([]);
+  });
+
   it("creates ai style check storage with queryable defaults", () => {
     const { db, sqlite } = createTestDatabase();
 
