@@ -28,6 +28,7 @@ import {
   CUSTOM_INSTRUCTION_MAX_LENGTH,
   deleteRequirementPreset,
   generateAngles,
+  getArticleWorkflowGuidance,
   generateIllustrationPlanInputSchema,
   generateWithPromptInputSchema,
   getArticle,
@@ -109,6 +110,22 @@ describe("article service basics", () => {
       topic: "香港教育身份规划",
       targetReader: "家长",
       createdBy: "initial"
+    });
+    expect(db.select().from(stageRuns).where(eq(stageRuns.stage, "topic")).get()).toMatchObject({
+      status: "needs_input",
+      outputArtifactType: "topic_version",
+      outputArtifactId: versions[0].id
+    });
+    expect(JSON.parse(db.select().from(stageContracts).where(eq(stageContracts.stage, "topic")).get()?.contractJson || "{}")).toMatchObject({
+      stage: "topic",
+      decision: expect.stringContaining("等待重新运行选题诊断")
+    });
+    expect(getArticleWorkflowGuidance(article.id, db)).toMatchObject({
+      kind: "stage_attention",
+      blocking: true,
+      targetStage: "topic",
+      targetWorkspace: "topic",
+      targetTab: "topic"
     });
   });
 

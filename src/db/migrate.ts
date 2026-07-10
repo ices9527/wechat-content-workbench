@@ -242,6 +242,9 @@ const statements = [
     output_artifact_type TEXT,
     output_artifact_id TEXT,
     error_message TEXT,
+    invalidated_by_stage TEXT,
+    invalidation_reason TEXT,
+    invalidated_at TEXT,
     started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -436,7 +439,10 @@ const columnMigrations = [
   { table: "article_assets", column: "prompt_snapshot", definition: "TEXT" },
   { table: "article_assets", column: "provider", definition: "TEXT" },
   { table: "article_assets", column: "error_message", definition: "TEXT" },
-  { table: "article_assets", column: "generated_at", definition: "TEXT" }
+  { table: "article_assets", column: "generated_at", definition: "TEXT" },
+  { table: "stage_runs", column: "invalidated_by_stage", definition: "TEXT" },
+  { table: "stage_runs", column: "invalidation_reason", definition: "TEXT" },
+  { table: "stage_runs", column: "invalidated_at", definition: "TEXT" }
 ] as const;
 
 const postColumnStatements = [

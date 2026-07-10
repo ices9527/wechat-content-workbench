@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { aiInvocations } from "@/db/schema";
+import { aiInvocations, stageContracts } from "@/db/schema";
 import { createTestDatabase } from "@/test/test-db";
 
 import { createArticleWithDraft } from "./articles-test-utils";
@@ -12,10 +12,12 @@ describe("article quality gate rework service", () => {
     const { db } = createTestDatabase();
     const { article, draft } = await createArticleWithDraft(db);
 
-    db.update(aiInvocations)
+    const draftContract = db.select().from(stageContracts).where(eq(stageContracts.stage, "draft")).get();
+    const contractPayload = JSON.parse(draftContract?.contractJson || "{}");
+    db.update(stageContracts)
       .set({
-        response: JSON.stringify({
-          markdown: draft.markdown,
+        contractJson: JSON.stringify({
+          ...contractPayload,
           qualityGate: {
             stage: "draft",
             verdict: "revise",
@@ -39,6 +41,10 @@ describe("article quality gate rework service", () => {
           }
         })
       })
+      .where(eq(stageContracts.id, draftContract?.id || ""))
+      .run();
+    db.update(aiInvocations)
+      .set({ response: JSON.stringify({ markdown: draft.markdown, qualityGate: null }) })
       .where(eq(aiInvocations.id, draft.sourceInvocationId as string))
       .run();
 

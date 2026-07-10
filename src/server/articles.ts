@@ -11,7 +11,10 @@ import {
   type QualityGateReworkItem,
   type QualityGateReworkSource
 } from "@/domain/quality-gate-rework";
-import type { QualityGateStage } from "@/domain/quality-gates";
+import type { QualityGateResult, QualityGateStage } from "@/domain/quality-gates";
+import { stageContractPayloadSchema } from "@/domain/stage-contracts";
+import { buildWorkflowGuidance, type WorkflowGuidance, type WorkflowAttentionStage } from "@/domain/workflow-guidance";
+import { DOMAIN_STAGES, type DomainStage } from "@/domain/workflow-stages";
 import { getDatabase, type WorkbenchDatabase } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/ensure";
 import { LOCAL_USER_ID } from "@/db/seed";
@@ -69,6 +72,7 @@ import {
   buildDraftStageContract,
   buildFinalStageContract,
   buildOutlineStageContract,
+  buildPendingTopicStageContract,
   buildPublishStageContract,
   buildResearchStageContract,
   buildTopicStageContract
@@ -77,6 +81,8 @@ import { buildStageContext, type CompiledStageContext } from "./stage-context";
 import {
   completeStageRun,
   failStageRun,
+  getStageContractForRun,
+  listLatestStageRuns,
   markDownstreamStageRunsStale,
   startStageRun,
   type StageInputReference
@@ -901,8 +907,35 @@ export function listQualityGateReworkItems(articleId: string, db: WorkbenchDatab
   const latestDraftAIStyleCheck = latestDraft
     ? aiStyleChecksForArticle.find((check) => check.draftVersionId === latestDraft.id && check.sourceType === "draft_version") || null
     : null;
+  const currentRuns = new Map(listLatestStageRuns(article.id, db).map((run) => [run.stage, run]));
+  const contractBackedStages = new Set<"topic" | "outline" | "draft">();
 
-  if (latestTopicDiagnosis) {
+  for (const config of [
+    { stage: "topic" as const, label: "选题诊断" },
+    { stage: "outline" as const, label: selectedOutline ? `主线提纲 v${selectedOutline.versionNo}` : "主线提纲" },
+    {
+      stage: "draft" as const,
+      label: latestDraft ? `Markdown 文案 v${latestDraft.versionNo}` : "Markdown 文案"
+    }
+  ]) {
+    const run = currentRuns.get(config.stage);
+    if (!run || ["stale", "failed", "pending", "running", "needs_input"].includes(run.status)) {
+      continue;
+    }
+    const contract = getStageContractForRun(article.id, run.id, db);
+    if (!contract) {
+      continue;
+    }
+    contractBackedStages.add(config.stage);
+    const parsed = stageContractPayloadSchema.safeParse(JSON.parse(contract.contractJson));
+    sources.push({
+      id: `stage-contract:${contract.id}`,
+      label: config.label,
+      result: parsed.success ? (parsed.data.qualityGate as QualityGateResult | null) : null
+    });
+  }
+
+  if (latestTopicDiagnosis && !contractBackedStages.has("topic")) {
     sources.push(
       qualityGateSourceFromInvocation(
         {
@@ -915,7 +948,7 @@ export function listQualityGateReworkItems(articleId: string, db: WorkbenchDatab
       )
     );
   }
-  if (selectedOutline) {
+  if (selectedOutline && !contractBackedStages.has("outline")) {
     sources.push(
       qualityGateSourceFromInvocation(
         {
@@ -928,7 +961,7 @@ export function listQualityGateReworkItems(articleId: string, db: WorkbenchDatab
       )
     );
   }
-  if (latestDraft) {
+  if (latestDraft && !contractBackedStages.has("draft")) {
     sources.push(
       qualityGateSourceFromInvocation(
         {
@@ -941,7 +974,7 @@ export function listQualityGateReworkItems(articleId: string, db: WorkbenchDatab
       )
     );
   }
-  if (latestDraftAIStyleCheck) {
+  if (latestDraftAIStyleCheck && !contractBackedStages.has("draft")) {
     sources.push(
       qualityGateSourceFromInvocation(
         {
@@ -956,6 +989,38 @@ export function listQualityGateReworkItems(articleId: string, db: WorkbenchDatab
   }
 
   return buildQualityGateReworkItems(sources);
+}
+
+export function getArticleWorkflowGuidance(
+  articleId: string,
+  db: WorkbenchDatabase = getDatabase().db
+): WorkflowGuidance {
+  requireArticle(articleId, db);
+  const attentionStages = listLatestStageRuns(articleId, db).flatMap((run): WorkflowAttentionStage[] => {
+    if (!DOMAIN_STAGES.includes(run.stage as DomainStage) || !["needs_input", "revise", "stale"].includes(run.status)) {
+      return [];
+    }
+    const contract = getStageContractForRun(articleId, run.id, db);
+    let contractDecision: string | null = null;
+    if (contract) {
+      const parsed = stageContractPayloadSchema.safeParse(JSON.parse(contract.contractJson));
+      contractDecision = parsed.success ? parsed.data.decision : null;
+    }
+    return [
+      {
+        stage: run.stage as DomainStage,
+        status: run.status as WorkflowAttentionStage["status"],
+        reason: run.invalidationReason || contractDecision,
+        invalidatedByStage: DOMAIN_STAGES.includes(run.invalidatedByStage as DomainStage)
+          ? (run.invalidatedByStage as DomainStage)
+          : null
+      }
+    ];
+  });
+  return buildWorkflowGuidance({
+    attentionStages,
+    reworkItems: listQualityGateReworkItems(articleId, db)
+  });
 }
 
 export function listPromptRunArtifacts(
@@ -2698,28 +2763,49 @@ export function updateArticle(
     values.coreProblem !== existing.coreProblem ||
     values.hotAnchor !== existing.hotAnchor;
 
+  let topicVersion: TopicVersion | null = null;
+
   db.transaction(() => {
     db.update(articleProjects).set(values).where(eq(articleProjects.id, id)).run();
     if (topicFieldsChanged) {
-      db.insert(topicVersions)
-        .values(
-          createTopicVersionRecord(
-            {
-              id: existing.id,
-              ownerId: existing.ownerId,
-              topic: values.topic,
-              targetReader: values.targetReader,
-              coreProblem: values.coreProblem,
-              hotAnchor: values.hotAnchor
-            },
-            latestTopicVersionNo(existing.id, db) + 1,
-            "user_edit",
-            values.updatedAt
-          )
-        )
-        .run();
+      topicVersion = createTopicVersionRecord(
+        {
+          id: existing.id,
+          ownerId: existing.ownerId,
+          topic: values.topic,
+          targetReader: values.targetReader,
+          coreProblem: values.coreProblem,
+          hotAnchor: values.hotAnchor
+        },
+        latestTopicVersionNo(existing.id, db) + 1,
+        "user_edit",
+        values.updatedAt
+      );
+      db.insert(topicVersions).values(topicVersion).run();
+      const topicStageRun = startStageRun(
+        {
+          articleId: existing.id,
+          stage: "topic",
+          inputRefs: [{ type: "topic_version", id: topicVersion.id, versionNo: topicVersion.versionNo }]
+        },
+        db
+      );
+      completeStageRun(
+        {
+          articleId: existing.id,
+          runId: topicStageRun.id,
+          status: "needs_input",
+          outputArtifact: { type: "topic_version", id: topicVersion.id },
+          contract: buildPendingTopicStageContract(values),
+          createdBy: "user"
+        },
+        db
+      );
     }
   });
+  if (topicFieldsChanged) {
+    markDownstreamStageRunsStale(existing.id, "topic", db, "主题、目标读者或核心问题已修改。");
+  }
   return db.select().from(articleProjects).where(eq(articleProjects.id, id)).get() ?? null;
 }
 

@@ -84,6 +84,26 @@ describe("stage context compiler", () => {
     expect(context.missingRequiredStages).toEqual(["research", "outline"]);
   });
 
+  it("does not compile pending, running, or needs-input contracts as usable upstream context", () => {
+    const { db } = createTestDatabase();
+    const article = createArticle({ topic: "尚未确认的上游" }, db);
+    const topicRun = startStageRun({ articleId: article.id, stage: "topic" }, db);
+    completeStageRun(
+      {
+        articleId: article.id,
+        runId: topicRun.id,
+        status: "needs_input",
+        contract: { stage: "topic", decision: "主题已修改，等待重新诊断。" }
+      },
+      db
+    );
+
+    const context = buildStageContext(article.id, "angle", db);
+
+    expect(context.contracts).toEqual([]);
+    expect(context.missingRequiredStages).toEqual(["topic"]);
+  });
+
   it("never reads contracts from another article", () => {
     const { db } = createTestDatabase();
     const first = createArticle({ topic: "第一篇" }, db);

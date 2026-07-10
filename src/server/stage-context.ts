@@ -42,7 +42,7 @@ export type CompiledStageContext = {
 
 function compileContract(articleId: string, stage: DomainStage, db: WorkbenchDatabase): CompiledStageContract | null {
   const run = getLatestStageRun(articleId, stage, db);
-  if (!run || run.status === "stale" || run.status === "failed") {
+  if (!run || !["revise", "approved", "completed"].includes(run.status)) {
     return null;
   }
   const record = getStageContractForRun(articleId, run.id, db);

@@ -39,6 +39,9 @@ describe("database migrations", () => {
         "source_invocation_id",
         "output_artifact_type",
         "output_artifact_id",
+        "invalidated_by_stage",
+        "invalidation_reason",
+        "invalidated_at",
         "started_at",
         "completed_at"
       ])

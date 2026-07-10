@@ -41,6 +41,27 @@ export function buildTopicStageContract(
   };
 }
 
+export function buildPendingTopicStageContract(
+  article: Pick<ArticleProject, "topic" | "targetReader" | "coreProblem" | "hotAnchor">
+): StageContractPayload {
+  return {
+    stage: "topic",
+    decision: `主题已修改为“${article.topic}”，等待重新运行选题诊断。`,
+    readerPromise: article.coreProblem || null,
+    constraints: compact([
+      article.targetReader ? `目标读者：${article.targetReader}` : null,
+      article.hotAnchor ? `热点锚点：${article.hotAnchor}` : null
+    ]),
+    risks: ["上一版选题诊断与当前主题已不一致。"],
+    mustCarryForward: compact([article.topic, article.targetReader, article.coreProblem]),
+    doNotDo: ["未重新运行选题诊断前，不得继续生成下游内容。"],
+    openQuestions: ["当前主题是否通过选题质量门？"],
+    evidenceNeeds: [],
+    downstreamHints: {},
+    qualityGate: null
+  };
+}
+
 export function buildAngleStageContract(angle: AngleCandidate): StageContractPayload {
   return {
     stage: "angle",

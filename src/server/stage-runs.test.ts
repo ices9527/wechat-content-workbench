@@ -130,13 +130,18 @@ describe("stage run service", () => {
       db
     );
 
-    const staleIds = markDownstreamStageRunsStale(article.id, "angle", db);
+    const staleIds = markDownstreamStageRunsStale(article.id, "angle", db, "用户重新选择了角度。");
     const storedRuns = db.select().from(stageRuns).all();
 
     expect(staleIds).toEqual(expect.arrayContaining([currentOutline.id, draft.id]));
     expect(storedRuns.find((run) => run.id === oldOutline.id)?.status).toBe("approved");
     expect(storedRuns.find((run) => run.id === currentOutline.id)?.status).toBe("stale");
     expect(storedRuns.find((run) => run.id === draft.id)?.status).toBe("stale");
+    expect(storedRuns.find((run) => run.id === currentOutline.id)).toMatchObject({
+      invalidatedByStage: "angle",
+      invalidationReason: "用户重新选择了角度。",
+      invalidatedAt: expect.any(String)
+    });
     expect(db.select().from(stageContracts).all()).toHaveLength(3);
   });
 });

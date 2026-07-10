@@ -84,6 +84,9 @@ export function startStageRun(
     outputArtifactType: null,
     outputArtifactId: null,
     errorMessage: null,
+    invalidatedByStage: null,
+    invalidationReason: null,
+    invalidatedAt: null,
     startedAt: new Date().toISOString(),
     completedAt: null,
     createdAt: new Date().toISOString(),
@@ -184,6 +187,25 @@ export function getLatestStageRun(
   );
 }
 
+export function listLatestStageRuns(articleId: string, db: WorkbenchDatabase = getDatabase().db): StageRun[] {
+  requireArticle(articleId, db);
+  const latestByStage = new Map<string, StageRun>();
+  for (const run of db
+    .select()
+    .from(stageRuns)
+    .where(eq(stageRuns.articleId, articleId))
+    .orderBy(desc(stageRuns.versionNo))
+    .all()) {
+    if (!latestByStage.has(run.stage)) {
+      latestByStage.set(run.stage, run);
+    }
+  }
+  return DOMAIN_STAGES.flatMap((stage) => {
+    const run = latestByStage.get(stage);
+    return run ? [run] : [];
+  });
+}
+
 export function getLatestStageContract(
   articleId: string,
   stage: DomainStage,
@@ -216,7 +238,8 @@ export function getStageContractForRun(
 export function markDownstreamStageRunsStale(
   articleId: string,
   changedStage: DomainStage,
-  db: WorkbenchDatabase = getDatabase().db
+  db: WorkbenchDatabase = getDatabase().db,
+  reason?: string
 ): string[] {
   requireArticle(articleId, db);
   const staleIds: string[] = [];
@@ -229,7 +252,13 @@ export function markDownstreamStageRunsStale(
         continue;
       }
       db.update(stageRuns)
-        .set({ status: "stale", updatedAt: now })
+        .set({
+          status: "stale",
+          invalidatedByStage: changedStage,
+          invalidationReason: reason || `${changedStage} 阶段已生成新版本。`,
+          invalidatedAt: now,
+          updatedAt: now
+        })
         .where(eq(stageRuns.id, current.id))
         .run();
       staleIds.push(current.id);
