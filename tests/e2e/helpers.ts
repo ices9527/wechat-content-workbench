@@ -14,3 +14,11 @@ export async function expectPromptDialogScrollable(dialog: Locator) {
     .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
     .toBeTruthy();
 }
+
+export async function selectWorkflowTab(page: Page, workspace: string, tabName: RegExp) {
+  await page.getByRole("button", { name: workspace, exact: true }).click();
+  const tab = page.getByRole("tab", { name: tabName });
+  await expect(tab).toBeVisible();
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+}

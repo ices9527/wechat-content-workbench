@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import { getDatabase } from "@/db/client";
 import { articleAssets, illustrationPlans } from "@/db/schema";
-import { expectPromptDialogScrollable } from "./helpers";
+import { expectPromptDialogScrollable, selectWorkflowTab } from "./helpers";
 
 const actionTimeout = 15_000;
 
@@ -343,7 +343,7 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await heavyDraftCard.getByRole("button", { name: "标记最终稿" }).click();
   await expect(page.getByText("已标记最终稿 v2")).toBeVisible({ timeout: actionTimeout });
 
-  await page.getByRole("tab", { name: /^配图规划/ }).click();
+  await selectWorkflowTab(page, "发布与复盘", /^配图规划/);
   const illustrationPanel = page.locator("#workflow-panel-illustration");
   await expect(illustrationPanel.getByText("还没有配图规划")).toBeVisible();
   await illustrationPanel.getByRole("button", { name: "打开配图规划提示词设置" }).click();
@@ -404,7 +404,7 @@ test("runs the Sprint 2 manual angle to draft path", async ({ page }) => {
   await refreshedFirstIllustrationItem.getByText("历史记录（1）").click();
   await expect(refreshedFirstIllustrationItem.getByText("provider broken for e2e")).toBeVisible();
 
-  await page.getByRole("tab", { name: /^人工检查/ }).click();
+  await selectWorkflowTab(page, "成稿", /^人工检查/);
   await heavyDraftCard.getByRole("button", { name: "查看检查详情" }).click();
   const heavyDetailDialog = page.getByRole("dialog", { name: "文案清洁检查详情" });
   await heavyDetailDialog.getByRole("button", { name: "生成清洁版文案" }).click();

@@ -10,7 +10,10 @@ export function WorkflowGuidanceCard({ guidance, onJump }: { guidance: WorkflowG
   const targetLabel = getWorkflowStage(guidance.targetStage).label;
 
   return (
-    <section className={guidance.blocking ? "workflow-guidance-card blocking" : "workflow-guidance-card"}>
+    <section
+      aria-label="工作流处理建议"
+      className={guidance.blocking ? "workflow-guidance-card blocking" : "workflow-guidance-card"}
+    >
       <div className="workflow-guidance-copy">
         <CircleAlert aria-hidden="true" size={19} strokeWidth={1.9} />
         <div>

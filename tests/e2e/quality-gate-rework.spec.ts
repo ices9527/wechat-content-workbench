@@ -214,6 +214,13 @@ test("shows quality gate upstream rework prompts and jumps back to the target ta
   await page.goto(`/articles/${article.id}?tab=draft`);
 
   await expect(page.getByRole("tab", { name: /^Markdown 文案/ })).toHaveAttribute("aria-selected", "true");
+  const guidanceCard = page.getByRole("region", { name: "工作流处理建议" });
+  await expect(guidanceCard).toBeVisible({ timeout: actionTimeout });
+  await expect(guidanceCard.getByText("需先处理：主题")).toBeVisible();
+  await expect(guidanceCard.getByText("文案阶段发现读者为什么现在需要读仍不清楚。")).toBeVisible();
+  await expect(guidanceCard.getByText("回到主题页收敛读者问题，再重新运行选题诊断。")).toBeVisible();
+
+  await page.getByText("全部返工建议（1）").click();
   const reworkCard = page.getByRole("region", { name: "质量门回流建议" });
   await expect(reworkCard).toBeVisible({ timeout: actionTimeout });
   await expect(reworkCard.getByText("需要回到上游处理")).toBeVisible();
@@ -223,7 +230,7 @@ test("shows quality gate upstream rework prompts and jumps back to the target ta
   await expect(reworkCard.getByText("文案阶段发现读者为什么现在需要读仍不清楚。")).toBeVisible();
   await expect(reworkCard.getByText("回到主题页收敛读者问题，再重新运行选题诊断。")).toBeVisible();
 
-  await reworkCard.getByRole("button", { name: "回到主题" }).click();
+  await guidanceCard.getByRole("button", { name: "前往主题" }).click();
 
   await expect(page).toHaveURL(/tab=topic/);
   await expect(page.getByRole("tab", { name: /^主题/ })).toHaveAttribute("aria-selected", "true");

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { expectNoRuntimeErrorOverlay } from "./helpers";
+import { expectNoRuntimeErrorOverlay, selectWorkflowTab } from "./helpers";
 
 test("creates an article and shows it in the Linear workbench", async ({ page }) => {
   await page.goto("/");
@@ -32,7 +32,7 @@ test("shows content research empty state before an angle is selected", async ({ 
   await page.getByRole("button", { name: "新建文章" }).click();
   await page.waitForURL(/\/articles\//);
 
-  await page.getByRole("tab", { name: /^内容研究/ }).click();
+  await selectWorkflowTab(page, "构建", /^内容研究/);
   await expect(page.getByText("请先选择角度，再生成内容研究资料包。")).toBeVisible();
   await expect(page.getByRole("button", { name: "生成内容研究资料包" })).toHaveCount(0);
   await expectNoRuntimeErrorOverlay(page);
